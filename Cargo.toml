@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/vigil-core",
+    "crates/vigil-tui",
+    "crates/vigil-cli",
+    "crates/vigil-adapter-claude",
+    "crates/vigil-adapter-codex",
+    "crates/vigil-adapter-pi",
+    "crates/vigil-adapter-opencode",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["ezeugo"]
+repository = "https://github.com/ezeugo-amigo/vigil"

@@ -1,0 +1,8 @@
+[package]
+name = "vigil-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Terminal UI for Vigil (ratatui + crossterm)."

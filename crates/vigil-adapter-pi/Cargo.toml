@@ -1,0 +1,8 @@
+[package]
+name = "vigil-adapter-pi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Pi adapter for Vigil."

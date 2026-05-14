@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vigil — architecture</title>
+<style>
+  :root {
+    --bg:        #0e0d0b;
+    --surface:   #16140f;
+    --surface-2: #1d1a14;
+    --border:    #2a2620;
+    --text:      #e8e1d2;
+    --muted:     #8b8270;
+    --dim:       #5a5346;
+    --accent:    #d4a373;   /* candle */
+    --accent-2:  #c46b4a;   /* ember */
+    --good:      #8fbf73;
+    --warn:      #e0b870;
+    --alert:     #d97757;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Hoefler Text", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 96px 32px 160px; }
+
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 48px;
+    margin-bottom: 48px;
+  }
+  .name {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.32em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin: 0 0 28px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 52px;
+    line-height: 1.1;
+    margin: 0 0 18px;
+    letter-spacing: -0.01em;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .tagline {
+    color: var(--muted);
+    font-size: 19px;
+    margin: 0;
+    max-width: 56ch;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.28em;
+    color: var(--accent);
+    margin: 72px 0 20px;
+    font-weight: 600;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    margin: 36px 0 12px;
+    color: var(--text);
+  }
+  p { margin: 0 0 16px; }
+  p.lede { font-size: 19px; color: var(--text); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border); }
+  a:hover { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+  strong { color: var(--text); font-weight: 600; }
+  em { color: var(--muted); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--accent);
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 22px;
+    overflow-x: auto;
+    color: var(--text);
+    margin: 16px 0 24px;
+  }
+  pre code { background: transparent; border: 0; padding: 0; color: inherit; font-size: inherit; }
+  .k { color: var(--accent); }       /* keyword */
+  .t { color: var(--warn); }         /* type */
+  .s { color: var(--good); }         /* string */
+  .c { color: var(--dim); font-style: italic; } /* comment */
+  .p { color: var(--muted); }        /* punctuation/dim */
+
+  ul { padding-left: 20px; margin: 0 0 20px; }
+  ul li { margin: 6px 0; }
+  ul li::marker { color: var(--dim); }
+
+  table.matrix {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 28px;
+    font-size: 14px;
+  }
+  table.matrix th, table.matrix td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.matrix th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  table.matrix td code { font-size: 12.5px; }
+
+  .diagram {
+    margin: 24px -8px 28px;
+    padding: 28px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+  .mockup {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 18px 22px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    margin: 16px 0 28px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .mockup .label  { color: var(--muted); }
+  .mockup .dot-r  { color: var(--alert); }
+  .mockup .dot-y  { color: var(--warn); }
+  .mockup .dot-g  { color: var(--good); }
+  .mockup .dot-d  { color: var(--dim); }
+  .mockup .accent { color: var(--accent); }
+  .mockup .bar-u  { color: var(--accent); }
+  .mockup .bar-a  { color: var(--good); }
+  .mockup .input  { color: var(--accent); }
+  .mockup .cost   { color: var(--warn); }
+
+  .pillrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 24px; }
+  .pill {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    background: var(--surface);
+  }
+  .pill b { color: var(--accent); font-weight: 600; }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 64px 0;
+  }
+
+  .footnote {
+    color: var(--dim);
+    font-size: 13px;
+    font-family: var(--mono);
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    margin-top: 64px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="name">Vigil</p>
+  <h1>One quiet watcher<br/>for every <em>coding agent</em>.</h1>
+  <p class="tagline">A native terminal dashboard that watches your Claude Code, Codex, Pi, OpenCode (and the next one) sessions in parallel — and tells you which one needs you right now.</p>
+</header>
+
+<h2>The premise</h2>
+<p class="lede">Agents wait on you more than you wait on them. The bottleneck is no longer model speed — it's <strong>human attention routing</strong>. When five sessions are running, four are idle and one is blocked on a permission prompt you can't see, you lose minutes per context switch and hours per day.</p>
+<p>Vigil makes the fleet legible. It reads every running agent's session log, classifies what state each is in, and surfaces only the ones that need a human. You attend, you dismiss, you move on.</p>
+
+<h2>Design principles</h2>
+<ul>
+  <li><strong>The session log is the agent's, not ours.</strong> Vigil never writes to session files — it only reads them. When you send a message inline, Vigil pipes input into the agent's own stdin; the agent is what records the resulting line into its log. Vigil observes; the agent owns.</li>
+  <li><strong>Agent-agnostic core.</strong> The UI never knows what kind of agent it is rendering. Adapters translate. The core (and therefore the TUI) is written exactly once.</li>
+  <li><strong>State-driven UI.</strong> Every screen is a pure function of an <code>AppState</code> — no I/O, no globals, no hidden state. Rendering can be invoked outside the app loop, which makes the whole UI testable in isolation. Behavior lives in event handling; pixels live in render. The two are separate concerns by construction.</li>
+  <li><strong>Local first.</strong> Everything lives on disk. No daemon, no server, no auth. v1 is one binary.</li>
+  <li><strong>Uncertainty is first-class.</strong> Vigil itself doesn't know what state a session is in — the adapter does, and adapters can return <code>Unknown</code> when their heuristics aren't confident. The UI surfaces that explicitly. No confidently-wrong guesses.</li>
+</ul>
+
+<h2>Architecture</h2>
+<div class="diagram">
+<svg viewBox="0 0 760 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Vigil architecture diagram">
+  <defs>
+    <style>
+      .box  { fill: #1d1a14; stroke: #d4a373; stroke-width: 1.2; }
+      .box2 { fill: #16140f; stroke: #2a2620; stroke-width: 1; }
+      .lbl  { font: 600 12px ui-monospace, 'SF Mono', Menlo, monospace; fill: #e8e1d2; }
+      .sub  { font: 400 10.5px ui-monospace, 'SF Mono', Menlo, monospace; fill: #8b8270; }
+      .grp  { font: 600 10px ui-monospace, 'SF Mono', Menlo, monospace; fill: #d4a373; letter-spacing: 0.18em; }
+      .arr  { stroke: #8b8270; stroke-width: 1; fill: none; }
+      .arr2 { stroke: #d4a373; stroke-width: 1.2; fill: none; }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8b8270"/>
+    </marker>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d4a373"/>
+    </marker>
+  </defs>
+
+  <text x="30" y="28" class="grp">SOURCES</text>
+  <rect class="box2" x="30" y="40" width="170" height="46" rx="3"/>
+  <text x="42" y="60" class="lbl">~/.claude/projects/*</text>
+  <text x="42" y="76" class="sub">JSONL session logs</text>
+
+  <rect class="box2" x="30" y="100" width="170" height="46" rx="3"/>
+  <text x="42" y="120" class="lbl">~/.codex/sessions/*</text>
+  <text x="42" y="136" class="sub">history.jsonl + meta</text>
+
+  <rect class="box2" x="30" y="160" width="170" height="46" rx="3"/>
+  <text x="42" y="180" class="lbl">~/.opencode/*</text>
+  <text x="42" y="196" class="sub">project state</text>
+
+  <rect class="box2" x="30" y="220" width="170" height="46" rx="3"/>
+  <text x="42" y="240" class="lbl">~/.pi/agent/sessions/*</text>
+  <text x="42" y="256" class="sub">JSONL session logs</text>
+
+  <text x="260" y="28" class="grp">ADAPTERS</text>
+  <rect class="box" x="260" y="40" width="180" height="226" rx="3"/>
+  <text x="272" y="62" class="lbl">AgentAdapter (trait)</text>
+  <text x="272" y="84" class="sub">discover_sessions()</text>
+  <text x="272" y="102" class="sub">watch(tx) → events</text>
+  <text x="272" y="120" class="sub">read(id) → Session</text>
+  <text x="272" y="138" class="sub">classify(log) → State</text>
+  <text x="272" y="156" class="sub">attach_cmd(id)</text>
+  <line class="arr" x1="200" y1="63" x2="259" y2="63" marker-end="url(#ah)"/>
+  <line class="arr" x1="200" y1="123" x2="259" y2="123" marker-end="url(#ah)"/>
+  <line class="arr" x1="200" y1="183" x2="259" y2="183" marker-end="url(#ah)"/>
+  <line class="arr" x1="200" y1="243" x2="259" y2="243" marker-end="url(#ah)"/>
+
+  <text x="272" y="190" class="sub" style="fill:#5a5346">claude-code  ─┐</text>
+  <text x="272" y="206" class="sub" style="fill:#5a5346">codex        ─┤  impls</text>
+  <text x="272" y="222" class="sub" style="fill:#5a5346">pi           ─┤</text>
+  <text x="272" y="238" class="sub" style="fill:#5a5346">opencode     ─┘</text>
+
+  <text x="500" y="28" class="grp">CORE</text>
+  <rect class="box" x="500" y="40" width="160" height="100" rx="3"/>
+  <text x="512" y="62" class="lbl">SessionRegistry</text>
+  <text x="512" y="82" class="sub">in-memory store</text>
+  <text x="512" y="98" class="sub">id → Session</text>
+  <text x="512" y="116" class="sub">debounced updates</text>
+  <text x="512" y="132" class="sub">tokio broadcast</text>
+
+  <rect class="box" x="500" y="160" width="160" height="106" rx="3"/>
+  <text x="512" y="182" class="lbl">Classifier</text>
+  <text x="512" y="202" class="sub">per-adapter rules</text>
+  <text x="512" y="218" class="sub">→ Idle / Running</text>
+  <text x="512" y="234" class="sub">→ Awaiting / Done</text>
+  <text x="512" y="250" class="sub">→ Error / Unknown</text>
+
+  <line class="arr2" x1="440" y1="100" x2="499" y2="80" marker-end="url(#ah2)"/>
+  <line class="arr2" x1="440" y1="160" x2="499" y2="200" marker-end="url(#ah2)"/>
+
+  <text x="500" y="296" class="grp">UI</text>
+  <rect class="box" x="500" y="308" width="230" height="56" rx="3"/>
+  <text x="512" y="328" class="lbl">ratatui + crossterm</text>
+  <text x="512" y="346" class="sub">redraw on event, no busy loop</text>
+
+  <line class="arr2" x1="580" y1="266" x2="580" y2="307" marker-end="url(#ah2)"/>
+</svg>
+</div>
+
+<p>Three layers, one rule of flow: <strong>sources → adapters → core → UI</strong>. Every concrete agent lives in its own adapter crate; adding a new one is a trait impl plus a Cargo line.</p>
+
+<h2>The AgentAdapter trait</h2>
+<p>This is the single seam between Vigil and the world. Each backend implements it.</p>
+<pre><code><span class="k">pub trait</span> <span class="t">AgentAdapter</span><span class="p">:</span> <span class="t">Send</span> + <span class="t">Sync</span> <span class="p">{</span>
+    <span class="k">fn</span> kind(&amp;<span class="k">self</span>) -&gt; <span class="t">AgentKind</span><span class="p">;</span>
+    <span class="k">fn</span> roots(&amp;<span class="k">self</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">PathBuf</span>&gt;<span class="p">;</span>      <span class="c">// dirs to scan + watch</span>
+
+    <span class="k">async fn</span> discover(&amp;<span class="k">self</span>) -&gt; <span class="t">Result</span>&lt;<span class="t">Vec</span>&lt;<span class="t">SessionId</span>&gt;&gt;<span class="p">;</span>
+    <span class="k">async fn</span> read(&amp;<span class="k">self</span>, id<span class="p">:</span> &amp;<span class="t">SessionId</span>) -&gt; <span class="t">Result</span>&lt;<span class="t">Session</span>&gt;<span class="p">;</span>
+
+    <span class="c">// Pure: given the latest log + filesystem signals, what state is this in?</span>
+    <span class="k">fn</span> classify(&amp;<span class="k">self</span>, log<span class="p">:</span> &amp;<span class="t">SessionLog</span>, fs<span class="p">:</span> &amp;<span class="t">FsSignals</span>) -&gt; <span class="t">SessionState</span><span class="p">;</span>
+
+    <span class="c">// How to drop the user back into this session.</span>
+    <span class="k">fn</span> attach_command(&amp;<span class="k">self</span>, id<span class="p">:</span> &amp;<span class="t">SessionId</span>) -&gt; <span class="t">Command</span><span class="p">;</span>
+<span class="p">}</span></code></pre>
+<p>Notice <code>classify</code> is pure. Watching the filesystem and shuttling events is <code>vigil-core</code>'s job; deciding what an agent's quiescence <em>means</em> is the adapter's. Each agent encodes its own truth.</p>
+
+<h2>The state model</h2>
+<p>One enum, ruthlessly small. If two states would behave identically in the UI, they're one state.</p>
+<table class="matrix">
+  <thead><tr><th>State</th><th>Means</th><th>Heuristic (Claude Code)</th></tr></thead>
+  <tbody>
+    <tr><td><code>Running</code></td><td>Model or tool actively producing output.</td><td>JSONL written within last ~3s, no terminal user-turn yet.</td></tr>
+    <tr><td><code>AwaitingInput</code></td><td>Blocked on a human (permission prompt, question, tool approval).</td><td>Last entry is an unanswered <code>tool_use</code> needing approval, or assistant text ending on a question, no writes &gt;5s.</td></tr>
+    <tr><td><code>Idle</code></td><td>Quiet, no obvious ask, but the agent is still alive.</td><td>No writes &gt;30s, last entry is assistant text without a question pattern, and a live <code>claude</code> process still has the session file open.</td></tr>
+    <tr><td><code>Done</code></td><td>The agent has detached from this session.</td><td>No <code>claude</code> process holds the session file (checked via <code>lsof</code>-style probe), or the session file's last line is a known terminator.</td></tr>
+    <tr><td><code>Error</code></td><td>Crash / unrecoverable adapter parse failure.</td><td>Tool error block in last turn, or adapter raised.</td></tr>
+    <tr><td><code>Unknown</code></td><td>The adapter can't tell. Show as-is; don't guess.</td><td>Default when no rule fires confidently.</td></tr>
+  </tbody>
+</table>
+<p><strong>The Idle / Done line is the hardest call in this model</strong>, and it's per-adapter. From a log file alone, "quiet for 30 seconds" and "agent has exited and will never write again" can look identical — every adapter has to find its own signal. The two real options:</p>
+<ul>
+  <li><strong>Process liveness.</strong> Ask the OS whether any agent process still has the session file open. Reliable on macOS/Linux for agents that hold the file (Claude Code, Codex). Cheap — a single <code>lsof</code>-equivalent syscall per session per check.</li>
+  <li><strong>Terminator entry.</strong> Some agents write a sentinel line to the JSONL on clean exit. When it's there, it's authoritative. When it isn't (crash, kill -9), fall back to liveness.</li>
+</ul>
+<p>If neither works for a given adapter, the adapter collapses to a single "quiet" state and never reports <code>Done</code> automatically — the user can mark it done explicitly. The point isn't to be clever; it's to never lie. <code>Unknown</code> exists for exactly this case.</p>
+
+<h2>Event flow</h2>
+<pre><code><span class="c">// the whole runtime, in spirit</span>
+<span class="k">let</span> (tx, rx) = broadcast<span class="p">::</span>channel(<span class="s">1024</span>)<span class="p">;</span>
+
+<span class="k">for</span> adapter <span class="k">in</span> adapters <span class="p">{</span>
+    spawn(<span class="k">async move</span> <span class="p">{</span>
+        adapter.watch(tx.clone()).await<span class="p">;</span>   <span class="c">// notify(2) → SessionEvent</span>
+    <span class="p">}</span>)<span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">loop</span> <span class="p">{</span>
+    select! <span class="p">{</span>
+        evt = rx.recv()    =&gt; registry.apply(evt)<span class="p">,</span>      <span class="c">// dedupe + debounce</span>
+        key = keys.recv()  =&gt; ui.handle(key, &amp;registry)<span class="p">,</span>
+        _   = redraw_tick  =&gt; ui.render(&amp;registry)<span class="p">,</span>
+    <span class="p">}</span>
+<span class="p">}</span></code></pre>
+<p>Three primitives doing the work. <code>broadcast::channel(1024)</code> opens a fan-out queue: <code>tx</code> is the sender (cloneable, every adapter gets one and pushes events into the same stream), <code>rx</code> is the receiver the main loop reads from. <code>spawn(...)</code> hands an async block to the tokio runtime, which schedules it on a worker thread — one task per adapter, all running concurrently without blocking each other. The <code>select!</code> macro inside the loop awaits whichever input becomes ready first (a session event, a keypress, or a redraw tick) and reacts to it.</p>
+<p>The result: no polling. The terminal redraws only when registry or input changes. On an idle fleet, Vigil costs nothing.</p>
+
+<h2>UI as a function of state</h2>
+<p>The UI is intentionally <em>not</em> imperative. The whole TUI layer is one pure function:</p>
+<pre><code><span class="k">fn</span> render(state<span class="p">:</span> &amp;<span class="t">AppState</span>, area<span class="p">:</span> <span class="t">Rect</span>) -&gt; <span class="t">Frame</span><span class="p">;</span></code></pre>
+<p>Given the same <code>AppState</code>, <code>render</code> produces the same screen — every time, no I/O, no globals, no time-of-day branches. The app loop's job is to compute the next <code>AppState</code> from incoming events; the UI's job is to translate that state into characters. Behavior and pixels are entirely separate concerns. The shape is borrowed from Elm and pure-React: state in, frame out.</p>
+<p>This is a hard requirement, not a stylistic preference. The whole reason for it is testing:</p>
+<pre><code><span class="c">// no tokio, no terminal, no event loop</span>
+<span class="k">let</span> state = <span class="t">AppState</span><span class="p">::</span>new(&amp;[
+    fixture<span class="p">::</span>awaiting(<span class="s">"claude-code"</span>, <span class="s">"~/code/api"</span>)<span class="p">,</span>
+    fixture<span class="p">::</span>running(<span class="s">"codex"</span>, <span class="s">"~/code/web"</span>)<span class="p">,</span>
+])<span class="p">;</span>
+<span class="k">let</span> frame = render(&amp;state, <span class="t">Rect</span><span class="p">::</span>new(<span class="s">0</span>, <span class="s">0</span>, <span class="s">100</span>, <span class="s">30</span>))<span class="p">;</span>
+insta<span class="p">::</span>assert_snapshot!(frame_to_text(&amp;frame))<span class="p">;</span></code></pre>
+<p>You construct a fake <code>AppState</code>, call <code>render</code>, and assert against a stored text snapshot. Layout regressions surface as a one-character diff in a checked-in file — the granularity you actually want for a TUI. The full app loop is exercised in a small handful of integration tests; everything else — every individual screen, every filter, every state-transition — runs without ever touching tokio or crossterm.</p>
+<p>Stated as a rule: <strong>if a piece of UI needs the app loop running to test it, the design is wrong.</strong></p>
+
+<h2>The UI, roughly</h2>
+<div class="mockup">┌─ <span class="accent">Vigil</span> ────────────────────────────── 7 sessions · 2 awaiting · $2.41 today ─┐
+│ <span class="label">[all]  [awaiting]  [running]  [idle]  [errors]            /  search  ? help</span>  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="dot-r">●</span> claude-code   awaiting  ~/code/api      1m   <span class="label">"Allow Bash(rm -rf node…"</span>     │
+│ <span class="dot-r">●</span> codex         awaiting  ~/code/web      12s  <span class="label">"Proceed with migration?"</span>     │
+│ <span class="dot-y">◐</span> claude-code   running   ~/code/docs     4s   <span class="label">writing src/index.ts…</span>         │
+│ <span class="dot-y">◐</span> opencode      running   ~/scratch/cli   9s   <span class="label">running tests…</span>                │
+│ <span class="dot-g">○</span> claude-code   idle      ~/code/infra    8m   <span class="label">last: plan accepted</span>           │
+│ <span class="dot-d">·</span> codex         done      ~/notes         2h   <span class="label">refactor complete</span>             │
+│ <span class="dot-d">·</span> claude-code   done      ~/dotfiles      1d   <span class="label">edit shell aliases</span>            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="label">preview · claude-code · ~/code/api · 24k tokens · $0.42</span>                      │
+│                                                                              │
+│ <span class="bar-u">▎</span>  <span class="label">user</span>        deploy the new auth middleware to staging                     │
+│                                                                              │
+│ <span class="bar-a">▎</span>  <span class="label">assistant</span>   i'll run the deploy script. it needs sudo — okay to proceed?  │
+│                                                                              │
+│   <span class="dot-r">▸ awaiting your input</span>                                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="input">▸</span> <span class="accent">approve and continue_</span>                                                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="cost">today  $2.41 · 184k tokens · claude $1.86 · codex $0.55</span>                      │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ <span class="label">↵ send  ⇧↵ attach  i message  a awaiting  / search  k kill  ⎋/← back  q quit</span> │
+└──────────────────────────────────────────────────────────────────────────────┘</div>
+<p>The hierarchy is: <em>which need me</em> → <em>what are they doing</em> → <em>everything else</em>. The default filter is <code>awaiting</code>. The default sort is "last activity, newest first." Two ways to act on a session:</p>
+<ul>
+  <li><strong>Send a message inline</strong> (<kbd>i</kbd> to focus the input, type, <kbd>↵</kbd> to deliver). Vigil writes to the selected agent's stdin via the adapter — no context switch, no attach. Good for short responses: "yes", "approve", "use port 8080 instead".</li>
+  <li><strong>Attach</strong> (<kbd>⇧↵</kbd>) when you need the full CLI — long edits, scrollback, deeper context. Vigil execs the agent's own resume command and you're back in your usual environment.</li>
+</ul>
+<p>A footer row aggregates spend across every adapter that reports it — so the cost of having five agents at work is always one glance away.</p>
+<p>Navigation is modal but cheap: <kbd>↵</kbd> drills into the selected session's preview, <kbd>⎋</kbd> or <kbd>←</kbd> always backs out one level (input → preview → list), and <kbd>q</kbd> quits from anywhere. There is never more than one keypress between you and the main view.</p>
+
+<h2>Crate layout</h2>
+<pre><code>vigil/
+├── Cargo.toml                <span class="c"># workspace</span>
+├── crates/
+│   ├── vigil-core/           <span class="c"># types, traits, registry, classifier helpers</span>
+│   ├── vigil-tui/            <span class="c"># ratatui screens, widgets, key bindings</span>
+│   ├── vigil-cli/            <span class="c"># thin main, arg parsing, wiring</span>
+│   ├── vigil-adapter-claude/   <span class="c"># Claude Code adapter</span>
+│   ├── vigil-adapter-codex/    <span class="c"># OpenAI Codex CLI adapter</span>
+│   ├── vigil-adapter-pi/       <span class="c"># Pi adapter</span>
+│   └── vigil-adapter-opencode/
+└── docs/
+    └── architecture.html     <span class="c"># this document</span></code></pre>
+<p>The CLI binary depends on every adapter at compile time. Feature flags let you build a leaner binary if you only use one agent.</p>
+
+<h2>Tech stack</h2>
+<div class="pillrow">
+  <span class="pill"><b>ratatui</b> &nbsp;TUI</span>
+  <span class="pill"><b>crossterm</b> &nbsp;terminal backend</span>
+  <span class="pill"><b>tokio</b> &nbsp;async runtime</span>
+  <span class="pill"><b>notify</b> &nbsp;filesystem events</span>
+  <span class="pill"><b>serde / serde_json</b> &nbsp;JSONL parsing</span>
+  <span class="pill"><b>clap</b> &nbsp;CLI args</span>
+  <span class="pill"><b>directories</b> &nbsp;XDG paths</span>
+  <span class="pill"><b>tracing</b> &nbsp;structured logs</span>
+  <span class="pill"><b>color-eyre</b> &nbsp;error reporting</span>
+</div>
+
+<h3>Why crossterm (and not tmux)</h3>
+<p>The terminal-backend slot has four real candidates:</p>
+<ul>
+  <li><strong>crossterm</strong> — pure Rust, cross-platform (macOS, Linux, Windows). Default for almost every ratatui app. What we'll use.</li>
+  <li><strong>termion</strong> — Unix-only, simpler API. Smaller surface, but no Windows. Fine if portability isn't a goal.</li>
+  <li><strong>termwiz</strong> — from the wezterm project. Richer features (true-color, sixel/image, more capability detection), heavier, less common.</li>
+  <li><strong>pancurses</strong> — bindings to ncurses via FFI. Mature but pulls in a C dependency. Out of style for new Rust TUIs.</li>
+</ul>
+<p>Tmux is a different layer of the stack — a terminal multiplexer that hosts panes and sessions inside one window. You could build a "vigil-as-tmux" using a shell script that opens one pane per agent and lets you cycle between them with the prefix key. It's a valid 50-line tool and it solves <em>some</em> of the problem.</p>
+<p>What it doesn't do is the actual hard work: <strong>classifying state</strong>. Tmux gives you N panes and asks you to check each one yourself — which is exactly the manual attention-routing Vigil exists to replace. Tmux is a viewer; Vigil is a router. They're complementary (Vigil could even attach into a tmux pane), but neither substitutes for the other.</p>
+
+<h2>Validation prototype</h2>
+<p>The hardest part of Vigil is not the TUI — it's correctly answering <em>"what state is this session in?"</em> from a log file the user can't see being written. Before writing a single ratatui widget, we need to know we can answer that question well enough on real data. <strong>Three adapters at minimum — Claude Code, Codex, and Pi</strong> — so the trait shape is forced to generalize past any single agent's quirks before we commit to it.</p>
+
+<h3>The premise</h3>
+<p>State classification has two inputs: <strong>manual action from the user</strong> (typing into the agent, approving a tool, walking away) and <strong>a signal from the agent</strong> (a new line in the JSONL, a file closed, a permission prompt written). The validation question is: when the human does X, does the agent emit a signal Vigil can read, and does Vigil's <code>classify()</code> read it correctly?</p>
+<p>That's a small enough question that we don't need a 30-session corpus to answer it. We need <strong>three sessions per adapter</strong> — one driven into each of the three states the UI actually depends on (<code>Running</code>, <code>AwaitingInput</code>, <code>Idle</code>) — and a test harness that captures the log at that moment and asks the classifier what it sees.</p>
+
+<h3>Approach</h3>
+<ol>
+  <li><strong>Drive three sessions per adapter.</strong> For each of claude-code, codex, and pi: manually start a session and walk it into each target state. Ask it to run a tool (<code>Running</code>); ask it to do something that requires permission (<code>AwaitingInput</code>); finish a turn and wait 30s (<code>Idle</code>). At each target state, snapshot the session file. Total: 9 fixtures.</li>
+  <li><strong>Label.</strong> A tiny <code>fixtures/labels.toml</code> maps <code>snapshot → expected SessionState + one-line justification</code>. Anonymize message bodies before committing.</li>
+  <li><strong>Write <code>classify()</code>.</strong> Pure function in each adapter crate. Inputs: parsed tail of the log + filesystem signals (mtime, size delta, file-still-open). No async, no IO, no globals. Trivial to unit-test.</li>
+  <li><strong>Golden test.</strong> One <code>#[test]</code> per adapter: iterate the 3 snapshots, call <code>classify</code>, assert. On failure, print expected vs actual and the relevant log tail. Runs in CI on every commit.</li>
+  <li><strong>Live confirmation.</strong> A small <code>cargo run --bin vigil-probe -- &lt;adapter&gt;</code> mode that tails a real session and prints state transitions as they happen — so you can drive a live session, watch Vigil react, and confirm the classifier behaves under real-time conditions, not just on frozen logs.</li>
+  <li><strong>Grow the fixture set lazily.</strong> Every "Vigil got it wrong" in real use becomes the 10th, 11th, Nth fixture before the fix lands. The corpus grows out of failures, not upfront effort.</li>
+</ol>
+
+<h3>What this lets us decide</h3>
+<ul>
+  <li>Whether the <code>AgentAdapter</code> trait shape (especially <code>classify</code>) is right — three real implementations force it to generalize.</li>
+  <li>Whether the <code>SessionState</code> enum has the right cardinality. We'll find out fast if <code>Idle</code> vs <code>AwaitingInput</code> is too coarse or <code>Done</code> vs <code>Idle</code> too fine.</li>
+  <li>How often <code>Unknown</code> happens in practice — and therefore how prominent the UI should make it.</li>
+  <li>Whether the prototype's confidence is high enough that any UI work is worth doing at all.</li>
+</ul>
+<p>Only after the prototype clears the bar does any registry, notify wiring, or UI code get written.</p>
+
+<h2>Open questions</h2>
+<ul>
+  <li><strong>Classifier evolution.</strong> Beyond the prototype above, heuristics keep evolving from real-world use — every misclassification adds a fixture to the corpus.</li>
+  <li><strong>Attach semantics.</strong> Each agent has different resume ergonomics. Claude Code supports <code>--resume &lt;id&gt;</code>; others may require launching a fresh shell in the right CWD. Adapters return a <code>Command</code> so each can do what fits.</li>
+  <li><strong>Remote / multi-host.</strong> Out of scope for v1. The trait would extend cleanly later — adapters could read over SSH instead of from disk.</li>
+  <li><strong>Audio cue.</strong> When any session transitions into <code>AwaitingInput</code>, play a single short tone — the same tone for every agent. The point is "come back and look," not "look <em>at this specific agent</em>"; the screen already says which one. Mute-all with one keypress. System notifications stay opt-in on top of that.</li>
+  <li><strong>Cost telemetry.</strong> Surfaced as a daily aggregate in the status row (see mockup) — total spend and token count, with per-agent breakdown. v0 parses Claude Code's <code>cost_usd</code> field; per-session column lands once Codex's billing equivalent is wired in.</li>
+</ul>
+
+<h2>What I'm building first</h2>
+<ol>
+  <li>The Claude Code adapter + classifier, validated against a corpus of real local sessions.</li>
+  <li>A minimal ratatui shell that renders the registry as a flat list with the filter row.</li>
+  <li>Attach to a session via <code>⇧↵</code>.</li>
+  <li>Codex adapter (second proof the trait is right).</li>
+  <li>Pi adapter (third proof — and the one whose log shape is least documented, which makes it the most useful pressure test).</li>
+  <li>OpenCode adapter.</li>
+</ol>
+<p>Everything else — preview pane, search, notifications — comes after those five work end-to-end.</p>
+
+<p class="footnote">Vigil · architecture sketch · v0 · 2026-05-13</p>
+
+</div>
+</body>
+</html>
