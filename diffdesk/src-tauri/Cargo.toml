@@ -1,0 +1,24 @@
+[package]
+name = "diffdesk-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "diffdesk_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "diffdesk-app"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow.workspace = true
+diffdesk-core = { path = "../crates/diffdesk-core" }
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+tauri = { version = "2", features = [] }

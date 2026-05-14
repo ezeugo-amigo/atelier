@@ -1,59 +1,53 @@
-# Vigil
+# Atelier
 
-> One quiet watcher for every coding agent.
+> A workshop of small, sharp tools for working with AI coding agents.
 
-Vigil is a native terminal dashboard that watches your Claude Code, Codex,
-OpenCode (and the next agent) sessions in parallel — and tells you which one
-needs you right now.
+Atelier is a collection. Each tool is self-contained — its own README, its own
+dependencies, its own way of being run — but they share a sensibility: keep the
+human in flow, let the agents do the work, surface what needs attention and
+hide what doesn't.
+
+## Tools
+
+- **[vigil/](vigil/)** — a native terminal dashboard that watches your Claude
+  Code, Codex, Pi, and OpenCode sessions in parallel, and routes your attention
+  to the one that needs you right now. See
+  [vigil/docs/architecture.html](vigil/docs/architecture.html) for the design.
+
+- **[diffdesk/](diffdesk/)** — a terminal-launched Tauri desktop diff reviewer
+  with inline comments and AI-ready export. Open a working-tree diff, a commit
+  range, or a patch file in a polished UI; annotate; ship the review as
+  Markdown or JSON.
+
+(More tools as they exist.)
 
 ## Why
 
-Agents wait on you more than you wait on them. The bottleneck is no longer
-model speed — it's **human attention routing**. When five sessions are
-running, four are idle and one is blocked on a permission prompt you can't
-see, you lose minutes per context switch and hours per day.
+Working with multiple agents fragments attention. One session is awaiting a
+permission prompt; another is running quietly; a third finished an hour ago
+and you forgot. The tools in Atelier exist so the right session gets in front
+of you at the right moment, and the work between sessions feels less like
+context-switching and more like flow.
 
-Vigil makes the fleet legible. It reads every running agent's session log,
-classifies what state each is in (running, awaiting input, idle, done), and
-surfaces only the ones that need a human.
+## Repo layout
 
-## Design principles
-
-- **Read-only by default.** Vigil observes agent files; it never writes to
-  them. Attaching to a session shells out to the agent's own CLI.
-- **Agent-agnostic core.** The UI never knows what kind of agent it is
-  rendering. Adapters do the translating.
-- **Local first.** Everything lives on disk. No daemon, no server, no auth.
-  v1 is one binary.
-- **Honest about uncertainty.** State classification is heuristic. When
-  Vigil isn't sure, the UI says so rather than guessing wrong.
-
-## Architecture
-
-See [`docs/architecture.html`](docs/architecture.html) for the full design
-sketch — diagrams, the `AgentAdapter` trait, the state model, the event
-loop, the crate layout, and open questions.
-
-Open it directly in a browser:
-
-```sh
-open docs/architecture.html
+```
+atelier/
+├── README.md          (this file)
+├── LICENSE            (MIT, applies to the whole repo)
+├── vigil/             (one tool)
+│   ├── Cargo.toml     (its own Cargo workspace)
+│   ├── crates/
+│   └── docs/
+└── diffdesk/          (another tool)
+    ├── Cargo.toml     (its own Cargo workspace)
+    ├── src/
+    └── src-tauri/
 ```
 
-## Status
-
-Architecture sketch. No working code yet. The Cargo workspace skeleton is
-in place so `cargo check` runs from day one; each crate is currently a
-stub with a doc comment pointing back to the architecture.
-
-## Roadmap
-
-1. Claude Code adapter + classifier, validated against real session files.
-2. Minimal `ratatui` shell rendering the registry as a flat list.
-3. Attach to a session with `↵`.
-4. Codex adapter (second proof the trait is right).
-5. OpenCode adapter.
+There is no top-level Cargo workspace; each tool builds independently. `cd`
+into the tool you want to work on.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+MIT — see [LICENSE](LICENSE).
