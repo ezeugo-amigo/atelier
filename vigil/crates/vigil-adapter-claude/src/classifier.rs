@@ -72,23 +72,32 @@ fn in_prompt_suggestion_phase(log: &SessionLog) -> bool {
     false
 }
 
-/// True if we're mid-stream: "Stream started" is in the recent tail but the
-/// response hasn't finished yet ("Stopped caffeinate" marks end-of-stream).
+/// True if we're mid-stream: the most recent "Stream started" comes *after*
+/// the most recent end-of-stream marker in the full tail.
+/// Using positions avoids false positives when the prompt_suggestion subagent
+/// writes many lines after "Stopped caffeinate", pushing it out of a fixed window.
 fn mid_stream(log: &SessionLog) -> bool {
-    for line in log.tail.iter().rev().take(20) {
+    let mut last_start: Option<usize> = None;
+    let mut last_end: Option<usize> = None;
+
+    for (i, line) in log.tail.iter().enumerate() {
         let msg = &line.message;
-        // These mark the end of a response turn — stream is done
+        if msg.contains("Stream started") {
+            last_start = Some(i);
+        }
         if msg.contains("Stopped caffeinate, allowing sleep")
             || msg.contains("UserPromptSubmit")
             || msg.contains("Forked agent [prompt_suggestion]")
         {
-            return false;
-        }
-        if msg.contains("Stream started") {
-            return true;
+            last_end = Some(i);
         }
     }
-    false
+
+    match (last_start, last_end) {
+        (Some(s), Some(e)) => s > e, // stream started after the last end marker
+        (Some(_), None) => true,     // stream started, never ended in this tail
+        _ => false,
+    }
 }
 
 /// Pure classifier — no I/O.
@@ -111,8 +120,8 @@ pub fn classify(log: &SessionLog, fs: &FsSignals) -> SessionState {
         return SessionState::Running;
     }
 
-    // 4. Very recent write = still running
-    if secs_idle < 5.0 {
+    // 4. Very recent write = still running (tight window — mid_stream covers the rest)
+    if secs_idle < 2.0 {
         return SessionState::Running;
     }
 
