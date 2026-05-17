@@ -10,3 +10,16 @@ description = "Vigil command-line binary."
 [[bin]]
 name = "vigil"
 path = "src/main.rs"
+
+[[bin]]
+name = "vigil-probe"
+path = "src/bin/probe.rs"
+
+[dependencies]
+vigil-core           = { path = "../vigil-core" }
+vigil-adapter-claude = { path = "../vigil-adapter-claude" }
+tokio                = { workspace = true }
+clap                 = { workspace = true }
+tracing              = { workspace = true }
+tracing-subscriber   = { workspace = true }
+anyhow               = { workspace = true }

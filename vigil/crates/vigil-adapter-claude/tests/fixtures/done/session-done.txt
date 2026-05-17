@@ -1,0 +1,4 @@
+2026-05-17T11:00:00.000Z [DEBUG] Stream started - received first chunk
+2026-05-17T11:00:01.000Z [DEBUG] [ToolUse] Executing Bash tool
+2026-05-17T11:00:02.000Z [DEBUG] autocompact: tokens=5000 threshold=167000 effectiveWindow=180000
+2026-05-17T11:00:03.000Z [DEBUG] Stopped caffeinate, allowing sleep

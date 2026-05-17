@@ -6,3 +6,14 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Claude Code adapter for Vigil."
+
+[dependencies]
+vigil-core  = { path = "../vigil-core" }
+tokio       = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+chrono      = { workspace = true }
+async-trait = { workspace = true }
+thiserror   = { workspace = true }
+directories = { workspace = true }
+tracing     = { workspace = true }

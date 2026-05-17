@@ -1,0 +1,41 @@
+    "behavior": "allow",
+    "destination": "localSettings"
+  }
+]
+2026-05-17T18:15:30.244Z [DEBUG] executePermissionRequestHooks called for tool: Bash
+2026-05-17T18:15:30.245Z [DEBUG] Getting matching hook commands for PermissionRequest with query: Bash
+2026-05-17T18:15:30.245Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:15:30.245Z [DEBUG] Matched 0 unique hooks for query "Bash" (0 before deduplication)
+2026-05-17T18:15:30.246Z [DEBUG] [useDeferredValue] Messages deferred by 1 (14→15)
+2026-05-17T18:15:30.254Z [DEBUG] High write ratio: blit=0, write=2231 (100.0% writes), screen=46x325
+2026-05-17T18:15:30.256Z [DEBUG] Stopped caffeinate, allowing sleep
+2026-05-17T18:15:30.257Z [DEBUG] [useDeferredValue] Messages deferred by 1 (14→15)
+2026-05-17T18:15:42.263Z [DEBUG] Getting matching hook commands for Notification with query: permission_prompt
+2026-05-17T18:15:42.264Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:15:42.264Z [DEBUG] Matched 0 unique hooks for query "permission_prompt" (0 before deduplication)
+2026-05-17T18:16:06.938Z [DEBUG] Started caffeinate to prevent sleep
+2026-05-17T18:16:06.941Z [DEBUG] AutoUpdaterWrapper: Installation type: npm-local
+2026-05-17T18:16:06.944Z [DEBUG] Spawning shell without login (-l flag skipped)
+2026-05-17T18:16:07.143Z [DEBUG] Getting matching hook commands for PostToolUse with query: Bash
+2026-05-17T18:16:07.143Z [DEBUG] Found 5 hook matchers in settings
+2026-05-17T18:16:07.144Z [DEBUG] Matched 0 unique hooks for query "Bash" (0 before deduplication)
+2026-05-17T18:16:07.148Z [DEBUG] LSP Diagnostics: getLSPDiagnosticAttachments called
+2026-05-17T18:16:07.148Z [DEBUG] LSP Diagnostics: Checking registry - 0 pending
+2026-05-17T18:16:07.150Z [DEBUG] Hooks: Found 0 total hooks in registry
+2026-05-17T18:16:07.150Z [DEBUG] Hooks: checkForNewResponses returning 0 responses
+2026-05-17T18:16:07.153Z [DEBUG] autocompact: tokens=23856 threshold=167000 effectiveWindow=180000
+2026-05-17T18:16:07.154Z [DEBUG] Auto tool search disabled: 0 tokens (threshold: 20000, 10% of context) [source: query]
+2026-05-17T18:16:07.160Z [DEBUG] attribution header x-anthropic-billing-header: cc_version=2.1.63.a43; cc_entrypoint=cli; cch=00000;
+2026-05-17T18:16:07.161Z [DEBUG] [API:request] Creating client, ANTHROPIC_CUSTOM_HEADERS present: false, has Authorization header: false
+2026-05-17T18:16:07.161Z [DEBUG] [API:auth] OAuth token check starting
+2026-05-17T18:16:07.162Z [DEBUG] [API:auth] OAuth token check complete
+2026-05-17T18:16:07.175Z [DEBUG] [useDeferredValue] Messages deferred by 1 (15→16)
+2026-05-17T18:16:09.507Z [DEBUG] Stream started - received first chunk
+2026-05-17T18:16:11.210Z [DEBUG] executePreToolHooks called for tool: Bash
+2026-05-17T18:16:11.211Z [DEBUG] Getting matching hook commands for PreToolUse with query: Bash
+2026-05-17T18:16:11.211Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:16:11.211Z [DEBUG] Matched 0 unique hooks for query "Bash" (0 before deduplication)
+2026-05-17T18:16:11.220Z [DEBUG] Permission suggestions for Bash: [
+  {
+    "type": "addRules",
+    "rules": [
