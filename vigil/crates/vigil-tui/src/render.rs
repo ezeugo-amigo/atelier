@@ -146,6 +146,8 @@ fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect) {
         Span::raw(" attach  "),
         Span::styled("d", Style::default().fg(DIM)),
         Span::raw(" dismiss  "),
+        Span::styled("u", Style::default().fg(DIM)),
+        Span::raw(" undo  "),
         Span::styled("q", Style::default().fg(DIM)),
         Span::raw(" quit"),
     ]);

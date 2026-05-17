@@ -21,6 +21,7 @@ pub struct App {
     pub table_state: TableState,
     pub archive: Archive,
     last_refresh: Instant,
+    last_dismissed: Option<Session>,
 }
 
 impl App {
@@ -32,6 +33,7 @@ impl App {
             table_state,
             archive: Archive::load(),
             last_refresh: Instant::now(),
+            last_dismissed: None,
         }
     }
 
@@ -62,8 +64,9 @@ impl App {
     /// Dismiss the selected session: add to archive, remove from list immediately.
     fn dismiss_selected(&mut self) {
         let Some(i) = self.table_state.selected() else { return };
-        let Some(id) = self.sessions.get(i).map(|s| s.id.clone()) else { return };
-        self.archive.dismiss(&id).ok();
+        let Some(session) = self.sessions.get(i).cloned() else { return };
+        self.archive.dismiss(&session.id).ok();
+        self.last_dismissed = Some(session);
         self.sessions.remove(i);
         let new_sel = i.min(self.sessions.len().saturating_sub(1));
         if self.sessions.is_empty() {
@@ -71,6 +74,14 @@ impl App {
         } else {
             self.table_state.select(Some(new_sel));
         }
+    }
+
+    /// Undo the last dismiss: restore to archive and re-insert at the top.
+    fn undo_dismiss(&mut self) {
+        let Some(session) = self.last_dismissed.take() else { return };
+        self.archive.restore(&session.id).ok();
+        self.sessions.insert(0, session);
+        self.table_state.select(Some(0));
     }
 }
 
@@ -108,6 +119,7 @@ async fn event_loop(
                     KeyCode::Down | KeyCode::Char('j') => app.next(),
                     KeyCode::Up | KeyCode::Char('k') => app.prev(),
                     KeyCode::Char('d') => app.dismiss_selected(),
+                    KeyCode::Char('u') => app.undo_dismiss(),
                     KeyCode::Enter => {
                         if let Some(s) = app.selected_session() {
                             let id = s.id.clone();
