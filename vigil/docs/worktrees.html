@@ -226,21 +226,29 @@
 <p>A new <code>atelier wt new</code> command (or <code>atelier worktree new</code>) does three things atomically:</p>
 <ol>
   <li>Runs <code>git worktree add &lt;path&gt; -b &lt;branch&gt;</code> from the current repo root.</li>
-  <li>Records the worktree in Atelier's registry (<code>~/.local/share/atelier/worktrees.json</code>).</li>
-  <li>Launches <code>claude</code> inside the new worktree directory.</li>
+  <li>Records the worktree in Atelier's registry (<code>~/.vigil/worktrees.json</code>), including which agent to use.</li>
+  <li>Launches the chosen agent inside the new worktree directory using its <code>AgentAdapter::attach_command()</code>.</li>
 </ol>
 
 <pre><code><span class="c"># Usage</span>
-atelier wt new &lt;name&gt; [--repo &lt;path&gt;] [--dir &lt;path&gt;] [--no-launch]
+atelier wt new &lt;name&gt; [--agent &lt;agent&gt;] [--repo &lt;path&gt;] [--dir &lt;path&gt;] [--no-launch]
 
-<span class="c"># Examples</span>
+<span class="c"># Agents: claude (default), codex, pi, opencode — any adapter built into Vigil</span>
+
 atelier wt new feature-auth
 <span class="c"># → worktree at ~/.vigil/worktrees/feature-auth</span>
 <span class="c"># → branch: feature-auth</span>
-<span class="c"># → launches claude in that directory</span>
+<span class="c"># → launches claude (default agent)</span>
 
-atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
-<span class="c"># → worktree at the explicit path, same repo, no dir guessing</span></code></pre>
+atelier wt new feature-auth --agent pi
+<span class="c"># → same worktree, launches pi instead</span>
+
+atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/hotfix-login
+<span class="c"># → explicit path, launches codex</span></code></pre>
+
+<h3>Agent selection</h3>
+<p>The <code>--agent</code> flag accepts any agent that has a Vigil adapter: <code>claude</code>, <code>codex</code>, <code>pi</code>, <code>opencode</code>. The default is <code>claude</code>. Atelier does not know how to launch agents itself — it delegates to <code>AgentAdapter::attach_command()</code>, which each adapter already implements for session resumption. For a fresh worktree with no existing session, the adapter's <em>launch</em> command is used instead (a separate method, <code>launch_command(working_dir)</code>, described below).</p>
+<p>Any agent that has a Vigil adapter can be used. Adding a new agent to Vigil automatically makes it available here — no worktree-specific code needed.</p>
 
 <h3>Default path resolution</h3>
 <p>When <code>--dir</code> is omitted, the worktree lands at <code>~/.vigil/worktrees/&lt;name&gt;</code>. All Vigil-owned worktrees share one root, regardless of which repo they came from. This means everything Vigil created is always in one place — <code>ls ~/.vigil/worktrees/</code> is the complete picture, no per-repo hunting.</p>
@@ -253,6 +261,7 @@ atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
 <p>After a successful <code>git worktree add</code>, Atelier appends one entry to <code>~/.vigil/worktrees.json</code>:</p>
 <pre><code><span class="p">{</span>
   <span class="s">"id"</span><span class="p">:</span>           <span class="s">"feature-auth"</span><span class="p">,</span>
+  <span class="s">"agent"</span><span class="p">:</span>        <span class="s">"claude"</span><span class="p">,</span>
   <span class="s">"repo_root"</span><span class="p">:</span>    <span class="s">"/Users/ezeugo/code/myapp"</span><span class="p">,</span>
   <span class="s">"worktree_path"</span><span class="p">:</span><span class="s">"/Users/ezeugo/.vigil/worktrees/feature-auth"</span><span class="p">,</span>
   <span class="s">"branch"</span><span class="p">:</span>       <span class="s">"feature-auth"</span><span class="p">,</span>
@@ -263,10 +272,10 @@ atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
 
 <h2>List</h2>
 <pre><code>atelier wt list</code></pre>
-<div class="mockup"><span class="accent">NAME</span>             <span class="accent">BRANCH</span>           <span class="accent">REPO</span>                    <span class="accent">PATH</span>                                    <span class="accent">STATE</span>
-<span class="good">feature-auth</span>     feature-auth     ~/code/myapp            ~/.vigil/worktrees/feature-auth         exists
-<span class="warn">hotfix-login</span>     hotfix-login     ~/code/myapp            ~/.vigil/worktrees/hotfix-login         exists
-<span class="dim">old-experiment</span>   old-experiment   ~/code/myapp            ~/.vigil/worktrees/old-experiment       <span class="alert">directory missing</span></div>
+<div class="mockup"><span class="accent">NAME</span>             <span class="accent">AGENT</span>    <span class="accent">BRANCH</span>           <span class="accent">REPO</span>             <span class="accent">PATH</span>                                    <span class="accent">STATE</span>
+<span class="good">feature-auth</span>     claude   feature-auth     ~/code/myapp     ~/.vigil/worktrees/feature-auth         exists
+<span class="warn">hotfix-login</span>     codex    hotfix-login     ~/code/myapp     ~/.vigil/worktrees/hotfix-login         exists
+<span class="dim">old-experiment</span>   pi       old-experiment   ~/code/myapp     ~/.vigil/worktrees/old-experiment       <span class="alert">directory missing</span></div>
 
 <p><code>list</code> reads the registry, then verifies each entry by checking whether the worktree path still exists on disk. A missing directory is flagged as <em>stale</em> — the worktree was probably removed manually or by another tool. Stale entries can be pruned with <code>atelier wt prune</code>, which just removes them from the registry without touching git (since the directory is already gone).</p>
 
@@ -316,16 +325,32 @@ atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
   running            ~/code/myapp
   awaiting           ~/code/other-project</div>
 
-<h3>Footer</h3>
-<p>The footer only shows <kbd>R</kbd> when the selected session is both Done/Idle and a registered worktree. When both conditions are not met, <kbd>R</kbd> is absent — no noise for sessions where it can't apply.</p>
+<h3>Creating a worktree from Vigil</h3>
+<p>Going to the terminal to run <code>atelier wt new</code> is friction. If you're already looking at a session in Vigil and want to spin up a new worktree for the same repo, you shouldn't need to leave. Pressing <kbd>W</kbd> on any session opens a small creation overlay:</p>
 
-<div class="mockup"><span class="label">↑↓ jk</span> navigate  <span class="label">↵</span> attach  <span class="label">d</span> dismiss  <span class="label">u</span> undo  <span class="label">R</span> remove worktree  <span class="label">q</span> quit</div>
+<div class="mockup">  <span class="warn">New worktree</span>  ·  repo: <span class="accent">~/code/myapp</span>
+
+  name   <span class="accent">feature-auth_</span>
+  agent  <span class="label">claude  codex  pi  opencode</span>
+         <span class="dim">↑↓ / tab to cycle</span>
+
+  <span class="dim">↵</span> create and launch   <span class="dim">⎋</span> cancel
+</div>
+
+<p>The repo is pre-filled from the selected session's <code>project_dir</code>, resolved to its git root. The user types a name, optionally cycles the agent with <kbd>Tab</kbd>, and presses <kbd>↵</kbd>. Vigil calls the same <code>create()</code> path as the CLI — git worktree add, registry append, launch — then reloads the session list. The new session will appear on the next refresh tick.</p>
+<p><kbd>W</kbd> is available on any session that has a known <code>project_dir</code> inside a git repo. Sessions with no project dir (sub-sessions, orphaned logs) do not show the binding.</p>
+
+<h3>Footer</h3>
+<p>The footer adapts to the selected session. <kbd>W</kbd> is always shown when applicable. <kbd>R</kbd> is only shown for Done/Idle worktree sessions.</p>
+
+<div class="mockup"><span class="label">↑↓ jk</span> navigate  <span class="label">↵</span> attach  <span class="label">d</span> dismiss  <span class="label">u</span> undo  <span class="label">W</span> new worktree  <span class="label">R</span> remove worktree  <span class="label">q</span> quit</div>
 
 <h2>Data model</h2>
 <table class="matrix">
   <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
   <tbody>
     <tr><td><code>id</code></td><td>String</td><td>The name given to <code>atelier wt new</code>. Unique within the registry. Used as the lookup key.</td></tr>
+    <tr><td><code>agent</code></td><td>AgentKind</td><td>Which agent to launch in this worktree. Must have a Vigil adapter. Defaults to <code>claude</code>. Stored so <code>atelier wt open</code> can re-launch the right agent without flags.</td></tr>
     <tr><td><code>repo_root</code></td><td>PathBuf</td><td>Absolute path to the git repo. Used as the CWD for <code>git worktree remove</code> and <code>git branch -d</code>.</td></tr>
     <tr><td><code>worktree_path</code></td><td>PathBuf</td><td>Absolute path to the worktree directory. Matched against session <code>project_dir</code> in Vigil.</td></tr>
     <tr><td><code>branch</code></td><td>String</td><td>Branch name to delete on remove.</td></tr>
@@ -347,6 +372,15 @@ atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
         └── src/
             └── main.rs           <span class="c"># wt new / wt list / wt remove / wt prune</span></code></pre>
 <p><code>atelier-worktree</code> is a library crate with no async — <code>git</code> is called via <code>std::process::Command</code>, the registry is plain JSON on disk. Vigil links against it to read the registry and call <code>remove()</code>.</p>
+
+<h3>AgentAdapter extension</h3>
+<p>The existing <code>AgentAdapter</code> trait already has <code>attach_command(id)</code> for resuming a session. Worktree launch needs one new method:</p>
+<pre><code><span class="k">fn</span> launch_command(<span class="p">&amp;</span><span class="k">self</span>, working_dir<span class="p">:</span> <span class="p">&amp;</span><span class="t">Path</span>) -&gt; <span class="t">Command</span><span class="p">;</span>
+<span class="c">// Claude:   `claude` (no flags) run from working_dir</span>
+<span class="c">// Codex:    `codex` run from working_dir</span>
+<span class="c">// Pi:       `pi` run from working_dir</span>
+<span class="c">// OpenCode: `opencode` run from working_dir</span></code></pre>
+<p>Each adapter implements it. <code>atelier wt new</code> calls it; <code>atelier wt open</code> (re-launch without recreating the worktree) also calls it. No adapter needs to know it's being called from a worktree — it just launches in the given directory.</p>
 
 <h2>Edge cases</h2>
 
@@ -377,10 +411,12 @@ atelier wt new hotfix-login --repo ~/code/myapp --dir ~/scratch/hotfix-login
 <h2>Implementation order</h2>
 <ol>
   <li><code>atelier-worktree</code> crate: registry read/write, <code>create()</code>, <code>remove()</code>.</li>
+  <li><code>AgentAdapter</code>: add <code>launch_command(working_dir)</code> to the trait; implement for each adapter.</li>
   <li><code>atelier-cli</code> binary: <code>wt new</code>, <code>wt list</code>, <code>wt remove</code>, <code>wt prune</code>. Validate end-to-end with real repos before touching Vigil.</li>
   <li>Vigil: read the registry at startup, match against <code>project_dir</code>, show <code>[w]</code> indicator.</li>
   <li>Vigil: <kbd>R</kbd> keybinding, confirmation overlay, call <code>remove()</code>, show inline error on failure.</li>
-  <li>Vigil: conditional footer — <kbd>R</kbd> only shown when applicable.</li>
+  <li>Vigil: <kbd>W</kbd> keybinding, creation overlay with name input and agent selector, call <code>create()</code>.</li>
+  <li>Vigil: conditional footer — <kbd>W</kbd> shown when session has a git repo; <kbd>R</kbd> shown for Done/Idle worktree sessions only.</li>
 </ol>
 
 <p class="footnote">Vigil · worktree management spec · v0 · 2026-05-17</p>
