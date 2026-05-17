@@ -72,11 +72,13 @@ fn draw_header(f: &mut Frame, area: ratatui::layout::Rect, sessions: &[Session])
 
 fn draw_table(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
     let home = std::env::var("HOME").unwrap_or_default();
+    let selected = app.table_state.selected();
 
     let rows: Vec<Row> = app
         .sessions
         .iter()
-        .map(|s| {
+        .enumerate()
+        .map(|(i, s)| {
             let (dot, dot_style) = state_dot(&s.state);
             let state_str = state_label(&s.state);
 
@@ -106,20 +108,27 @@ fn draw_table(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
                 .take(60)
                 .collect::<String>();
 
-            let state_style = state_label_style(&s.state);
-            let text_style = Style::default().fg(Color::White);
+            let row_style = state_label_style(&s.state);
+            let bar = if selected == Some(i) {
+                Span::styled("▌", Style::default().fg(ACCENT))
+            } else {
+                Span::raw(" ")
+            };
 
             Row::new(vec![
+                Cell::from(bar),
                 Cell::from(Span::styled(dot, dot_style)),
-                Cell::from(Span::styled(state_str, state_style)),
-                Cell::from(Span::styled(project, text_style)),
-                Cell::from(Span::styled(age, text_style)),
-                Cell::from(Span::styled(msg, text_style)),
+                Cell::from(state_str),
+                Cell::from(project),
+                Cell::from(age),
+                Cell::from(msg),
             ])
+            .style(row_style)
         })
         .collect();
 
     let widths = [
+        Constraint::Length(1),  // accent bar
         Constraint::Length(2),  // dot
         Constraint::Length(20), // state
         Constraint::Length(28), // project
@@ -127,12 +136,11 @@ fn draw_table(f: &mut Frame, area: ratatui::layout::Rect, app: &mut App) {
         Constraint::Fill(1),    // message
     ];
 
-    let header = Row::new(["", "STATE", "PROJECT", "AGE", "LAST MESSAGE"])
+    let header = Row::new(["", "", "STATE", "PROJECT", "AGE", "LAST MESSAGE"])
         .style(Style::default().fg(DIM).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
         .header(header)
-        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
         .block(Block::default());
 
     f.render_stateful_widget(table, area, &mut app.table_state);
