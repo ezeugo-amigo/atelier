@@ -142,7 +142,8 @@ async fn refresh(app: &mut App, adapter: &ClaudeCodeAdapter) {
     let sessions = adapter.read_all(&active_ids).await;
 
     let selected_id = app.selected_id().cloned();
-    app.sessions = sessions;
+    // Drop sub-sessions (no user message = agent-spawned, not a real top-level session)
+    app.sessions = sessions.into_iter().filter(|s| s.last_user_message.is_some()).collect();
 
     let new_sel = selected_id
         .and_then(|id| app.sessions.iter().position(|s| s.id == id))
