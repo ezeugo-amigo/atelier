@@ -81,3 +81,27 @@ fn fresh_file_classifies_as_running() {
         "expected Running, got {state:?}"
     );
 }
+
+// Session killed mid-stream: "Stream started" in log but "Stopped caffeinate"
+// was never written. A quiescent file (old mtime) must not be classified as
+// Running — the session crashed or was force-quit.
+#[test]
+fn killed_mid_stream_quiescent_is_not_running() {
+    let log = load_fixture("killed_mid_stream/session-killed.txt");
+    let state = classifier::classify(&log, &fs_old(Some(false)));
+    assert!(
+        !matches!(state, SessionState::Running),
+        "killed session with old mtime should not be Running, got {state:?}"
+    );
+}
+
+// Same log content, but file is fresh — the stream is genuinely in progress.
+#[test]
+fn killed_mid_stream_fresh_is_running() {
+    let log = load_fixture("killed_mid_stream/session-killed.txt");
+    let state = classifier::classify(&log, &fs_fresh());
+    assert!(
+        matches!(state, SessionState::Running),
+        "expected Running for fresh mid-stream file, got {state:?}"
+    );
+}
