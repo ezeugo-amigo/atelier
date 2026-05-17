@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Cell, Row, Table},
+    widgets::{Block, Borders, Cell, Row, Table},
     Frame,
 };
 use vigil_core::{Session, SessionState};
@@ -19,12 +19,20 @@ const DIM: Color = Color::DarkGray;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
+
+    // Outer border
+    let border = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::White));
+    let inner = border.inner(area);
+    f.render_widget(border, area);
+
     let [header, table, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
-    .areas(area);
+    .areas(inner);
 
     draw_header(f, header, &app.sessions);
     draw_table(f, table, app);
