@@ -231,20 +231,24 @@
 </ol>
 
 <pre><code><span class="c"># Usage</span>
-atelier wt new &lt;name&gt; [--agent &lt;agent&gt;] [--repo &lt;path&gt;] [--dir &lt;path&gt;] [--no-launch]
+atelier wt new [&lt;name&gt;] [--agent &lt;agent&gt;] [--repo &lt;path&gt;] [--dir &lt;path&gt;] [--no-launch]
 
 <span class="c"># Agents: claude (default), codex, pi, opencode — any adapter built into Vigil</span>
 
-atelier wt new feature-auth
-<span class="c"># → worktree at ~/.vigil/worktrees/myapp/feature-auth  (repo name inferred from CWD)</span>
-<span class="c"># → branch: feature-auth</span>
+atelier wt new
+<span class="c"># → name generated: e.g. "loose-einstein"</span>
+<span class="c"># → worktree at ~/.vigil/worktrees/myapp/loose-einstein</span>
+<span class="c"># → branch: loose-einstein</span>
 <span class="c"># → launches claude (default agent)</span>
 
-atelier wt new feature-auth --agent pi
-<span class="c"># → same worktree, launches pi instead</span>
+atelier wt new feature-auth
+<span class="c"># → explicit name, same flow</span>
+
+atelier wt new --agent pi
+<span class="c"># → generated name, launches pi</span>
 
 atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/hotfix-login
-<span class="c"># → explicit path, launches codex</span></code></pre>
+<span class="c"># → explicit name + explicit path, launches codex</span></code></pre>
 
 <h3>Agent selection</h3>
 <p>The <code>--agent</code> flag accepts any agent that has a Vigil adapter: <code>claude</code>, <code>codex</code>, <code>pi</code>, <code>opencode</code>. The default is <code>claude</code>. Atelier does not know how to launch agents itself — it delegates to <code>AgentAdapter::attach_command()</code>, which each adapter already implements for session resumption. For a fresh worktree with no existing session, the adapter's <em>launch</em> command is used instead (a separate method, <code>launch_command(working_dir)</code>, described below).</p>
@@ -255,7 +259,9 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
 <p>When <code>--repo</code> is omitted, Atelier infers the repo root from the current working directory using <code>git rev-parse --show-toplevel</code>. If the CWD isn't in a git repo, it errors immediately rather than silently creating something broken.</p>
 
 <h3>Branch naming</h3>
-<p>Branch name defaults to <code>&lt;name&gt;</code> exactly as given. Atelier does no automatic sanitization — the user controls the name. If the branch already exists, <code>git worktree add</code> will error; Atelier surfaces that error directly without wrapping it.</p>
+<p>When a name is given, it is used as-is for both the branch and the worktree directory. Atelier does no sanitization — the user controls the name.</p>
+<p>When no name is given, Atelier generates one: an adjective paired with a notable proper noun — a scientist, mathematician, engineer, or other figure. <code>loose-einstein</code>, <code>restless-curie</code>, <code>patient-lovelace</code>. The name is checked for uniqueness against existing branches in the repo and existing entries in the registry before being accepted; if there's a collision (unlikely but possible), another pair is drawn. The generated name is printed to stdout before launch so the user always knows what was created.</p>
+<p>If the branch already exists and a name was explicitly given, <code>git worktree add</code> will error; Atelier surfaces that directly without wrapping it.</p>
 
 <h3>The registry</h3>
 <p>After a successful <code>git worktree add</code>, Atelier appends one entry to <code>~/.vigil/worktrees.json</code>:</p>
@@ -330,7 +336,7 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
 
 <div class="mockup">  <span class="warn">New worktree</span>  ·  repo: <span class="accent">~/code/myapp</span>
 
-  name   <span class="accent">feature-auth_</span>
+  name   <span class="accent">_</span>  <span class="dim">(leave blank for generated name, e.g. loose-einstein)</span>
   agent  <span class="label">claude  codex  pi  opencode</span>
          <span class="dim">↑↓ / tab to cycle</span>
 
