@@ -236,7 +236,7 @@ atelier wt new &lt;name&gt; [--agent &lt;agent&gt;] [--repo &lt;path&gt;] [--dir
 <span class="c"># Agents: claude (default), codex, pi, opencode — any adapter built into Vigil</span>
 
 atelier wt new feature-auth
-<span class="c"># → worktree at ~/.vigil/worktrees/feature-auth</span>
+<span class="c"># → worktree at ~/.vigil/worktrees/myapp/feature-auth  (repo name inferred from CWD)</span>
 <span class="c"># → branch: feature-auth</span>
 <span class="c"># → launches claude (default agent)</span>
 
@@ -251,7 +251,7 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
 <p>Any agent that has a Vigil adapter can be used. Adding a new agent to Vigil automatically makes it available here — no worktree-specific code needed.</p>
 
 <h3>Default path resolution</h3>
-<p>When <code>--dir</code> is omitted, the worktree lands at <code>~/.vigil/worktrees/&lt;name&gt;</code>. All Vigil-owned worktrees share one root, regardless of which repo they came from. This means everything Vigil created is always in one place — <code>ls ~/.vigil/worktrees/</code> is the complete picture, no per-repo hunting.</p>
+<p>When <code>--dir</code> is omitted, the worktree lands at <code>~/.vigil/worktrees/&lt;repo&gt;/&lt;name&gt;</code>, where <code>&lt;repo&gt;</code> is the basename of the git repo root. All Vigil-owned worktrees share one root, grouped by repo. <code>ls ~/.vigil/worktrees/</code> shows every repo that has active worktrees; <code>ls ~/.vigil/worktrees/myapp/</code> shows every worktree for that repo. No hunting across different directories.</p>
 <p>When <code>--repo</code> is omitted, Atelier infers the repo root from the current working directory using <code>git rev-parse --show-toplevel</code>. If the CWD isn't in a git repo, it errors immediately rather than silently creating something broken.</p>
 
 <h3>Branch naming</h3>
@@ -263,7 +263,7 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
   <span class="s">"id"</span><span class="p">:</span>           <span class="s">"feature-auth"</span><span class="p">,</span>
   <span class="s">"agent"</span><span class="p">:</span>        <span class="s">"claude"</span><span class="p">,</span>
   <span class="s">"repo_root"</span><span class="p">:</span>    <span class="s">"/Users/ezeugo/code/myapp"</span><span class="p">,</span>
-  <span class="s">"worktree_path"</span><span class="p">:</span><span class="s">"/Users/ezeugo/.vigil/worktrees/feature-auth"</span><span class="p">,</span>
+  <span class="s">"worktree_path"</span><span class="p">:</span><span class="s">"/Users/ezeugo/.vigil/worktrees/myapp/feature-auth"</span><span class="p">,</span>
   <span class="s">"branch"</span><span class="p">:</span>       <span class="s">"feature-auth"</span><span class="p">,</span>
   <span class="s">"created_at"</span><span class="p">:</span>   <span class="s">"2026-05-17T14:00:00Z"</span>
 <span class="p">}</span></code></pre>
@@ -272,10 +272,10 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
 
 <h2>List</h2>
 <pre><code>atelier wt list</code></pre>
-<div class="mockup"><span class="accent">NAME</span>             <span class="accent">AGENT</span>    <span class="accent">BRANCH</span>           <span class="accent">REPO</span>             <span class="accent">PATH</span>                                    <span class="accent">STATE</span>
-<span class="good">feature-auth</span>     claude   feature-auth     ~/code/myapp     ~/.vigil/worktrees/feature-auth         exists
-<span class="warn">hotfix-login</span>     codex    hotfix-login     ~/code/myapp     ~/.vigil/worktrees/hotfix-login         exists
-<span class="dim">old-experiment</span>   pi       old-experiment   ~/code/myapp     ~/.vigil/worktrees/old-experiment       <span class="alert">directory missing</span></div>
+<div class="mockup"><span class="accent">NAME</span>             <span class="accent">AGENT</span>    <span class="accent">BRANCH</span>           <span class="accent">REPO</span>             <span class="accent">PATH</span>                                         <span class="accent">STATE</span>
+<span class="good">feature-auth</span>     claude   feature-auth     ~/code/myapp     ~/.vigil/worktrees/myapp/feature-auth        exists
+<span class="warn">hotfix-login</span>     codex    hotfix-login     ~/code/myapp     ~/.vigil/worktrees/myapp/hotfix-login        exists
+<span class="dim">old-experiment</span>   pi       old-experiment   ~/code/myapp     ~/.vigil/worktrees/myapp/old-experiment      <span class="alert">directory missing</span></div>
 
 <p><code>list</code> reads the registry, then verifies each entry by checking whether the worktree path still exists on disk. A missing directory is flagged as <em>stale</em> — the worktree was probably removed manually or by another tool. Stale entries can be pruned with <code>atelier wt prune</code>, which just removes them from the registry without touching git (since the directory is already gone).</p>
 
@@ -321,7 +321,7 @@ atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/ho
 <p>A single character added to the right of the state label when the session is a registered worktree. It is the same dim color as the state column text — not alarming, just informational. The indicator disappears once the worktree is removed from the registry.</p>
 
 <div class="mockup"><span class="label">  STATE              PROJECT</span>
-  done <span class="dim">[w]</span>           ~/.vigil/worktrees/feature-auth
+  done <span class="dim">[w]</span>           ~/.vigil/worktrees/myapp/feature-auth
   running            ~/code/myapp
   awaiting           ~/code/other-project</div>
 
