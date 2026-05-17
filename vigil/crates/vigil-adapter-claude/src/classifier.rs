@@ -115,8 +115,10 @@ pub fn classify(log: &SessionLog, fs: &FsSignals) -> SessionState {
 
     let secs_idle = fs.secs_since_last_write().unwrap_or(f64::MAX);
 
-    // 3. Mid-stream: "Stream started" seen but response not yet finished → Running
-    if mid_stream(log) {
+    // 3. Mid-stream: only meaningful if the file is still being actively written.
+    //    A quiescent file (>30s) with "Stream started" means the session was
+    //    killed/crashed before "Stopped caffeinate" was written — not Running.
+    if mid_stream(log) && secs_idle < 30.0 {
         return SessionState::Running;
     }
 
