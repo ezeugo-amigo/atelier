@@ -98,6 +98,21 @@ impl App {
         self.table_state.select(Some(i.saturating_sub(1)));
     }
 
+    pub fn cycle_selected_agent(&mut self) {
+        let Some(c) = self.selected() else { return };
+        let id = c.id.clone();
+        let current = c.agent;
+        let next = match current {
+            AgentKind::ClaudeCode => AgentKind::Codex,
+            AgentKind::Codex      => AgentKind::Pi,
+            AgentKind::Pi         => AgentKind::OpenCode,
+            AgentKind::OpenCode   => AgentKind::ClaudeCode,
+        };
+        if let Some(registry) = self.registry.as_mut() {
+            registry.update_agent(&id, next).ok();
+        }
+    }
+
     pub fn open_log_view(&mut self) {
         if let Some(c) = self.selected() {
             self.overlay = Overlay::LogView {
@@ -251,6 +266,7 @@ async fn event_loop(
                         KeyCode::Char('q') | KeyCode::Esc => break,
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
                         KeyCode::Up | KeyCode::Char('k') => app.prev(),
+                        KeyCode::Char('a') => app.cycle_selected_agent(),
                         KeyCode::Char('l') => app.open_log_view(),
                         KeyCode::Char('d') => app.open_dismiss_confirm(),
                         KeyCode::Char('u') => app.undo_dismiss(),

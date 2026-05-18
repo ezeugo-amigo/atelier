@@ -180,6 +180,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(" navigate  "),
         Span::styled("↵", Style::default().fg(DIM)),
         Span::raw(" attach/launch  "),
+        Span::styled("a", Style::default().fg(DIM)),
+        Span::raw(" agent  "),
         Span::styled("l", Style::default().fg(DIM)),
         Span::raw(" log  "),
         Span::styled("d", Style::default().fg(DIM)),
