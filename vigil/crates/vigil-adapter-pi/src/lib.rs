@@ -60,7 +60,7 @@ impl AgentAdapter for PiAdapter {
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("pi");
-        cmd.arg("--resume").arg(&session_id.0);
+        cmd.arg("--session").arg(&session_id.0);
         cmd.current_dir(dir);
         cmd
     }
