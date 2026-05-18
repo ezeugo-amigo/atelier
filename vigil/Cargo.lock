@@ -1202,6 +1202,9 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vigil-adapter-claude",
+ "vigil-adapter-codex",
+ "vigil-adapter-opencode",
+ "vigil-adapter-pi",
  "vigil-core",
  "vigil-tui",
 ]

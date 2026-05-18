@@ -11,7 +11,7 @@ impl std::fmt::Display for SessionId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AgentKind {
     ClaudeCode,
     Codex,

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -196,14 +197,16 @@ impl App {
 }
 
 
-pub async fn run(adapter: Arc<dyn AgentAdapter>) -> Result<()> {
+pub type AdapterMap = HashMap<AgentKind, Arc<dyn AgentAdapter>>;
+
+pub async fn run(adapters: AdapterMap) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, adapter).await;
+    let result = event_loop(&mut terminal, adapters).await;
 
     let _ = disable_raw_mode();
     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
@@ -214,10 +217,10 @@ pub async fn run(adapter: Arc<dyn AgentAdapter>) -> Result<()> {
 
 async fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    adapter: Arc<dyn AgentAdapter>,
+    adapters: AdapterMap,
 ) -> Result<()> {
     let mut app = App::new();
-    refresh(&mut app, &adapter).await;
+    refresh(&mut app, &adapters).await;
 
     loop {
         terminal.draw(|f| crate::render::draw(f, &mut app))?;
@@ -240,9 +243,7 @@ async fn event_loop(
                                 let session_id = c.session_id.clone();
                                 let path = c.worktree_path.clone();
                                 let agent = c.agent;
-                                // Clone Arc to move into the attach fn
-                                let adapter = Arc::clone(&adapter);
-                                attach_or_launch(terminal, &adapter, session_id.as_ref(), &path, agent)?;
+                                attach_or_launch(terminal, &adapters, session_id.as_ref(), &path, agent)?;
                                 terminal.clear()?;
                             }
                         }
@@ -255,8 +256,7 @@ async fn event_loop(
                         KeyCode::Backspace => { app.wt_name_backspace(); }
                         KeyCode::Enter => {
                             if let Some((path, agent)) = app.confirm_new_worktree() {
-                                let adapter = Arc::clone(&adapter);
-                                attach_or_launch(terminal, &adapter, None, &path, agent)?;
+                                attach_or_launch(terminal, &adapters, None, &path, agent)?;
                                 terminal.clear()?;
                             }
                         }
@@ -284,14 +284,14 @@ async fn event_loop(
         }
 
         if app.last_refresh.elapsed() >= TICK {
-            refresh(&mut app, &adapter).await;
+            refresh(&mut app, &adapters).await;
         }
     }
 
     Ok(())
 }
 
-async fn refresh(app: &mut App, adapter: &Arc<dyn AgentAdapter>) {
+async fn refresh(app: &mut App, adapters: &AdapterMap) {
     app.registry = Registry::load().ok();
 
     let entries: Vec<WorktreeEntry> = match &app.registry {
@@ -302,13 +302,19 @@ async fn refresh(app: &mut App, adapter: &Arc<dyn AgentAdapter>) {
         None => vec![],
     };
 
-    // Probe all containers in parallel
+    // Probe all containers in parallel using the appropriate adapter for each agent kind
     let mut handles = Vec::with_capacity(entries.len());
     for entry in &entries {
         let path = entry.worktree_path.clone();
-        let adapter = Arc::clone(adapter);
+        // Fall back to the first available adapter if the agent's adapter isn't registered
+        let adapter = adapters.get(&entry.agent)
+            .or_else(|| adapters.values().next())
+            .map(Arc::clone);
         handles.push(tokio::spawn(async move {
-            adapter.probe(&path).await
+            match adapter {
+                Some(a) => a.probe(&path).await,
+                None => ProbeResult::no_session(),
+            }
         }));
     }
 
@@ -350,21 +356,23 @@ async fn refresh(app: &mut App, adapter: &Arc<dyn AgentAdapter>) {
 /// Attach to an existing session if `session_id` is Some, otherwise launch fresh.
 fn attach_or_launch(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    adapter: &Arc<dyn AgentAdapter>,
+    adapters: &AdapterMap,
     session_id: Option<&SessionId>,
     dir: &std::path::Path,
-    _agent: AgentKind,
+    agent: AgentKind,
 ) -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    let mut cmd = if let Some(id) = session_id {
-        adapter.attach_command(id, dir)
-    } else {
-        adapter.launch_command(dir)
-    };
-    cmd.status().ok();
+    if let Some(adapter) = adapters.get(&agent) {
+        let mut cmd = if let Some(id) = session_id {
+            adapter.attach_command(id, dir)
+        } else {
+            adapter.launch_command(dir)
+        };
+        cmd.status().ok();
+    }
 
     enable_raw_mode()?;
     execute!(terminal.backend_mut(), EnterAlternateScreen)?;
