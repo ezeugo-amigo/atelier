@@ -1,0 +1,2 @@
+{"type":"message","id":"d1","parentId":null,"timestamp":"2024-01-01T00:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Done! What else would you like?"}]}}
+{"type":"message","id":"d2","parentId":"d1","timestamp":"2024-01-01T00:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"Now refactor the module structure"}]}}

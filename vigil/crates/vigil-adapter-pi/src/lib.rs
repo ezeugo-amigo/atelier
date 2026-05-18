@@ -1,15 +1,17 @@
 //! Pi adapter for Vigil.
 //!
-//! Session files: ~/.pi/agent/sessions/<encoded-path>/<ISO8601>-<uuid>.jsonl
+//! Session files: ~/.pi/agent/sessions/<encoded-path>/<ISO8601>_<uuid>.jsonl
 //! Path encoding: /Users/foo/bar → --Users-foo-bar--
 //!
-//! State classification is process-based (lsof +D).
-//! Log view parses the most recent JSONL session file.
+//! State is derived from the last message in the most recent session JSONL
+//! combined with how recently the file was written (mtime proxy for activity).
+
+pub mod classifier;
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, ProbeResult, SessionId, SessionState};
+use vigil_core::{AgentAdapter, AgentKind, ProbeResult, SessionId};
 
 pub struct PiAdapter;
 
@@ -18,34 +20,40 @@ impl AgentAdapter for PiAdapter {
     fn kind(&self) -> AgentKind { AgentKind::Pi }
 
     async fn probe(&self, dir: &Path) -> ProbeResult {
-        let state = classify(dir).await;
-        let session_id = latest_session_id(dir);
-        ProbeResult {
-            state,
-            session_id,
-            last_activity: newest_mtime(dir)
-                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-                .map(|d| {
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0).unwrap_or_default()
-                }),
-            last_user_message: None,
-        }
+        let session_dir = sessions_dir().join(encode_path(dir));
+        let Some(latest) = find_latest(&session_dir) else {
+            return ProbeResult::no_session();
+        };
+
+        let session_id = session_id_from_path(&latest);
+
+        let secs_since_write = latest.metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(f64::MAX);
+
+        let last_activity = latest.metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map(|d| chrono::DateTime::from_timestamp(d.as_secs() as i64, 0).unwrap_or_default());
+
+        let content = tokio::fs::read_to_string(&latest).await.unwrap_or_default();
+        let last_msg = classifier::parse_last_message(&content);
+        let state = classifier::classify(last_msg, secs_since_write);
+
+        // Extract last user message for display
+        let last_user_message = last_user_message(&content);
+
+        ProbeResult { state, session_id, last_activity, last_user_message }
     }
 
     async fn recent_log(&self, dir: &Path) -> Vec<String> {
         let session_dir = sessions_dir().join(encode_path(dir));
-        let Ok(read_dir) = std::fs::read_dir(&session_dir) else { return vec![]; };
-
-        // Files are named {ISO8601}-{uuid}.jsonl; alphabetical sort = chronological
-        let mut files: Vec<PathBuf> = read_dir
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |e| e == "jsonl"))
-            .collect();
-        files.sort();
-
-        let Some(latest) = files.last() else { return vec![]; };
-        let Ok(content) = tokio::fs::read_to_string(latest).await else { return vec![]; };
+        let Some(latest) = find_latest(&session_dir) else { return vec![]; };
+        let Ok(content) = tokio::fs::read_to_string(&latest).await else { return vec![]; };
 
         let lines: Vec<&str> = content.lines().collect();
         let tail = if lines.len() > 80 { &lines[lines.len() - 80..] } else { &lines };
@@ -72,7 +80,7 @@ impl AgentAdapter for PiAdapter {
     }
 }
 
-// ── Path encoding ────────────────────────────────────────────────────────────
+// ── Path / session helpers ────────────────────────────────────────────────────
 
 /// `/Users/foo/bar` → `--Users-foo-bar--`
 fn encode_path(dir: &Path) -> String {
@@ -86,37 +94,60 @@ fn sessions_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("~/.pi/agent/sessions"))
 }
 
-// ── Message formatting ────────────────────────────────────────────────────────
+/// Return the most recent JSONL file in a session directory (alphabetical = chronological).
+fn find_latest(session_dir: &Path) -> Option<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(session_dir).ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map_or(false, |e| e == "jsonl"))
+        .collect();
+    files.sort();
+    files.into_iter().last()
+}
+
+/// Extract the UUID from `{ISO8601}_{uuid}.jsonl`.
+fn session_id_from_path(path: &Path) -> Option<SessionId> {
+    let stem = path.file_stem()?.to_str()?;
+    let uuid = stem.splitn(2, '_').nth(1)?;
+    Some(SessionId(uuid.to_string()))
+}
+
+/// Find the last user message text in the session for display.
+fn last_user_message(content: &str) -> Option<String> {
+    content.lines().rev()
+        .find_map(|line| {
+            let val: serde_json::Value = serde_json::from_str(line).ok()?;
+            if val["message"]["role"].as_str() != Some("user") { return None; }
+            val["message"]["content"].as_array()?
+                .iter()
+                .find(|c| c["type"] == "text")
+                .and_then(|c| c["text"].as_str())
+                .map(|s| s.chars().take(120).collect())
+        })
+}
+
+// ── Message formatting (for log overlay) ─────────────────────────────────────
 
 fn format_message(val: &serde_json::Value) -> Option<String> {
-    if val["type"].as_str()? != "message" {
-        return None;
-    }
+    if val["type"].as_str()? != "message" { return None; }
     let msg = &val["message"];
     match msg["role"].as_str()? {
         "user" => {
             let text = msg["content"].as_array()?
-                .iter()
-                .find(|c| c["type"] == "text")?["text"]
-                .as_str()?;
-            let snippet: String = text.chars().take(100).collect();
-            Some(format!("YOU   {snippet}"))
+                .iter().find(|c| c["type"] == "text")?["text"].as_str()?;
+            Some(format!("YOU   {}", text.chars().take(100).collect::<String>()))
         }
         "assistant" => {
             let content = msg["content"].as_array()?;
-            // Prefer text over toolCall; skip thinking
             for item in content {
                 match item["type"].as_str() {
                     Some("text") => {
                         let text = item["text"].as_str().unwrap_or("");
-                        let snippet: String = text.chars().take(100).collect();
-                        return Some(format!("PI    {snippet}"));
+                        return Some(format!("PI    {}", text.chars().take(100).collect::<String>()));
                     }
                     Some("toolCall") => {
                         let name = item["name"].as_str().unwrap_or("?");
-                        let args = &item["arguments"];
-                        // Show first meaningful arg value
-                        let arg_hint = args.as_object()
+                        let arg_hint = item["arguments"].as_object()
                             .and_then(|o| o.values().next())
                             .and_then(|v| v.as_str())
                             .map(|s| s.chars().take(50).collect::<String>())
@@ -139,60 +170,4 @@ fn format_message(val: &serde_json::Value) -> Option<String> {
         }
         _ => None,
     }
-}
-
-// ── Session ID ────────────────────────────────────────────────────────────────
-
-/// Find the most recent JSONL session file for `dir` and extract its UUID.
-/// Files are named `{ISO8601}_{uuid}.jsonl`; the UUID follows the first `_`.
-fn latest_session_id(dir: &Path) -> Option<SessionId> {
-    let session_dir = sessions_dir().join(encode_path(dir));
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&session_dir).ok()?
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |e| e == "jsonl"))
-        .collect();
-    files.sort();
-    let latest = files.last()?;
-    let stem = latest.file_stem()?.to_str()?;
-    let uuid = stem.splitn(2, '_').nth(1)?;
-    Some(SessionId(uuid.to_string()))
-}
-
-// ── State classification ──────────────────────────────────────────────────────
-
-async fn classify(dir: &Path) -> SessionState {
-    match pi_is_active(dir).await {
-        Some(true) => SessionState::Running,
-        Some(false) => {
-            let secs_idle = newest_mtime(dir)
-                .and_then(|t| t.elapsed().ok())
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(f64::MAX);
-            if secs_idle < 30.0 { SessionState::Idle } else { SessionState::Done }
-        }
-        None => SessionState::NoSession,
-    }
-}
-
-async fn pi_is_active(dir: &Path) -> Option<bool> {
-    let output = tokio::process::Command::new("lsof")
-        .args(["+D"])
-        .arg(dir)
-        .output()
-        .await
-        .ok()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let active = stdout.lines().any(|l| {
-        let lower = l.to_ascii_lowercase();
-        lower.starts_with("pi ") || lower.contains("/pi ")
-    });
-    tracing::debug!("pi_is_active({}) = {active}", dir.display());
-    Some(active)
-}
-
-fn newest_mtime(dir: &Path) -> Option<SystemTime> {
-    std::fs::read_dir(dir).ok()?.flatten()
-        .filter_map(|e| e.metadata().ok()?.modified().ok())
-        .max()
 }
