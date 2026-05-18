@@ -19,9 +19,10 @@ impl AgentAdapter for PiAdapter {
 
     async fn probe(&self, dir: &Path) -> ProbeResult {
         let state = classify(dir).await;
+        let session_id = latest_session_id(dir);
         ProbeResult {
             state,
-            session_id: None,
+            session_id,
             last_activity: newest_mtime(dir)
                 .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
                 .map(|d| {
@@ -57,8 +58,9 @@ impl AgentAdapter for PiAdapter {
             .collect()
     }
 
-    fn attach_command(&self, _session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("pi");
+        cmd.arg("--resume").arg(&session_id.0);
         cmd.current_dir(dir);
         cmd
     }
@@ -137,6 +139,24 @@ fn format_message(val: &serde_json::Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+// ── Session ID ────────────────────────────────────────────────────────────────
+
+/// Find the most recent JSONL session file for `dir` and extract its UUID.
+/// Files are named `{ISO8601}_{uuid}.jsonl`; the UUID follows the first `_`.
+fn latest_session_id(dir: &Path) -> Option<SessionId> {
+    let session_dir = sessions_dir().join(encode_path(dir));
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&session_dir).ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().map_or(false, |e| e == "jsonl"))
+        .collect();
+    files.sort();
+    let latest = files.last()?;
+    let stem = latest.file_stem()?.to_str()?;
+    let uuid = stem.splitn(2, '_').nth(1)?;
+    Some(SessionId(uuid.to_string()))
 }
 
 // ── State classification ──────────────────────────────────────────────────────
