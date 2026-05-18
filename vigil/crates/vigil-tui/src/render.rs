@@ -115,8 +115,20 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let state_str = state_label(&c.state);
 
             let project = {
+                // Strip ~/.vigil/worktrees/ prefix, showing just <repo>/<branch>
+                let vigil_wt = if home.is_empty() {
+                    String::from("/.vigil/worktrees/")
+                } else {
+                    format!("{home}/.vigil/worktrees/")
+                };
                 let full = c.worktree_path.display().to_string();
-                if !home.is_empty() { full.replacen(&home, "~", 1) } else { full }
+                if let Some(rest) = full.strip_prefix(&vigil_wt) {
+                    rest.to_string()
+                } else if !home.is_empty() {
+                    full.replacen(&home, "~", 1)
+                } else {
+                    full
+                }
             };
 
             let age = c.last_activity
