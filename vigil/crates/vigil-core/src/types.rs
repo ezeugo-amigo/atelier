@@ -32,6 +32,8 @@ impl AgentKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionState {
+    /// No agent session has ever run (or been found) in this container.
+    NoSession,
     Running,
     AwaitingInput { reason: Option<String> },
     Idle,
@@ -46,13 +48,21 @@ impl SessionState {
     }
 }
 
+/// The primary entity: a registered worktree that may or may not have an active agent session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Session {
-    pub id: SessionId,
-    pub kind: AgentKind,
-    pub project_dir: Option<PathBuf>,
-    pub started_at: Option<DateTime<Utc>>,
-    pub last_activity: Option<DateTime<Utc>>,
-    pub last_user_message: Option<String>,
+pub struct Container {
+    /// Registry id — the worktree branch name (e.g. "firm-hilbert").
+    pub id: String,
+    pub worktree_path: PathBuf,
+    pub repo_root: PathBuf,
+    pub agent: AgentKind,
+    pub branch: String,
+    pub created_at: DateTime<Utc>,
+    /// State determined by probing the agent adapter.
     pub state: SessionState,
+    /// Session id from the adapter, needed to build an attach command.
+    pub session_id: Option<SessionId>,
+    pub last_activity: Option<DateTime<Utc>>,
+    /// Most recent user message visible to the agent, if any.
+    pub last_user_message: Option<String>,
 }

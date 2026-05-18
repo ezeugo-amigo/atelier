@@ -2,15 +2,13 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use vigil_core::SessionId;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct ArchiveFile {
     dismissed: HashSet<String>,
 }
 
-/// Persists manually-dismissed session IDs to `{data_local_dir}/vigil/archive.json`.
-/// Adapter-agnostic: stores plain UUIDs regardless of agent type.
+/// Persists manually-dismissed container IDs to `{data_local_dir}/vigil/archive.json`.
 pub struct Archive {
     path: PathBuf,
     inner: ArchiveFile,
@@ -26,19 +24,17 @@ impl Archive {
         Self { path, inner }
     }
 
-    pub fn is_dismissed(&self, id: &SessionId) -> bool {
-        self.inner.dismissed.contains(&id.0)
+    pub fn is_dismissed_id(&self, id: &str) -> bool {
+        self.inner.dismissed.contains(id)
     }
 
-    /// Add a session to the archive and persist immediately.
-    pub fn dismiss(&mut self, id: &SessionId) -> std::io::Result<()> {
-        self.inner.dismissed.insert(id.0.clone());
+    pub fn dismiss_id(&mut self, id: &str) -> std::io::Result<()> {
+        self.inner.dismissed.insert(id.to_string());
         self.save()
     }
 
-    /// Remove a session from the archive and persist immediately.
-    pub fn restore(&mut self, id: &SessionId) -> std::io::Result<()> {
-        self.inner.dismissed.remove(&id.0);
+    pub fn restore_id(&mut self, id: &str) -> std::io::Result<()> {
+        self.inner.dismissed.remove(id);
         self.save()
     }
 

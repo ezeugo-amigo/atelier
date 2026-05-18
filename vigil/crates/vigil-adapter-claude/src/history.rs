@@ -54,6 +54,17 @@ impl SessionHistory {
     }
 }
 
+/// Find the most recent session whose project dir matches `dir`.
+pub fn find_session_for_dir<'a>(
+    history: &'a HashMap<SessionId, SessionHistory>,
+    dir: &Path,
+) -> Option<(&'a SessionId, &'a SessionHistory)> {
+    history
+        .iter()
+        .filter(|(_, h)| h.project_dir().as_deref() == Some(dir))
+        .max_by_key(|(_, h)| h.last_timestamp())
+}
+
 pub async fn load_history(
     path: &Path,
 ) -> Result<HashMap<SessionId, SessionHistory>, VigilError> {

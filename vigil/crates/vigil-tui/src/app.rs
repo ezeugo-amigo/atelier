@@ -1,27 +1,50 @@
 use std::io::{self, Stdout};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use atelier_worktree::{CreateOptions, Registry, RemoveOptions, WorktreeEntry};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
-use vigil_adapter_claude::ClaudeCodeAdapter;
-use vigil_core::{AgentAdapter, Session, SessionId};
+use vigil_core::{AgentAdapter, AgentKind, Container, ProbeResult, SessionId};
 
 use crate::archive::Archive;
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
 
+const AGENTS: [AgentKind; 4] = [
+    AgentKind::ClaudeCode,
+    AgentKind::Codex,
+    AgentKind::Pi,
+    AgentKind::OpenCode,
+];
+
+pub enum Overlay {
+    None,
+    NewWorktree {
+        name_buf: String,
+        agent_idx: usize,
+        repo_root: Option<PathBuf>,
+    },
+    RemoveConfirm {
+        entry: WorktreeEntry,
+    },
+}
+
 pub struct App {
-    pub sessions: Vec<Session>,
+    pub containers: Vec<Container>,
     pub table_state: TableState,
     pub archive: Archive,
+    pub overlay: Overlay,
+    pub registry: Option<Registry>,
     last_refresh: Instant,
-    last_dismissed: Option<Session>,
+    last_dismissed: Option<Container>,
 }
 
 impl App {
@@ -29,31 +52,35 @@ impl App {
         let mut table_state = TableState::default();
         table_state.select(Some(0));
         Self {
-            sessions: Vec::new(),
+            containers: Vec::new(),
             table_state,
             archive: Archive::load(),
+            overlay: Overlay::None,
+            registry: Registry::load().ok(),
             last_refresh: Instant::now(),
             last_dismissed: None,
         }
     }
 
-    pub fn selected_id(&self) -> Option<&SessionId> {
+    pub fn selected(&self) -> Option<&Container> {
         self.table_state
             .selected()
-            .and_then(|i| self.sessions.get(i))
-            .map(|s| &s.id)
+            .and_then(|i| self.containers.get(i))
     }
 
-    pub fn selected_session(&self) -> Option<&Session> {
-        self.table_state
-            .selected()
-            .and_then(|i| self.sessions.get(i))
+    pub fn overlay_is_none(&self) -> bool {
+        matches!(self.overlay, Overlay::None)
+    }
+
+    /// Whether the selected container can be removed (it's registered in the registry).
+    pub fn can_remove_selected(&self) -> bool {
+        self.selected().is_some()
     }
 
     fn next(&mut self) {
-        if self.sessions.is_empty() { return; }
+        if self.containers.is_empty() { return; }
         let i = self.table_state.selected().unwrap_or(0);
-        self.table_state.select(Some((i + 1).min(self.sessions.len() - 1)));
+        self.table_state.select(Some((i + 1).min(self.containers.len() - 1)));
     }
 
     fn prev(&mut self) {
@@ -61,31 +88,99 @@ impl App {
         self.table_state.select(Some(i.saturating_sub(1)));
     }
 
-    /// Dismiss the selected session: add to archive, remove from list immediately.
     fn dismiss_selected(&mut self) {
         let Some(i) = self.table_state.selected() else { return };
-        let Some(session) = self.sessions.get(i).cloned() else { return };
-        self.archive.dismiss(&session.id).ok();
-        self.last_dismissed = Some(session);
-        self.sessions.remove(i);
-        let new_sel = i.min(self.sessions.len().saturating_sub(1));
-        if self.sessions.is_empty() {
+        let Some(container) = self.containers.get(i).cloned() else { return };
+        self.archive.dismiss_id(&container.id).ok();
+        self.last_dismissed = Some(container);
+        self.containers.remove(i);
+        let new_sel = i.min(self.containers.len().saturating_sub(1));
+        if self.containers.is_empty() {
             self.table_state.select(None);
         } else {
             self.table_state.select(Some(new_sel));
         }
     }
 
-    /// Undo the last dismiss: restore to archive and re-insert at the top.
     fn undo_dismiss(&mut self) {
-        let Some(session) = self.last_dismissed.take() else { return };
-        self.archive.restore(&session.id).ok();
-        self.sessions.insert(0, session);
+        let Some(container) = self.last_dismissed.take() else { return };
+        self.archive.restore_id(&container.id).ok();
+        self.containers.insert(0, container);
         self.table_state.select(Some(0));
+    }
+
+    fn open_new_worktree(&mut self) {
+        if self.registry.is_none() { return; }
+        let repo_root = self.selected().and_then(|c| Some(c.repo_root.clone()));
+        self.overlay = Overlay::NewWorktree { name_buf: String::new(), agent_idx: 0, repo_root };
+    }
+
+    fn open_remove_confirm(&mut self) {
+        let entry = {
+            let c = match self.selected() { Some(c) => c, None => return };
+            let reg = match self.registry.as_ref() { Some(r) => r, None => return };
+            match reg.find_by_id(&c.id) { Some(e) => e.clone(), None => return }
+        };
+        self.overlay = Overlay::RemoveConfirm { entry };
+    }
+
+    fn cycle_agent(&mut self) {
+        if let Overlay::NewWorktree { ref mut agent_idx, .. } = self.overlay {
+            *agent_idx = (*agent_idx + 1) % AGENTS.len();
+        }
+    }
+
+    fn wt_name_push(&mut self, c: char) {
+        if let Overlay::NewWorktree { ref mut name_buf, .. } = self.overlay {
+            name_buf.push(c);
+        }
+    }
+
+    fn wt_name_backspace(&mut self) {
+        if let Overlay::NewWorktree { ref mut name_buf, .. } = self.overlay {
+            name_buf.pop();
+        }
+    }
+
+    /// Returns the (worktree_path, agent_kind) to launch after the overlay closes, if any.
+    fn confirm_new_worktree(&mut self) -> Option<(std::path::PathBuf, AgentKind)> {
+        let (name, agent_kind, repo_root) = match &self.overlay {
+            Overlay::NewWorktree { name_buf, agent_idx, repo_root } => {
+                let name = if name_buf.is_empty() { None } else { Some(name_buf.clone()) };
+                (name, AGENTS[*agent_idx], repo_root.clone())
+            }
+            _ => return None,
+        };
+        self.overlay = Overlay::None;
+        if let Some(registry) = self.registry.as_mut() {
+            let opts = CreateOptions {
+                name,
+                agent: agent_kind,
+                repo_root,
+                worktree_dir: None,
+                no_launch: true,
+            };
+            if let Ok(entry) = atelier_worktree::create(opts, registry, None) {
+                return Some((entry.worktree_path, agent_kind));
+            }
+        }
+        None
+    }
+
+    fn confirm_remove(&mut self) {
+        let id = match &self.overlay {
+            Overlay::RemoveConfirm { entry } => entry.id.clone(),
+            _ => return,
+        };
+        self.overlay = Overlay::None;
+        if let Some(registry) = self.registry.as_mut() {
+            atelier_worktree::remove(&id, RemoveOptions { force: false }, registry).ok();
+        }
     }
 }
 
-pub async fn run(adapter: ClaudeCodeAdapter) -> Result<()> {
+
+pub async fn run(adapter: Arc<dyn AgentAdapter>) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -103,7 +198,7 @@ pub async fn run(adapter: ClaudeCodeAdapter) -> Result<()> {
 
 async fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    adapter: ClaudeCodeAdapter,
+    adapter: Arc<dyn AgentAdapter>,
 ) -> Result<()> {
     let mut app = App::new();
     refresh(&mut app, &adapter).await;
@@ -114,21 +209,52 @@ async fn event_loop(
         if event::poll(POLL)? {
             if let Event::Key(key) = event::read()? {
                 if key.kind != KeyEventKind::Press { continue; }
-                match key.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break,
-                    KeyCode::Down | KeyCode::Char('j') => app.next(),
-                    KeyCode::Up | KeyCode::Char('k') => app.prev(),
-                    KeyCode::Char('d') => app.dismiss_selected(),
-                    KeyCode::Char('u') => app.undo_dismiss(),
-                    KeyCode::Enter => {
-                        if let Some(s) = app.selected_session() {
-                            let id = s.id.clone();
-                            let project_dir = s.project_dir.clone();
-                            attach(terminal, &id, project_dir.as_deref())?;
-                            terminal.clear()?;
+
+                if app.overlay_is_none() {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Down | KeyCode::Char('j') => app.next(),
+                        KeyCode::Up | KeyCode::Char('k') => app.prev(),
+                        KeyCode::Char('d') => app.dismiss_selected(),
+                        KeyCode::Char('u') => app.undo_dismiss(),
+                        KeyCode::Char('W') => app.open_new_worktree(),
+                        KeyCode::Char('R') => app.open_remove_confirm(),
+                        KeyCode::Enter => {
+                            if let Some(c) = app.selected() {
+                                let session_id = c.session_id.clone();
+                                let path = c.worktree_path.clone();
+                                let agent = c.agent;
+                                // Clone Arc to move into the attach fn
+                                let adapter = Arc::clone(&adapter);
+                                attach_or_launch(terminal, &adapter, session_id.as_ref(), &path, agent)?;
+                                terminal.clear()?;
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                } else if matches!(app.overlay, Overlay::NewWorktree { .. }) {
+                    match key.code {
+                        KeyCode::Esc => { app.overlay = Overlay::None; }
+                        KeyCode::Tab => { app.cycle_agent(); }
+                        KeyCode::Backspace => { app.wt_name_backspace(); }
+                        KeyCode::Enter => {
+                            if let Some((path, agent)) = app.confirm_new_worktree() {
+                                let adapter = Arc::clone(&adapter);
+                                attach_or_launch(terminal, &adapter, None, &path, agent)?;
+                                terminal.clear()?;
+                            }
+                        }
+                        KeyCode::Char(c) => { app.wt_name_push(c); }
+                        _ => {}
+                    }
+                } else if matches!(app.overlay, Overlay::RemoveConfirm { .. }) {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                            app.overlay = Overlay::None;
+                        }
+                        KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_remove(); }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -141,28 +267,54 @@ async fn event_loop(
     Ok(())
 }
 
-async fn refresh(app: &mut App, adapter: &ClaudeCodeAdapter) {
-    let all_ids = adapter.discover().await.unwrap_or_default();
+async fn refresh(app: &mut App, adapter: &Arc<dyn AgentAdapter>) {
+    app.registry = Registry::load().ok();
 
-    // Filter out dismissed sessions before doing any I/O
-    let active_ids: Vec<SessionId> = all_ids
-        .into_iter()
-        .filter(|id| !app.archive.is_dismissed(id))
-        .collect();
+    let entries: Vec<WorktreeEntry> = match &app.registry {
+        Some(reg) => reg.entries().iter()
+            .filter(|e| !app.archive.is_dismissed_id(&e.id))
+            .cloned()
+            .collect(),
+        None => vec![],
+    };
 
-    // Read all remaining sessions: history loaded once, lsof in parallel
-    let sessions = adapter.read_all(&active_ids).await;
+    // Probe all containers in parallel
+    let mut handles = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        let path = entry.worktree_path.clone();
+        let adapter = Arc::clone(adapter);
+        handles.push(tokio::spawn(async move {
+            adapter.probe(&path).await
+        }));
+    }
 
-    let selected_id = app.selected_id().cloned();
-    // Drop sub-sessions (no user message = agent-spawned, not a real top-level session)
-    app.sessions = sessions.into_iter().filter(|s| s.last_user_message.is_some()).collect();
+    let selected_id = app.selected().map(|c| c.id.clone());
+    let mut containers = Vec::with_capacity(entries.len());
+
+    for (entry, handle) in entries.iter().zip(handles) {
+        let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
+        containers.push(Container {
+            id: entry.id.clone(),
+            worktree_path: entry.worktree_path.clone(),
+            repo_root: entry.repo_root.clone(),
+            agent: entry.agent,
+            branch: entry.branch.clone(),
+            created_at: entry.created_at,
+            state: probe.state,
+            session_id: probe.session_id,
+            last_activity: probe.last_activity,
+            last_user_message: probe.last_user_message,
+        });
+    }
+
+    app.containers = containers;
 
     let new_sel = selected_id
-        .and_then(|id| app.sessions.iter().position(|s| s.id == id))
+        .and_then(|id| app.containers.iter().position(|c| c.id == id))
         .unwrap_or(app.table_state.selected().unwrap_or(0))
-        .min(app.sessions.len().saturating_sub(1));
+        .min(app.containers.len().saturating_sub(1));
 
-    if app.sessions.is_empty() {
+    if app.containers.is_empty() {
         app.table_state.select(None);
     } else {
         app.table_state.select(Some(new_sel));
@@ -171,21 +323,23 @@ async fn refresh(app: &mut App, adapter: &ClaudeCodeAdapter) {
     app.last_refresh = Instant::now();
 }
 
-fn attach(
+/// Attach to an existing session if `session_id` is Some, otherwise launch fresh.
+fn attach_or_launch(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    id: &SessionId,
-    project_dir: Option<&std::path::Path>,
+    adapter: &Arc<dyn AgentAdapter>,
+    session_id: Option<&SessionId>,
+    dir: &std::path::Path,
+    _agent: AgentKind,
 ) -> Result<()> {
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
-    let mut cmd = std::process::Command::new("claude");
-    cmd.arg("--resume").arg(&id.0);
-    cmd.env_remove("CLAUDECODE");
-    if let Some(dir) = project_dir {
-        cmd.current_dir(dir);
-    }
+    let mut cmd = if let Some(id) = session_id {
+        adapter.attach_command(id, dir)
+    } else {
+        adapter.launch_command(dir)
+    };
     cmd.status().ok();
 
     enable_raw_mode()?;

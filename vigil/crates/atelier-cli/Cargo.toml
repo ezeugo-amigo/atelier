@@ -1,27 +1,22 @@
 [package]
-name = "vigil-cli"
+name = "atelier-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Vigil command-line binary."
+description = "Atelier command-line tool."
 
 [[bin]]
-name = "vigil"
+name = "atelier"
 path = "src/main.rs"
 
-[[bin]]
-name = "vigil-probe"
-path = "src/bin/probe.rs"
-
 [dependencies]
+atelier-worktree     = { path = "../atelier-worktree" }
 vigil-core           = { path = "../vigil-core" }
 vigil-adapter-claude = { path = "../vigil-adapter-claude" }
-vigil-tui            = { path = "../vigil-tui" }
-atelier-worktree     = { path = "../atelier-worktree" }
-tokio                = { workspace = true }
+vigil-adapter-codex  = { path = "../vigil-adapter-codex" }
+vigil-adapter-pi     = { path = "../vigil-adapter-pi" }
+vigil-adapter-opencode = { path = "../vigil-adapter-opencode" }
 clap                 = { workspace = true }
-tracing              = { workspace = true }
-tracing-subscriber   = { workspace = true }
 anyhow               = { workspace = true }

@@ -8,6 +8,8 @@ members = [
     "crates/vigil-adapter-codex",
     "crates/vigil-adapter-pi",
     "crates/vigil-adapter-opencode",
+    "crates/atelier-worktree",
+    "crates/atelier-cli",
 ]
 
 [workspace.package]
@@ -29,3 +31,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories    = "5"
 anyhow         = "1"
 clap           = { version = "4", features = ["derive"] }
+ratatui        = "0.29"
+crossterm      = { version = "0.28", features = ["event-stream"] }
+rand           = "0.9"
