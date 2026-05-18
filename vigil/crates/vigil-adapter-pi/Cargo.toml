@@ -10,3 +10,6 @@ description = "Pi adapter for Vigil."
 [dependencies]
 vigil-core  = { path = "../vigil-core" }
 async-trait = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+chrono      = { workspace = true }

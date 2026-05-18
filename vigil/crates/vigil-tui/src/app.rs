@@ -32,6 +32,9 @@ pub enum Overlay {
         agent_idx: usize,
         repo_root: Option<PathBuf>,
     },
+    DismissConfirm {
+        container_id: String,
+    },
     RemoveConfirm {
         entry: WorktreeEntry,
     },
@@ -88,17 +91,30 @@ impl App {
         self.table_state.select(Some(i.saturating_sub(1)));
     }
 
-    fn dismiss_selected(&mut self) {
-        let Some(i) = self.table_state.selected() else { return };
-        let Some(container) = self.containers.get(i).cloned() else { return };
-        self.archive.dismiss_id(&container.id).ok();
-        self.last_dismissed = Some(container);
-        self.containers.remove(i);
-        let new_sel = i.min(self.containers.len().saturating_sub(1));
-        if self.containers.is_empty() {
-            self.table_state.select(None);
-        } else {
-            self.table_state.select(Some(new_sel));
+    fn open_dismiss_confirm(&mut self) {
+        if let Some(c) = self.selected() {
+            self.overlay = Overlay::DismissConfirm { container_id: c.id.clone() };
+        }
+    }
+
+    fn confirm_dismiss(&mut self) {
+        let id = match &self.overlay {
+            Overlay::DismissConfirm { container_id } => container_id.clone(),
+            _ => return,
+        };
+        self.overlay = Overlay::None;
+        // Find the index matching this id and dismiss it
+        if let Some(i) = self.containers.iter().position(|c| c.id == id) {
+            let container = self.containers[i].clone();
+            self.archive.dismiss_id(&container.id).ok();
+            self.last_dismissed = Some(container);
+            self.containers.remove(i);
+            let new_sel = i.min(self.containers.len().saturating_sub(1));
+            if self.containers.is_empty() {
+                self.table_state.select(None);
+            } else {
+                self.table_state.select(Some(new_sel));
+            }
         }
     }
 
@@ -215,7 +231,7 @@ async fn event_loop(
                         KeyCode::Char('q') | KeyCode::Esc => break,
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
                         KeyCode::Up | KeyCode::Char('k') => app.prev(),
-                        KeyCode::Char('d') => app.dismiss_selected(),
+                        KeyCode::Char('d') => app.open_dismiss_confirm(),
                         KeyCode::Char('u') => app.undo_dismiss(),
                         KeyCode::Char('W') => app.open_new_worktree(),
                         KeyCode::Char('R') => app.open_remove_confirm(),
@@ -245,6 +261,14 @@ async fn event_loop(
                             }
                         }
                         KeyCode::Char(c) => { app.wt_name_push(c); }
+                        _ => {}
+                    }
+                } else if matches!(app.overlay, Overlay::DismissConfirm { .. }) {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                            app.overlay = Overlay::None;
+                        }
+                        KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_dismiss(); }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::RemoveConfirm { .. }) {

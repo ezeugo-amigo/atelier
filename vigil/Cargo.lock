@@ -1185,6 +1185,9 @@ name = "vigil-adapter-pi"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "tokio",
+ "tracing",
  "vigil-core",
 ]
 

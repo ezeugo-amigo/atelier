@@ -48,6 +48,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::NewWorktree { name_buf, agent_idx, repo_root } => {
             draw_new_worktree_overlay(f, area, name_buf, *agent_idx, repo_root.as_deref());
         }
+        Overlay::DismissConfirm { container_id } => {
+            draw_dismiss_confirm_overlay(f, area, container_id);
+        }
         Overlay::RemoveConfirm { entry } => {
             draw_remove_confirm_overlay(f, area, &entry.id, &entry.worktree_path);
         }
@@ -260,6 +263,38 @@ fn draw_new_worktree_overlay(
             Span::styled("Enter", Style::default().fg(DIM)),
             Span::raw(" create  "),
             Span::styled("Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_dismiss_confirm_overlay(f: &mut Frame, area: Rect, container_id: &str) {
+    let popup = centered_rect(50, 7, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Dismiss Container ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(DIM));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  Dismiss  "),
+            Span::styled(container_id, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::raw("  from view?"),
+        ]),
+        Line::from(vec![Span::styled("  (undo with u)", Style::default().fg(DIM))]),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("y", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::raw(" confirm  "),
+            Span::styled("n / Esc", Style::default().fg(DIM)),
             Span::raw(" cancel"),
         ]),
     ];
