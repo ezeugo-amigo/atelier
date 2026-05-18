@@ -1,6 +1,6 @@
 use std::path::Path;
 use chrono::{DateTime, Utc};
-use crate::{AgentKind, SessionId, SessionState};
+use crate::{AgentKind, LogEvent, SessionId, SessionState};
 
 /// Result of probing an agent for a given container directory.
 pub struct ProbeResult {
@@ -38,4 +38,19 @@ pub trait AgentAdapter: Send + Sync {
     /// Return the most recent log lines for the session in `dir`, formatted for display.
     /// Each string is one line. Returns empty if the agent has no log to show.
     async fn recent_log(&self, _dir: &Path) -> Vec<String> { vec![] }
+
+    /// Return structured log events for the session in `dir`, grouped into turns.
+    /// Adapters with JSONL session files override this for the timeline log-view design.
+    async fn recent_log_events(&self, _dir: &Path) -> Vec<LogEvent> { vec![] }
+
+    /// Send a short message to the agent session running in `dir`.
+    /// The default implementation returns `NotSupported`; adapters that support it override this.
+    async fn send_message(
+        &self,
+        _dir: &Path,
+        _session_id: &SessionId,
+        _msg: &str,
+    ) -> Result<(), crate::VigilError> {
+        Err(crate::VigilError::NotSupported("send_message not implemented".into()))
+    }
 }

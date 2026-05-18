@@ -121,4 +121,47 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd.current_dir(dir);
         cmd
     }
+
+    async fn send_message(
+        &self,
+        dir: &Path,
+        _session_id: &SessionId,
+        msg: &str,
+    ) -> Result<(), VigilError> {
+        let history_map = history::load_history(&self.history_path).await?;
+        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
+            return Err(VigilError::NotSupported("no session found for directory".into()));
+        };
+        let log_path = self.session_path(session_id);
+
+        let pids = process::get_pids_holding_file(&log_path).await;
+        let pid = pids
+            .first()
+            .copied()
+            .ok_or_else(|| VigilError::NotSupported("no process holds session file".into()))?;
+
+        let out = tokio::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "tty="])
+            .output()
+            .await
+            .map_err(|e| VigilError::ProcessProbe(e.to_string()))?;
+        let tty = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if tty == "??" || tty.is_empty() {
+            return Err(VigilError::NotSupported(
+                "process has no controlling TTY".into(),
+            ));
+        }
+
+        let tty_path = format!("/dev/{tty}");
+        let payload = format!("{msg}\n");
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&tty_path)
+            .and_then(|mut f| {
+                use std::io::Write as _;
+                f.write_all(payload.as_bytes())
+            })
+            .map_err(|e| VigilError::ProcessProbe(format!("write to {tty_path}: {e}")))?;
+        Ok(())
+    }
 }

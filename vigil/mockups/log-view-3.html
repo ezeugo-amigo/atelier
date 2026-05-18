@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vigil — log-view-3: Timeline with Tool Accordion</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0f0f0f;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    color: #aaaaaa;
+  }
+
+  .terminal-bg {
+    width: 100%;
+    max-width: 960px;
+    padding: 40px 20px;
+  }
+
+  /* Overlay frame */
+  .overlay {
+    background: #1a1a1a;
+    border: 1px solid #d4a373;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Title bar */
+  .overlay-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 12px;
+    border-bottom: 1px solid #d4a373;
+    background: #181818;
+  }
+
+  .title-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .title-text {
+    color: #d4a373;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+  }
+
+  .title-agent {
+    color: #555555;
+    font-size: 11px;
+  }
+
+  .status-awaiting {
+    color: #555555;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .status-dot {
+    color: #e0b870;
+  }
+
+  /* Column headers */
+  .col-header {
+    display: grid;
+    grid-template-columns: 48px 1fr 80px;
+    padding: 4px 12px;
+    border-bottom: 1px solid #222222;
+    background: #181818;
+  }
+
+  .col-header span {
+    color: #383838;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .col-header .col-right {
+    text-align: right;
+  }
+
+  /* Body */
+  .overlay-body {
+    max-height: 500px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a2a #1a1a1a;
+  }
+
+  .overlay-body::-webkit-scrollbar { width: 4px; }
+  .overlay-body::-webkit-scrollbar-track { background: #1a1a1a; }
+  .overlay-body::-webkit-scrollbar-thumb { background: #2a2a2a; }
+
+  /* ── TURN ROWS ── */
+
+  .turn {
+    border-bottom: 1px solid #202020;
+  }
+
+  .turn:last-child {
+    border-bottom: none;
+  }
+
+  /* YOU row */
+  .turn-you {
+    display: grid;
+    grid-template-columns: 48px 1fr 80px;
+    padding: 6px 12px;
+    align-items: start;
+    gap: 0;
+  }
+
+  .turn-you:hover {
+    background: #1e1e1e;
+  }
+
+  .turn-role {
+    font-size: 11px;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+    padding-top: 1px;
+    color: #888888;
+  }
+
+  .turn-role.role-you {
+    color: #d4a373;
+  }
+
+  .turn-role.role-pi {
+    color: #8fbf73;
+  }
+
+  .turn-text {
+    padding: 0 8px;
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .turn-text.pi-text {
+    color: #8fbf73;
+  }
+
+  .turn-time {
+    color: #3a3a3a;
+    font-size: 11px;
+    text-align: right;
+    padding-top: 2px;
+  }
+
+  /* Tool bar row */
+  .turn-tools {
+    display: grid;
+    grid-template-columns: 48px 1fr 80px;
+    padding: 4px 12px 5px;
+    align-items: center;
+    background: #171717;
+  }
+
+  .tool-label {
+    font-size: 10px;
+    color: #333333;
+    letter-spacing: 0.05em;
+  }
+
+  .tool-bar-wrap {
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* The horizontal block bar */
+  .tool-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .bar-segment {
+    height: 8px;
+    display: inline-block;
+    border-radius: 1px;
+  }
+
+  .bar-read  { background: #4a6b8a; }
+  .bar-bash  { background: #7a5a8a; }
+  .bar-edit  { background: #6b8a4a; }
+  .bar-empty { background: #252525; }
+
+  /* Tool legend */
+  .tool-legend {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    color: #505050;
+  }
+
+  .legend-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 1px;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  .tool-elapsed {
+    color: #3a3a3a;
+    font-size: 11px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Connector line between YOU→tools→PI */
+  .turn-connector {
+    display: grid;
+    grid-template-columns: 48px 1fr 80px;
+    height: 3px;
+  }
+
+  .connector-line {
+    grid-column: 2;
+    margin: 0 8px;
+    border-left: 1px solid #252525;
+    height: 3px;
+  }
+
+  /* PI response row */
+  .turn-pi {
+    display: grid;
+    grid-template-columns: 48px 1fr 80px;
+    padding: 6px 12px 8px;
+    align-items: start;
+  }
+
+  .turn-pi:hover {
+    background: #1e1e1e;
+  }
+
+  /* Final awaiting indicator inline */
+  .state-pill {
+    display: inline-block;
+    color: #555555;
+    font-size: 10px;
+    border: 1px solid #2a2a2a;
+    padding: 0px 5px;
+    margin-left: 8px;
+    vertical-align: middle;
+    background: #1e1e1e;
+    letter-spacing: 0.04em;
+  }
+
+  /* Turn number gutter */
+  .gutter-num {
+    color: #2e2e2e;
+    font-size: 10px;
+    text-align: right;
+    padding-right: 8px;
+    padding-top: 2px;
+    letter-spacing: 0;
+  }
+
+  /* Section gap */
+  .turn-gap {
+    height: 1px;
+    background: #1e1e1e;
+  }
+
+  /* Footer */
+  .overlay-footer {
+    border-top: 1px solid #222222;
+    padding: 5px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #181818;
+  }
+
+  .footer-hint {
+    color: #444444;
+    font-size: 12px;
+  }
+
+  .footer-hint .key {
+    color: #666666;
+    background: #222222;
+    border: 1px solid #333333;
+    padding: 0 4px;
+    border-radius: 2px;
+  }
+
+  .footer-stats {
+    color: #333333;
+    font-size: 11px;
+    display: flex;
+    gap: 12px;
+  }
+
+  .footer-stats .stat {
+    display: flex;
+    gap: 4px;
+  }
+
+  .stat-label {
+    color: #2e2e2e;
+  }
+
+  .stat-val {
+    color: #444444;
+  }
+</style>
+</head>
+<body>
+<div class="terminal-bg">
+  <div class="overlay">
+
+    <!-- Title bar -->
+    <div class="overlay-title">
+      <div class="title-left">
+        <span class="title-text"> eleve/add-dark-mode &mdash; log </span>
+        <span class="title-agent">pi agent</span>
+      </div>
+      <span class="status-awaiting">
+        <span class="status-dot">●</span> awaiting
+      </span>
+    </div>
+
+    <!-- Column headers -->
+    <div class="col-header">
+      <span></span>
+      <span style="padding-left: 8px;">message</span>
+      <span class="col-right">time</span>
+    </div>
+
+    <!-- Body -->
+    <div class="overlay-body">
+
+      <!-- ── TURN 1 ── -->
+
+      <!-- YOU -->
+      <div class="turn">
+        <div class="turn-you">
+          <span class="turn-role role-you">YOU</span>
+          <span class="turn-text">can you add dark mode support to the settings page</span>
+          <span class="turn-time">14:02:11</span>
+        </div>
+
+        <!-- Tool bar -->
+        <div class="turn-tools">
+          <span class="tool-label">TOOLS</span>
+          <div class="tool-bar-wrap">
+            <!-- bar: read×3, bash×2, edit×2 = 7 segments out of ~10 slots -->
+            <div class="tool-bar">
+              <span class="bar-segment bar-read"  style="width: 18px;"></span>
+              <span class="bar-segment bar-read"  style="width: 18px;"></span>
+              <span class="bar-segment bar-read"  style="width: 18px;"></span>
+              <span class="bar-segment bar-bash"  style="width: 18px;"></span>
+              <span class="bar-segment bar-bash"  style="width: 18px;"></span>
+              <span class="bar-segment bar-edit"  style="width: 18px;"></span>
+              <span class="bar-segment bar-edit"  style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+            </div>
+            <div class="tool-legend">
+              <span class="legend-item"><span class="legend-dot" style="background:#4a6b8a;"></span>read &times;3</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#7a5a8a;"></span>bash &times;2</span>
+              <span class="legend-item"><span class="legend-dot" style="background:#6b8a4a;"></span>edit &times;2</span>
+            </div>
+          </div>
+          <span class="tool-elapsed">3.2s</span>
+        </div>
+
+        <!-- PI response -->
+        <div class="turn-pi">
+          <span class="turn-role role-pi"> PI</span>
+          <span class="turn-text pi-text">I'll start by reading the current settings component and understanding the styling approach.</span>
+          <span class="turn-time">14:02:15</span>
+        </div>
+      </div>
+
+      <div class="turn-gap"></div>
+
+      <!-- ── TURN 2 ── -->
+
+      <div class="turn">
+        <div class="turn-you">
+          <span class="turn-role role-you">YOU</span>
+          <span class="turn-text">looks good but the toggle should be on the right side</span>
+          <span class="turn-time">14:04:39</span>
+        </div>
+
+        <!-- Tool bar: edit×2 -->
+        <div class="turn-tools">
+          <span class="tool-label">TOOLS</span>
+          <div class="tool-bar-wrap">
+            <div class="tool-bar">
+              <span class="bar-segment bar-edit"  style="width: 18px;"></span>
+              <span class="bar-segment bar-edit"  style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+              <span class="bar-segment bar-empty" style="width: 18px;"></span>
+            </div>
+            <div class="tool-legend">
+              <span class="legend-item"><span class="legend-dot" style="background:#6b8a4a;"></span>edit &times;2</span>
+            </div>
+          </div>
+          <span class="tool-elapsed">0.8s</span>
+        </div>
+
+        <!-- PI response 2 -->
+        <div class="turn-pi">
+          <span class="turn-role role-pi"> PI</span>
+          <span class="turn-text pi-text">I'll adjust the toggle position.</span>
+          <span class="turn-time">14:04:41</span>
+        </div>
+      </div>
+
+      <div class="turn-gap"></div>
+
+      <!-- ── TURN 3 — PI final, no tools ── -->
+
+      <div class="turn">
+        <div class="turn-pi" style="padding-top: 8px;">
+          <span class="turn-role role-pi"> PI</span>
+          <span class="turn-text pi-text">
+            Done! The toggle is now right-aligned. The dark mode preference persists in localStorage.
+            <span class="state-pill">&#9679; awaiting input</span>
+          </span>
+          <span class="turn-time">14:04:42</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="overlay-footer">
+      <span class="footer-hint">
+        <span class="key">Esc</span> / <span class="key">l</span>&nbsp; close
+      </span>
+      <div class="footer-stats">
+        <span class="stat">
+          <span class="stat-label">turns</span>
+          <span class="stat-val">4</span>
+        </span>
+        <span class="stat">
+          <span class="stat-label">tools</span>
+          <span class="stat-val">9</span>
+        </span>
+        <span class="stat">
+          <span class="stat-label">elapsed</span>
+          <span class="stat-val">2m 31s</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

@@ -12,7 +12,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
-use vigil_core::{AgentAdapter, AgentKind, Container, ProbeResult, PrStatus, SessionId};
+use vigil_core::{AgentAdapter, AgentKind, Container, LogEvent, ProbeResult, PrStatus, SessionId};
 
 use crate::archive::Archive;
 
@@ -44,7 +44,13 @@ pub enum Overlay {
         container_id: String,
         worktree_path: PathBuf,
         agent: AgentKind,
+        /// Structured turn events (Pi and others with JSONL sessions).
+        events: Vec<LogEvent>,
+        /// Raw log lines fallback (Claude Code debug logs).
         lines: Vec<String>,
+    },
+    SendMessage {
+        buf: String,
     },
 }
 
@@ -80,6 +86,14 @@ impl App {
         self.table_state
             .selected()
             .and_then(|i| self.containers.get(i))
+    }
+
+    pub fn selected_dir(&self) -> Option<&PathBuf> {
+        self.selected().map(|c| &c.worktree_path)
+    }
+
+    pub fn selected_session_id(&self) -> Option<&SessionId> {
+        self.selected().and_then(|c| c.session_id.as_ref())
     }
 
     pub fn overlay_is_none(&self) -> bool {
@@ -123,6 +137,7 @@ impl App {
                 container_id: c.id.clone(),
                 worktree_path: c.worktree_path.clone(),
                 agent: c.agent,
+                events: vec![],
                 lines: vec![],
             };
         }
@@ -271,6 +286,11 @@ async fn event_loop(
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
                         KeyCode::Up | KeyCode::Char('k') => app.prev(),
                         KeyCode::Char('a') => app.cycle_selected_agent(),
+                        KeyCode::Char('i') => {
+                            if app.selected().is_some() {
+                                app.overlay = Overlay::SendMessage { buf: String::new() };
+                            }
+                        }
                         KeyCode::Char('l') => app.open_log_view(),
                         KeyCode::Char('d') => app.open_dismiss_confirm(),
                         KeyCode::Char('u') => app.undo_dismiss(),
@@ -322,6 +342,40 @@ async fn event_loop(
                             app.overlay = Overlay::None;
                         }
                         KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_remove(); }
+                        _ => {}
+                    }
+                } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
+                    match key.code {
+                        KeyCode::Esc => { app.overlay = Overlay::None; }
+                        KeyCode::Backspace => {
+                            if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                                buf.pop();
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let (msg, dir, sid) = if let Overlay::SendMessage { ref buf } = app.overlay {
+                                let msg = buf.clone();
+                                let dir = app.selected_dir().cloned();
+                                let sid = app.selected_session_id().cloned();
+                                (msg, dir, sid)
+                            } else {
+                                unreachable!()
+                            };
+                            app.overlay = Overlay::None;
+                            if let (Some(dir), Some(sid)) = (dir, sid) {
+                                let agent = app.selected().map(|c| c.agent);
+                                if let Some(agent) = agent {
+                                    if let Some(adapter) = adapters.get(&agent) {
+                                        let _ = adapter.send_message(&dir, &sid, &msg).await;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                                buf.push(c);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -416,9 +470,10 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         app.table_state.select(Some(new_sel));
     }
 
-    // Refresh log lines if the log view overlay is open
-    if let Overlay::LogView { worktree_path, agent, lines, .. } = &mut app.overlay {
+    // Refresh log data if the log view overlay is open
+    if let Overlay::LogView { worktree_path, agent, events, lines, .. } = &mut app.overlay {
         if let Some(adapter) = adapters.get(agent) {
+            *events = adapter.recent_log_events(worktree_path).await;
             *lines = adapter.recent_log(worktree_path).await;
         }
     }

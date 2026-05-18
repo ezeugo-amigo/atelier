@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>vigil — log-view-2: Conversation Bubbles</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0f0f0f;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    color: #aaaaaa;
+  }
+
+  .terminal-bg {
+    width: 100%;
+    max-width: 960px;
+    padding: 40px 20px;
+  }
+
+  /* Overlay frame */
+  .overlay {
+    background: #1a1a1a;
+    border: 1px solid #d4a373;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Title bar — double rule style */
+  .overlay-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 14px;
+    border-bottom: 1px solid #d4a373;
+  }
+
+  .title-text {
+    color: #d4a373;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+  }
+
+  .status-awaiting {
+    color: #555555;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .status-dot {
+    color: #e0b870;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  /* Body */
+  .overlay-body {
+    padding: 14px 0 10px;
+    max-height: 500px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #2e2e2e #1a1a1a;
+  }
+
+  .overlay-body::-webkit-scrollbar { width: 5px; }
+  .overlay-body::-webkit-scrollbar-track { background: #1a1a1a; }
+  .overlay-body::-webkit-scrollbar-thumb { background: #2e2e2e; }
+
+  /* ── CHAT BUBBLES ── */
+
+  .exchange {
+    margin-bottom: 4px;
+  }
+
+  /* YOU bubble — left aligned, white text */
+  .bubble-you {
+    padding: 3px 14px;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .bubble-you .prefix {
+    color: #d4a373;
+    flex-shrink: 0;
+    margin-top: 0;
+    font-weight: bold;
+  }
+
+  .bubble-you .body {
+    color: #ffffff;
+  }
+
+  .bubble-you .meta {
+    color: #444444;
+    font-size: 11px;
+    margin-left: auto;
+    padding-left: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: flex-end;
+    padding-bottom: 1px;
+  }
+
+  /* PI bubble — indented, green */
+  .bubble-pi {
+    padding: 3px 14px 3px 14px;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+
+  .bubble-pi .prefix {
+    color: #8fbf73;
+    flex-shrink: 0;
+    font-weight: bold;
+  }
+
+  .bubble-pi .body {
+    color: #8fbf73;
+    opacity: 0.9;
+  }
+
+  .bubble-pi .meta {
+    color: #444444;
+    font-size: 11px;
+    margin-left: auto;
+    padding-left: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: flex-end;
+    padding-bottom: 1px;
+  }
+
+  /* Tool work block — between PI turns */
+  .tool-block {
+    margin: 2px 14px 2px 26px;
+    border-left: 1px solid #2a2a2a;
+    padding: 2px 0 2px 10px;
+    color: #3d3d3d;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .tool-block .tool-line {
+    color: #404040;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .tool-block .tool-pipe {
+    color: #2e2e2e;
+  }
+
+  .tool-block .tool-name {
+    color: #505050;
+  }
+
+  .tool-block .tool-count {
+    color: #404040;
+  }
+
+  .tool-block .tool-time {
+    color: #333333;
+    margin-left: auto;
+    padding-right: 2px;
+    font-size: 11px;
+  }
+
+  /* Divider between exchanges */
+  .exchange-gap {
+    height: 8px;
+  }
+
+  /* Current state indicator at top */
+  .state-bar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 14px 8px;
+    border-bottom: 1px solid #222222;
+    margin-bottom: 4px;
+  }
+
+  .state-bar span {
+    color: #333333;
+    font-size: 11px;
+  }
+
+  /* Footer */
+  .overlay-footer {
+    border-top: 1px solid #232323;
+    padding: 5px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .footer-hint {
+    color: #444444;
+    font-size: 12px;
+  }
+
+  .footer-hint .key {
+    color: #777777;
+    border: 1px solid #333333;
+    padding: 0px 4px;
+    border-radius: 2px;
+    background: #222222;
+  }
+
+  .footer-agent {
+    color: #3a3a3a;
+    font-size: 11px;
+  }
+
+  .awaiting-final {
+    display: inline-block;
+    color: #555555;
+    font-size: 11px;
+    background: #202020;
+    border: 1px solid #2a2a2a;
+    padding: 1px 6px;
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="terminal-bg">
+  <div class="overlay">
+
+    <!-- Title bar -->
+    <div class="overlay-title">
+      <span class="title-text"> eleve/add-dark-mode &mdash; log </span>
+      <span class="status-awaiting">
+        <span class="status-dot">●</span> awaiting
+      </span>
+    </div>
+
+    <!-- Body -->
+    <div class="overlay-body">
+
+      <!-- Exchange 1 -->
+      <div class="exchange">
+
+        <div class="bubble-you">
+          <span class="prefix">&#9656; YOU</span>
+          <span class="body">can you add dark mode support to the settings page</span>
+          <span class="meta">14:02:11</span>
+        </div>
+
+        <div class="bubble-pi">
+          <span class="prefix">&nbsp;&nbsp; PI</span>
+          <span class="body">I'll start by reading the current settings component and understanding the styling approach.</span>
+          <span class="meta">14:02:12</span>
+        </div>
+
+        <div class="tool-block">
+          <div class="tool-line">
+            <span class="tool-pipe">&#9478;</span>
+            <span class="tool-name">read</span>
+            <span class="tool-count">&times; 3,</span>
+            <span class="tool-name">bash</span>
+            <span class="tool-count">&times; 2,</span>
+            <span class="tool-name">edit</span>
+            <span class="tool-count">&times; 2</span>
+            <span class="tool-time">3.2s</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="exchange-gap"></div>
+
+      <!-- Exchange 2 -->
+      <div class="exchange">
+
+        <div class="bubble-you">
+          <span class="prefix">&#9656; YOU</span>
+          <span class="body">looks good but the toggle should be on the right side</span>
+          <span class="meta">14:04:39</span>
+        </div>
+
+        <div class="bubble-pi">
+          <span class="prefix">&nbsp;&nbsp; PI</span>
+          <span class="body">I'll adjust the toggle position.</span>
+          <span class="meta">14:04:40</span>
+        </div>
+
+        <div class="tool-block">
+          <div class="tool-line">
+            <span class="tool-pipe">&#9478;</span>
+            <span class="tool-name">edit</span>
+            <span class="tool-count">&times; 2</span>
+            <span class="tool-time">0.8s</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="exchange-gap"></div>
+
+      <!-- PI final -->
+      <div class="exchange">
+        <div class="bubble-pi">
+          <span class="prefix">&nbsp;&nbsp; PI</span>
+          <span class="body">Done! The toggle is now right-aligned. The dark mode preference persists in localStorage.<span class="awaiting-final">awaiting input</span></span>
+          <span class="meta">14:04:42</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="overlay-footer">
+      <span class="footer-hint">
+        <span class="key">Esc</span> / <span class="key">l</span>&nbsp; close
+      </span>
+      <span class="footer-agent">Pi agent &nbsp;·&nbsp; 4 turns &nbsp;·&nbsp; 9 tools</span>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

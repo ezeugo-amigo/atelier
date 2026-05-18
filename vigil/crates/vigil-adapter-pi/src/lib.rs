@@ -11,7 +11,7 @@ pub mod classifier;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, ProbeResult, SessionId};
+use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolKind};
 
 pub struct PiAdapter;
 
@@ -64,6 +64,13 @@ impl AgentAdapter for PiAdapter {
                 format_message(&val)
             })
             .collect()
+    }
+
+    async fn recent_log_events(&self, dir: &Path) -> Vec<LogEvent> {
+        let session_dir = sessions_dir().join(encode_path(dir));
+        let Some(latest) = find_latest(&session_dir) else { return vec![]; };
+        let Ok(content) = tokio::fs::read_to_string(&latest).await else { return vec![]; };
+        parse_conversation_events(&content)
     }
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
@@ -124,6 +131,106 @@ fn last_user_message(content: &str) -> Option<String> {
                 .and_then(|c| c["text"].as_str())
                 .map(|s| s.chars().take(120).collect())
         })
+}
+
+// ── Structured conversation events (for timeline log-view) ───────────────────
+
+/// Parse a Pi session JSONL into structured `LogEvent`s grouped by turn.
+///
+/// A turn is: UserMessage → zero or more ToolGroup entries → AgentMessage.
+/// In-progress turns (user sent, agent still working) are flushed as partial.
+fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
+    use std::collections::HashMap;
+
+    let mut events: Vec<LogEvent> = Vec::new();
+    // Pending state for the current turn being built.
+    let mut pending_user: Option<(String, Option<String>)> = None;
+    let mut pending_tools: HashMap<String, u32> = HashMap::new();
+
+    for line in content.lines() {
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let time = val["timestamp"].as_str()
+            .and_then(|ts| ts.get(11..19))
+            .map(str::to_string);
+        let msg = &val["message"];
+
+        match msg["role"].as_str() {
+            Some("user") => {
+                // Start of a new turn: flush any previous incomplete turn.
+                flush_pending_turn(&mut events, &mut pending_user, &mut pending_tools);
+                let text: String = msg["content"].as_array()
+                    .and_then(|a| a.iter().find(|c| c["type"] == "text"))
+                    .and_then(|c| c["text"].as_str())
+                    .unwrap_or("")
+                    .chars().take(200).collect();
+                pending_user = Some((text, time));
+            }
+            Some("assistant") => {
+                let content_arr = msg["content"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                let last_type = content_arr.last().and_then(|c| c["type"].as_str());
+
+                if last_type == Some("toolCall") {
+                    // Accumulate all toolCall items in this message.
+                    for item in content_arr {
+                        if item["type"] == "toolCall" {
+                            let name = item["name"].as_str().unwrap_or("?").to_string();
+                            *pending_tools.entry(name).or_insert(0) += 1;
+                        }
+                    }
+                } else {
+                    // Final text response — emit the completed turn.
+                    let text: String = content_arr.iter()
+                        .find(|c| c["type"] == "text")
+                        .and_then(|c| c["text"].as_str())
+                        .unwrap_or("")
+                        .chars().take(200).collect();
+
+                    if let Some((user_text, user_time)) = pending_user.take() {
+                        events.push(LogEvent::UserMessage { text: user_text, time: user_time });
+                    }
+                    emit_tool_group(&mut events, &mut pending_tools);
+                    events.push(LogEvent::AgentMessage { text, time });
+                }
+            }
+            // toolResult messages are metadata; the tool name is already captured from toolCall.
+            _ => {}
+        }
+    }
+
+    // Flush any in-progress turn at end of file.
+    flush_pending_turn(&mut events, &mut pending_user, &mut pending_tools);
+
+    events
+}
+
+fn flush_pending_turn(
+    events: &mut Vec<LogEvent>,
+    pending_user: &mut Option<(String, Option<String>)>,
+    pending_tools: &mut std::collections::HashMap<String, u32>,
+) {
+    if let Some((text, time)) = pending_user.take() {
+        events.push(LogEvent::UserMessage { text, time });
+    }
+    emit_tool_group(events, pending_tools);
+}
+
+fn emit_tool_group(events: &mut Vec<LogEvent>, pending_tools: &mut std::collections::HashMap<String, u32>) {
+    if pending_tools.is_empty() { return; }
+    // Merge by ToolKind so that e.g. "read" and "readfile" collapse together.
+    let mut kind_map: std::collections::HashMap<ToolKind, u32> = std::collections::HashMap::new();
+    for (name, count) in pending_tools.drain() {
+        let kind = ToolKind::from_name(&name);
+        *kind_map.entry(kind).or_insert(0) += count;
+    }
+    // Stable order: Read, Bash, Edit, Other.
+    let mut tools: Vec<(ToolKind, u32)> = kind_map.into_iter().collect();
+    tools.sort_by_key(|(k, _)| match k {
+        ToolKind::Read => 0,
+        ToolKind::Bash => 1,
+        ToolKind::Edit => 2,
+        ToolKind::Other(_) => 3,
+    });
+    events.push(LogEvent::ToolGroup { tools });
 }
 
 // ── Message formatting (for log overlay) ─────────────────────────────────────

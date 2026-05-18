@@ -11,4 +11,7 @@ pub enum VigilError {
 
     #[error("process probe failed: {0}")]
     ProcessProbe(String),
+
+    #[error("not supported: {0}")]
+    NotSupported(String),
 }
