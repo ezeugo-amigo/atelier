@@ -77,6 +77,37 @@ impl AgentAdapter for ClaudeCodeAdapter {
         }
     }
 
+    async fn recent_log(&self, dir: &Path) -> Vec<String> {
+        let history_map = if self.history_path.exists() {
+            history::load_history(&self.history_path).await.unwrap_or_default()
+        } else {
+            return vec![];
+        };
+        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
+            return vec![];
+        };
+        let path = self.session_path(session_id);
+        let log = match log_parser::read_log_tail(&path, 100).await {
+            Ok(l) => l,
+            Err(_) => return vec![],
+        };
+        log.tail.iter().map(|l| {
+            let ts = l.timestamp.format("%H:%M:%S").to_string();
+            let level = match l.level {
+                vigil_core::LogLevel::Debug => "DBG",
+                vigil_core::LogLevel::Info  => "INF",
+                vigil_core::LogLevel::Warn  => "WRN",
+                vigil_core::LogLevel::Error => "ERR",
+            };
+            let comp = l.component.as_deref().unwrap_or("");
+            if comp.is_empty() {
+                format!("{ts} {level}  {}", l.message)
+            } else {
+                format!("{ts} {level}  [{comp}] {}", l.message)
+            }
+        }).collect()
+    }
+
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--resume").arg(&session_id.0);

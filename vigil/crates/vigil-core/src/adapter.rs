@@ -34,4 +34,8 @@ pub trait AgentAdapter: Send + Sync {
 
     /// Build a command to launch a fresh agent session in `dir`.
     fn launch_command(&self, dir: &Path) -> std::process::Command;
+
+    /// Return the most recent log lines for the session in `dir`, formatted for display.
+    /// Each string is one line. Returns empty if the agent has no log to show.
+    async fn recent_log(&self, _dir: &Path) -> Vec<String> { vec![] }
 }

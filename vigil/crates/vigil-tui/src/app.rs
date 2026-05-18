@@ -39,6 +39,12 @@ pub enum Overlay {
     RemoveConfirm {
         entry: WorktreeEntry,
     },
+    LogView {
+        container_id: String,
+        worktree_path: PathBuf,
+        agent: AgentKind,
+        lines: Vec<String>,
+    },
 }
 
 pub struct App {
@@ -90,6 +96,17 @@ impl App {
     fn prev(&mut self) {
         let i = self.table_state.selected().unwrap_or(0);
         self.table_state.select(Some(i.saturating_sub(1)));
+    }
+
+    pub fn open_log_view(&mut self) {
+        if let Some(c) = self.selected() {
+            self.overlay = Overlay::LogView {
+                container_id: c.id.clone(),
+                worktree_path: c.worktree_path.clone(),
+                agent: c.agent,
+                lines: vec![],
+            };
+        }
     }
 
     fn open_dismiss_confirm(&mut self) {
@@ -234,6 +251,7 @@ async fn event_loop(
                         KeyCode::Char('q') | KeyCode::Esc => break,
                         KeyCode::Down | KeyCode::Char('j') => app.next(),
                         KeyCode::Up | KeyCode::Char('k') => app.prev(),
+                        KeyCode::Char('l') => app.open_log_view(),
                         KeyCode::Char('d') => app.open_dismiss_confirm(),
                         KeyCode::Char('u') => app.undo_dismiss(),
                         KeyCode::Char('W') => app.open_new_worktree(),
@@ -261,6 +279,13 @@ async fn event_loop(
                             }
                         }
                         KeyCode::Char(c) => { app.wt_name_push(c); }
+                        _ => {}
+                    }
+                } else if matches!(app.overlay, Overlay::LogView { .. }) {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
+                            app.overlay = Overlay::None;
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::DismissConfirm { .. }) {
@@ -348,6 +373,13 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         app.table_state.select(None);
     } else {
         app.table_state.select(Some(new_sel));
+    }
+
+    // Refresh log lines if the log view overlay is open
+    if let Overlay::LogView { worktree_path, agent, lines, .. } = &mut app.overlay {
+        if let Some(adapter) = adapters.get(agent) {
+            *lines = adapter.recent_log(worktree_path).await;
+        }
     }
 
     app.last_refresh = Instant::now();

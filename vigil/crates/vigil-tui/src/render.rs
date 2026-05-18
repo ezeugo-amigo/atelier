@@ -54,6 +54,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::RemoveConfirm { entry } => {
             draw_remove_confirm_overlay(f, area, &entry.id, &entry.worktree_path);
         }
+        Overlay::LogView { container_id, lines, .. } => {
+            draw_log_view_overlay(f, area, container_id, lines);
+        }
     }
 }
 
@@ -177,6 +180,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(" navigate  "),
         Span::styled("↵", Style::default().fg(DIM)),
         Span::raw(" attach/launch  "),
+        Span::styled("l", Style::default().fg(DIM)),
+        Span::raw(" log  "),
         Span::styled("d", Style::default().fg(DIM)),
         Span::raw(" dismiss  "),
         Span::styled("u", Style::default().fg(DIM)),
@@ -268,6 +273,64 @@ fn draw_new_worktree_overlay(
     ];
 
     f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_log_view_overlay(f: &mut Frame, area: Rect, container_id: &str, lines: &[String]) {
+    let popup = centered_rect(92, area.height.saturating_sub(4), area);
+    f.render_widget(Clear, popup);
+
+    let title = format!(" {} — log ", container_id);
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    // Footer hint
+    let [content, hint_area] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ]).areas(inner);
+
+    f.render_widget(
+        Line::from(vec![
+            Span::styled("Esc / l", Style::default().fg(DIM)),
+            Span::raw(" close"),
+        ]),
+        hint_area,
+    );
+
+    if lines.is_empty() {
+        f.render_widget(
+            Paragraph::new("  no log data available").style(Style::default().fg(DIM)),
+            content,
+        );
+        return;
+    }
+
+    // Show the last lines that fit in the content area
+    let max_lines = content.height as usize;
+    let display: Vec<Line> = lines.iter()
+        .rev()
+        .take(max_lines)
+        .rev()
+        .map(|s| {
+            // Colour the level tag
+            let style = if s.contains(" ERR ") {
+                Style::default().fg(RED)
+            } else if s.contains(" WRN ") {
+                Style::default().fg(GOLD)
+            } else if s.contains(" INF ") {
+                Style::default().fg(Color::White)
+            } else {
+                Style::default().fg(DIM)
+            };
+            Line::from(Span::styled(format!(" {s}"), style))
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(display), content);
 }
 
 fn draw_dismiss_confirm_overlay(f: &mut Frame, area: Rect, container_id: &str) {
