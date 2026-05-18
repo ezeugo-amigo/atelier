@@ -6,4 +6,4 @@ pub mod types;
 pub use adapter::{AgentAdapter, ProbeResult};
 pub use error::VigilError;
 pub use log::{FsSignals, LogLevel, LogLine, SessionLog};
-pub use types::{AgentKind, Container, SessionId, SessionState};
+pub use types::{AgentKind, Container, PrStatus, SessionId, SessionState};

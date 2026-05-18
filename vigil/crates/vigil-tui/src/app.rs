@@ -12,12 +12,13 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
-use vigil_core::{AgentAdapter, AgentKind, Container, ProbeResult, SessionId};
+use vigil_core::{AgentAdapter, AgentKind, Container, ProbeResult, PrStatus, SessionId};
 
 use crate::archive::Archive;
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
+const PR_REFRESH: Duration = Duration::from_secs(60);
 
 const AGENTS: [AgentKind; 4] = [
     AgentKind::ClaudeCode,
@@ -55,6 +56,8 @@ pub struct App {
     pub registry: Option<Registry>,
     last_refresh: Instant,
     last_dismissed: Option<Container>,
+    /// Cache of PR status per container id, with the time it was last fetched.
+    pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
 }
 
 impl App {
@@ -69,6 +72,7 @@ impl App {
             registry: Registry::load().ok(),
             last_refresh: Instant::now(),
             last_dismissed: None,
+            pr_cache: HashMap::new(),
         }
     }
 
@@ -362,8 +366,28 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     let selected_id = app.selected().map(|c| c.id.clone());
     let mut containers = Vec::with_capacity(entries.len());
 
+    // Spawn stale PR probes in parallel
+    let mut pr_handles: Vec<(String, _)> = Vec::new();
+    for entry in &entries {
+        let cached = app.pr_cache.get(&entry.id);
+        let stale = cached.map_or(true, |(_, t)| t.elapsed() >= PR_REFRESH);
+        if stale {
+            let repo_root = entry.repo_root.clone();
+            let branch = entry.branch.clone();
+            let id = entry.id.clone();
+            pr_handles.push((id, tokio::spawn(async move {
+                probe_pr(&repo_root, &branch).await
+            })));
+        }
+    }
+    for (id, handle) in pr_handles {
+        let status = handle.await.unwrap_or(None);
+        app.pr_cache.insert(id, (status, Instant::now()));
+    }
+
     for (entry, handle) in entries.iter().zip(handles) {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
+        let pr_status = app.pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
         containers.push(Container {
             id: entry.id.clone(),
             worktree_path: entry.worktree_path.clone(),
@@ -375,6 +399,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             session_id: probe.session_id,
             last_activity: probe.last_activity,
             last_user_message: probe.last_user_message,
+            pr_status,
         });
     }
 
@@ -399,6 +424,33 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     }
 
     app.last_refresh = Instant::now();
+}
+
+/// Query `gh pr view` to get PR status for a branch. Returns None if gh is unavailable.
+async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus> {
+    let output = tokio::process::Command::new("gh")
+        .args(["pr", "view", branch, "--json", "state,mergeStateStatus"])
+        .current_dir(repo_root)
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return Some(PrStatus::NoPr);
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    match json["state"].as_str()? {
+        "MERGED" => Some(PrStatus::Merged),
+        "OPEN" => {
+            if json["mergeStateStatus"].as_str() == Some("CLEAN") {
+                Some(PrStatus::ReadyToMerge)
+            } else {
+                Some(PrStatus::InProgress)
+            }
+        }
+        _ => Some(PrStatus::NoPr),
+    }
 }
 
 /// Attach to an existing session if `session_id` is Some, otherwise launch fresh.

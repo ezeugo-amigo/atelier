@@ -48,6 +48,19 @@ impl SessionState {
     }
 }
 
+/// PR / branch status as seen by the GitHub CLI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrStatus {
+    /// No open or merged PR found for this branch.
+    NoPr,
+    /// PR is open but not yet ready to merge (CI running, changes requested, etc.)
+    InProgress,
+    /// PR is open and the merge state is clean (CI green, approvals met).
+    ReadyToMerge,
+    /// PR has been merged.
+    Merged,
+}
+
 /// The primary entity: a registered worktree that may or may not have an active agent session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
@@ -65,4 +78,6 @@ pub struct Container {
     pub last_activity: Option<DateTime<Utc>>,
     /// Most recent user message visible to the agent, if any.
     pub last_user_message: Option<String>,
+    /// PR status for this container's branch, if known.
+    pub pr_status: Option<PrStatus>,
 }

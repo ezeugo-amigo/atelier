@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame,
 };
-use vigil_core::SessionState;
+use vigil_core::{PrStatus, SessionState};
 
 use crate::app::{App, Overlay};
 
@@ -14,6 +14,7 @@ const RED: Color = Color::Rgb(217, 119, 87);
 const GOLD: Color = Color::Rgb(224, 184, 112);
 const GREEN: Color = Color::Rgb(143, 191, 115);
 const ACCENT: Color = Color::Rgb(212, 163, 115);
+const PURPLE: Color = Color::Rgb(167, 139, 250);
 const DIM: Color = Color::DarkGray;
 
 const AGENT_LABELS: [&str; 4] = ["Claude", "Codex", "Pi", "OpenCode"];
@@ -139,11 +140,14 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(" ")
             };
 
+            let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
+
             Row::new(vec![
                 bar,
                 Cell::from(Span::styled(dot, dot_style)),
                 Cell::from(state_str),
                 Cell::from(c.id.clone()),
+                Cell::from(Span::styled(pr_icon, pr_style)),
                 Cell::from(project),
                 Cell::from(age),
                 Cell::from(msg),
@@ -157,12 +161,13 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(2),  // dot
         Constraint::Length(20), // state
         Constraint::Length(20), // container id / branch name
+        Constraint::Length(3),  // pr status
         Constraint::Length(26), // path
         Constraint::Length(6),  // age
         Constraint::Fill(1),    // message
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "PATH", "AGE", "LAST MESSAGE"])
+    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "PATH", "AGE", "LAST MESSAGE"])
         .style(Style::default().fg(DIM).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
@@ -417,6 +422,15 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
         y: r.y + (r.height.saturating_sub(height)) / 2,
         width: popup_width.min(r.width),
         height: height.min(r.height),
+    }
+}
+
+fn pr_dot(status: Option<&PrStatus>) -> (&'static str, Style) {
+    match status {
+        None | Some(PrStatus::NoPr) => ("  ", Style::default()),
+        Some(PrStatus::InProgress)   => ("◯ ", Style::default().fg(GOLD)),
+        Some(PrStatus::ReadyToMerge) => ("◉ ", Style::default().fg(GREEN)),
+        Some(PrStatus::Merged)       => ("● ", Style::default().fg(PURPLE)),
     }
 }
 
