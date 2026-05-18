@@ -1186,6 +1186,8 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "directories",
+ "serde_json",
  "tokio",
  "tracing",
  "vigil-core",

@@ -8,8 +8,10 @@ repository.workspace = true
 description = "Pi adapter for Vigil."
 
 [dependencies]
-vigil-core  = { path = "../vigil-core" }
-async-trait = { workspace = true }
-tokio       = { workspace = true }
-tracing     = { workspace = true }
-chrono      = { workspace = true }
+vigil-core   = { path = "../vigil-core" }
+async-trait  = { workspace = true }
+tokio        = { workspace = true }
+tracing      = { workspace = true }
+chrono       = { workspace = true }
+serde_json   = { workspace = true }
+directories  = { workspace = true }
