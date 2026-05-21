@@ -150,6 +150,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions");
         cmd.arg("--resume").arg(&session_id.0);
         cmd.env_remove("CLAUDECODE");
         cmd.current_dir(dir);
@@ -158,6 +159,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     fn launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions");
         cmd.current_dir(dir);
         cmd
     }
@@ -173,6 +175,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
         // internal child process. Resume the conversation in print mode instead,
         // matching the Pi adapter's fire-and-forget behavior.
         tokio::process::Command::new("claude")
+            .arg("--dangerously-skip-permissions")
             .arg("--resume").arg(&session_id.0)
             .arg("--print").arg(msg)
             .env_remove("CLAUDECODE")
