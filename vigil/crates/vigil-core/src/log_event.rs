@@ -35,7 +35,7 @@ impl ToolKind {
 #[derive(Debug, Clone)]
 pub enum LogEvent {
     UserMessage { text: String, time: Option<String> },
-    AgentMessage { text: String, time: Option<String> },
+    AgentMessage { text: String, time: Option<String>, label: String },
     /// Tool calls condensed between turns: kind → count.
     ToolGroup { tools: Vec<(ToolKind, u32)> },
 }

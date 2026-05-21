@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, FsSignals, ProbeResult, SessionId, VigilError};
+use vigil_core::{AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError};
 
-use crate::{classifier, history, log_parser, process};
+use crate::{classifier, history, log_parser, process, session_parser};
 
 #[derive(Clone)]
 pub struct ClaudeCodeAdapter {
     debug_dir: PathBuf,
+    projects_dir: PathBuf,
     history_path: PathBuf,
 }
 
@@ -19,17 +20,37 @@ impl ClaudeCodeAdapter {
         let claude_dir = base.home_dir().join(".claude");
         Ok(Self {
             debug_dir: claude_dir.join("debug"),
+            projects_dir: claude_dir.join("projects"),
             history_path: claude_dir.join("history.jsonl"),
         })
     }
 
     pub fn with_paths(debug_dir: PathBuf, history_path: PathBuf) -> Self {
-        Self { debug_dir, history_path }
+        let projects_dir = debug_dir.parent()
+            .unwrap_or(&debug_dir)
+            .join("projects");
+        Self { debug_dir, projects_dir, history_path }
     }
 
     fn session_path(&self, id: &SessionId) -> PathBuf {
         self.debug_dir.join(format!("{}.txt", id.0))
     }
+}
+
+/// Scan `projects_dir` for `{session_id}.jsonl` in any immediate subdirectory.
+async fn find_session_jsonl(projects_dir: &Path, session_id: &SessionId) -> Option<PathBuf> {
+    let filename = format!("{}.jsonl", session_id.0);
+    let mut dir = tokio::fs::read_dir(projects_dir).await.ok()?;
+    while let Ok(Some(entry)) = dir.next_entry().await {
+        if !entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let candidate = entry.path().join(&filename);
+        if tokio::fs::metadata(&candidate).await.is_ok() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 #[async_trait::async_trait]
@@ -77,6 +98,25 @@ impl AgentAdapter for ClaudeCodeAdapter {
         }
     }
 
+    async fn recent_log_events(&self, dir: &Path) -> Vec<LogEvent> {
+        let history_map = if self.history_path.exists() {
+            history::load_history(&self.history_path).await.unwrap_or_default()
+        } else {
+            return vec![];
+        };
+        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
+            return vec![];
+        };
+        let Some(jsonl_path) = find_session_jsonl(&self.projects_dir, session_id).await else {
+            return vec![];
+        };
+        let content = match tokio::fs::read_to_string(&jsonl_path).await {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+        session_parser::parse_session_jsonl(&content)
+    }
+
     async fn recent_log(&self, dir: &Path) -> Vec<String> {
         let history_map = if self.history_path.exists() {
             history::load_history(&self.history_path).await.unwrap_or_default()
@@ -110,6 +150,8 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions");
+        cmd.arg("--debug");
         cmd.arg("--resume").arg(&session_id.0);
         cmd.env_remove("CLAUDECODE");
         cmd.current_dir(dir);
@@ -118,6 +160,8 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     fn launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions");
+        cmd.arg("--debug");
         cmd.current_dir(dir);
         cmd
     }
@@ -125,21 +169,25 @@ impl AgentAdapter for ClaudeCodeAdapter {
     async fn send_message(
         &self,
         dir: &Path,
-        _session_id: &SessionId,
+        session_id: &SessionId,
         msg: &str,
     ) -> Result<(), VigilError> {
-        let history_map = history::load_history(&self.history_path).await?;
-        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
-            return Err(VigilError::NotSupported("no session found for directory".into()));
-        };
-        let log_path = self.session_path(session_id);
-
-        let pids = vigil_core::process::get_pids_holding_file(&log_path).await;
-        let pid = pids
-            .first()
-            .copied()
-            .ok_or_else(|| VigilError::NotSupported("no process holds session file".into()))?;
-
-        vigil_core::process::send_to_tty(pid, msg).await
+        // Do not try to type into an existing Claude TTY. In Vigil there often is no
+        // attached interactive TTY, and the process holding the debug log may be an
+        // internal child process. Resume the conversation in print mode instead,
+        // matching the Pi adapter's fire-and-forget behavior.
+        tokio::process::Command::new("claude")
+            .arg("--dangerously-skip-permissions")
+            .arg("--debug")
+            .arg("--resume").arg(&session_id.0)
+            .arg("--print").arg(msg)
+            .env_remove("CLAUDECODE")
+            .current_dir(dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
+        Ok(())
     }
 }

@@ -3,7 +3,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use uuid::Uuid;
@@ -365,16 +365,19 @@ pub fn submit_review(session_id: &str, payload: SubmitPayload) -> Result<SubmitR
         })),
     };
 
+    let content = match payload.format {
+        OutputFormat::Markdown => export_markdown(&session, &payload.summary, &payload.comments),
+        OutputFormat::Json => serde_json::to_string_pretty(&payload)?,
+    };
+
     if let Some(path) = &output_path {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
         }
-        let content = match payload.format {
-            OutputFormat::Markdown => export_markdown(&session, &payload.summary, &payload.comments),
-            OutputFormat::Json => serde_json::to_string_pretty(&payload)?,
-        };
-        fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
+        fs::write(path, &content).with_context(|| format!("failed to write {}", path.display()))?;
     }
+
+    copy_text_to_clipboard(&content).context("failed to copy submitted review to clipboard")?;
 
     let result = SubmitResult {
         schema_version: "1.0".to_string(),
@@ -388,6 +391,76 @@ pub fn submit_review(session_id: &str, payload: SubmitPayload) -> Result<SubmitR
     fs::write(&result.result_path, serde_json::to_string_pretty(&result)?)
         .with_context(|| format!("failed to write {}", result.result_path.display()))?;
     Ok(result)
+}
+
+pub fn copy_text_to_clipboard(text: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        return run_clipboard_command("pbcopy", &[], text);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return run_clipboard_command(
+            "powershell.exe",
+            &["-NoProfile", "-Command", "Set-Clipboard"],
+            text,
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let commands: [(&str, &[&str]); 3] = [
+            ("wl-copy", &[]),
+            ("xclip", &["-selection", "clipboard"]),
+            ("xsel", &["--clipboard", "--input"]),
+        ];
+        let mut errors = Vec::new();
+        for (program, args) in commands {
+            match run_clipboard_command(program, args, text) {
+                Ok(()) => return Ok(()),
+                Err(error) => errors.push(format!("{program}: {error:#}")),
+            }
+        }
+        return Err(anyhow!(
+            "no clipboard command succeeded; tried wl-copy, xclip, and xsel ({})",
+            errors.join("; ")
+        ));
+    }
+
+    #[allow(unreachable_code)]
+    Err(anyhow!("clipboard copy is not supported on this platform"))
+}
+
+fn run_clipboard_command(program: &str, args: &[&str], text: &str) -> Result<()> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to start {program}"))?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| anyhow!("failed to open stdin for {program}"))?;
+        stdin
+            .write_all(text.as_bytes())
+            .with_context(|| format!("failed to write clipboard text to {program}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .with_context(|| format!("failed to wait for {program}"))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "{program} exited with status {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
 }
 
 pub fn cancel_review(session_id: &str) -> Result<()> {

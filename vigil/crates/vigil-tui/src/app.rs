@@ -27,6 +27,24 @@ const AGENTS: [AgentKind; 4] = [
     AgentKind::OpenCode,
 ];
 
+fn vigil_worktrees_prefix() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        "/.vigil/worktrees/".to_string()
+    } else {
+        format!("{home}/.vigil/worktrees/")
+    }
+}
+
+fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
+    let full = c.worktree_path.display().to_string();
+    if let Some(rest) = full.strip_prefix(vigil_wt) {
+        rest.split('/').next().unwrap_or("?").to_string()
+    } else {
+        c.repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+    }
+}
+
 pub enum Overlay {
     None,
     NewWorktree {
@@ -48,6 +66,8 @@ pub enum Overlay {
         events: Vec<LogEvent>,
         /// Raw log lines fallback (Claude Code debug logs).
         lines: Vec<String>,
+        /// Number of rendered lines scrolled up from the live bottom of the log.
+        scroll: usize,
     },
     SendMessage {
         buf: String,
@@ -75,6 +95,9 @@ pub struct App {
     log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
+    /// Last message sent via the SendMessage overlay, keyed by container id.
+    /// Persists across refresh() cycles since history.jsonl isn't updated by --print mode.
+    last_sent: HashMap<String, String>,
 }
 
 impl App {
@@ -92,6 +115,7 @@ impl App {
             log_cache: HashMap::new(),
             pr_cache: HashMap::new(),
             scan_rx: None,
+            last_sent: HashMap::new(),
         }
     }
 
@@ -153,6 +177,7 @@ impl App {
                 agent: c.agent,
                 events,
                 lines,
+                scroll: 0,
             };
         }
     }
@@ -358,6 +383,16 @@ async fn event_loop(
                         KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
                             app.overlay = Overlay::None;
                         }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                *scroll = scroll.saturating_add(3);
+                            }
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                *scroll = scroll.saturating_sub(3);
+                            }
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::DismissConfirm { .. }) {
@@ -442,6 +477,7 @@ async fn event_loop(
                             } else {
                                 unreachable!()
                             };
+                            let container_id = app.selected().map(|c| c.id.clone());
                             app.overlay = Overlay::None;
                             if let (Some(dir), Some(sid)) = (dir, sid) {
                                 let agent = app.selected().map(|c| c.agent);
@@ -449,6 +485,14 @@ async fn event_loop(
                                     if let Some(adapter) = adapters.get(&agent) {
                                         let _ = adapter.send_message(&dir, &sid, &msg).await;
                                     }
+                                }
+                            }
+                            // Persist the sent message so refresh() can apply it every tick.
+                            // history.jsonl is not updated by --print mode, so the probe would
+                            // otherwise revert the display to the previous message.
+                            if !msg.is_empty() {
+                                if let Some(id) = container_id {
+                                    app.last_sent.insert(id, msg);
                                 }
                             }
                         }
@@ -533,9 +577,26 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             state: probe.state,
             session_id: probe.session_id,
             last_activity: probe.last_activity,
-            last_user_message: probe.last_user_message,
+            last_user_message: app.last_sent
+                .get(&entry.id)
+                .cloned()
+                .or(probe.last_user_message),
             pr_status,
         });
+    }
+
+    // Sort containers to match the visual grouping in render.rs (by repo, preserving
+    // first-seen order). Without this, j/k navigates in registry creation order rather
+    // than the order rows actually appear on screen.
+    {
+        let vigil_wt = vigil_worktrees_prefix();
+        let mut group_index: HashMap<String, usize> = HashMap::new();
+        for c in &containers {
+            let g = container_repo_group(c, &vigil_wt);
+            let next = group_index.len();
+            group_index.entry(g).or_insert(next);
+        }
+        containers.sort_by_key(|c| group_index[&container_repo_group(c, &vigil_wt)]);
     }
 
     app.containers = containers;
@@ -574,13 +635,19 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     }
 
     // Keep LogView in sync while it's open.
-    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, .. } = &mut app.overlay {
+    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, scroll } = &mut app.overlay {
         if let Some((cached_events, cached_lines)) = app.log_cache.get(container_id) {
             *events = cached_events.clone();
             *lines = cached_lines.clone();
+            if events.is_empty() && lines.is_empty() {
+                *scroll = 0;
+            }
         } else if let Some(adapter) = adapters.get(agent) {
             *events = adapter.recent_log_events(worktree_path).await;
             *lines = adapter.recent_log(worktree_path).await;
+            if events.is_empty() && lines.is_empty() {
+                *scroll = 0;
+            }
         }
     }
 
