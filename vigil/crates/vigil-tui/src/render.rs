@@ -134,12 +134,16 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
     for repo in &group_order {
         let indices = &groups[repo];
 
-        // Separator row — fill each cell with dashes, repo name in state column.
-        let state_cell = format!("── {repo} {}", "─".repeat(20_usize.saturating_sub(repo.len() + 4).max(2)));
+        // Separator row — repo name in white, dashes in dim.
+        let dashes = 20_usize.saturating_sub(repo.len() + 4).max(2);
         rows.push(Row::new(vec![
+            Cell::from(Span::styled("──",                        Style::default().fg(DIM))),
             Cell::from(""),
-            Cell::from(""),
-            Cell::from(Span::styled(state_cell,       Style::default().fg(DIM))),
+            Cell::from(Line::from(vec![
+                Span::styled(" ".to_string(),                    Style::default()),
+                Span::styled(repo.clone(),                       Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {}", "─".repeat(dashes)), Style::default().fg(DIM)),
+            ])),
             Cell::from(Span::styled("─".repeat(20),   Style::default().fg(DIM))),
             Cell::from(Span::styled("───",            Style::default().fg(DIM))),
             Cell::from(Span::styled("─".repeat(26),   Style::default().fg(DIM))),
