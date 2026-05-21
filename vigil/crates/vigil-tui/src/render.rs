@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame,
 };
-use vigil_core::{LogEvent, PrStatus, SessionState, ToolKind};
+use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
 
 use crate::app::{App, Overlay};
 
@@ -19,11 +19,14 @@ const DIM: Color = Color::DarkGray;
 const MUTED: Color = Color::Rgb(120, 112, 104);
 
 const AGENT_LABELS: [&str; 4] = ["Claude", "Codex", "Pi", "OpenCode"];
+const APP_MAX_WIDTH: u16 = 144;
+const APP_MIN_WIDTH: u16 = 88;
+const APP_HORIZONTAL_PADDING: u16 = 4;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    let inner = area.inner(Margin { horizontal: 2, vertical: 1 });
+    let inner = app_content_rect(area);
 
     let [header, table, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -149,6 +152,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             Cell::from(Span::styled("─".repeat(26),   Style::default().fg(DIM))),
             Cell::from(Span::styled("──────",         Style::default().fg(DIM))),
             Cell::from(Span::styled("─".repeat(50),   Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(10),   Style::default().fg(DIM))),
         ]));
 
         for &i in indices {
@@ -193,6 +197,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 Cell::from(" ")
             };
+            let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
 
             rows.push(Row::new(vec![
@@ -204,6 +209,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(branch),
                 Cell::from(age),
                 Cell::from(msg),
+                Cell::from(Span::styled(agent_text, agent_style)),
             ]).style(row_style));
         }
     }
@@ -225,9 +231,10 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(26),
         Constraint::Length(6),
         Constraint::Fill(1),
+        Constraint::Length(10),
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE"])
+    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE", "AGENT"])
         .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
@@ -734,6 +741,20 @@ fn draw_project_picker_overlay(
     );
 }
 
+fn app_content_rect(area: Rect) -> Rect {
+    let inner = area.inner(Margin { horizontal: 0, vertical: 1 });
+    let padding = APP_HORIZONTAL_PADDING.min(inner.width.saturating_sub(APP_MIN_WIDTH) / 2);
+    let padded = inner.inner(Margin { horizontal: padding, vertical: 0 });
+    let width = padded.width.min(APP_MAX_WIDTH);
+
+    Rect {
+        x: padded.x + (padded.width.saturating_sub(width)) / 2,
+        y: padded.y,
+        width,
+        height: padded.height,
+    }
+}
+
 fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
     let popup_width = (r.width * percent_w / 100).max(1);
     Rect {
@@ -741,6 +762,15 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
         y: r.y + (r.height.saturating_sub(height)) / 2,
         width: popup_width.min(r.width),
         height: height.min(r.height),
+    }
+}
+
+fn agent_label(agent: AgentKind) -> (&'static str, Style) {
+    match agent {
+        AgentKind::ClaudeCode => ("✶ Claude", Style::default().fg(PURPLE)),
+        AgentKind::Codex => ("◇ Codex", Style::default().fg(GOLD)),
+        AgentKind::Pi => ("π Pi", Style::default().fg(ACCENT)),
+        AgentKind::OpenCode => ("◎ Open", Style::default().fg(GREEN)),
     }
 }
 
