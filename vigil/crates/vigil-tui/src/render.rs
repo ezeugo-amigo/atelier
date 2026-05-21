@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame,
 };
-use vigil_core::{LogEvent, PrStatus, SessionState, ToolKind};
+use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
 
 use crate::app::{App, Overlay};
 
@@ -149,6 +149,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             Cell::from(Span::styled("─".repeat(26),   Style::default().fg(DIM))),
             Cell::from(Span::styled("──────",         Style::default().fg(DIM))),
             Cell::from(Span::styled("─".repeat(50),   Style::default().fg(DIM))),
+            Cell::from(Span::styled("────",           Style::default().fg(DIM))),
         ]));
 
         for &i in indices {
@@ -195,6 +196,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             };
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
 
+            let (agent_icon, agent_style) = agent_icon(c.agent);
             rows.push(Row::new(vec![
                 bar,
                 Cell::from(Span::styled(dot, dot_style)),
@@ -204,6 +206,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(branch),
                 Cell::from(age),
                 Cell::from(msg),
+                Cell::from(Span::styled(agent_icon, agent_style)),
             ]).style(row_style));
         }
     }
@@ -225,9 +228,10 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(26),
         Constraint::Length(6),
         Constraint::Fill(1),
+        Constraint::Length(4),
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE"])
+    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE", ""])
         .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
@@ -479,11 +483,12 @@ fn draw_log_view_overlay(
                     }
                     display.push(Line::from(bar_spans));
                 }
-                LogEvent::AgentMessage { text, time } => {
+                LogEvent::AgentMessage { text, time, label } => {
                     let time_str = time.as_deref().unwrap_or("");
-                    let prefix = "   PI  ";
-                    let indent = " ".repeat(prefix.len());
-                    let text_width = render_width.saturating_sub(prefix.len());
+                    let prefix_str = format!("{:>5}  ", label.chars().take(5).collect::<String>());
+                    let prefix_len = prefix_str.len();
+                    let indent = " ".repeat(prefix_len);
+                    let text_width = render_width.saturating_sub(prefix_len);
                     let mut first = true;
                     for raw_line in text.lines() {
                         let raw_line = if raw_line.is_empty() { " " } else { raw_line };
@@ -491,7 +496,7 @@ fn draw_log_view_overlay(
                             let spans = render_inline(&chunk, GREEN, EMPTY_COLOR);
                             if first {
                                 let mut line_spans = vec![
-                                    Span::styled(prefix, Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+                                    Span::styled(prefix_str.clone(), Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
                                 ];
                                 line_spans.extend(spans);
                                 line_spans.push(Span::styled(format!("  {time_str}"), Style::default().fg(EMPTY_COLOR)));
@@ -741,6 +746,14 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
         y: r.y + (r.height.saturating_sub(height)) / 2,
         width: popup_width.min(r.width),
         height: height.min(r.height),
+    }
+}
+
+fn agent_icon(agent: AgentKind) -> (&'static str, Style) {
+    match agent {
+        AgentKind::ClaudeCode => (" ◆  ", Style::default().fg(ACCENT)),
+        AgentKind::Pi        => (" π  ", Style::default().fg(Color::Rgb(100, 160, 230))),
+        _                    => ("    ", Style::default()),
     }
 }
 

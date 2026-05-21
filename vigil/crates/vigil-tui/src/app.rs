@@ -75,6 +75,9 @@ pub struct App {
     log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
+    /// Last message sent via the SendMessage overlay, keyed by container id.
+    /// Persists across refresh() cycles since history.jsonl isn't updated by --print mode.
+    last_sent: HashMap<String, String>,
 }
 
 impl App {
@@ -92,6 +95,7 @@ impl App {
             log_cache: HashMap::new(),
             pr_cache: HashMap::new(),
             scan_rx: None,
+            last_sent: HashMap::new(),
         }
     }
 
@@ -442,6 +446,7 @@ async fn event_loop(
                             } else {
                                 unreachable!()
                             };
+                            let container_id = app.selected().map(|c| c.id.clone());
                             app.overlay = Overlay::None;
                             if let (Some(dir), Some(sid)) = (dir, sid) {
                                 let agent = app.selected().map(|c| c.agent);
@@ -449,6 +454,14 @@ async fn event_loop(
                                     if let Some(adapter) = adapters.get(&agent) {
                                         let _ = adapter.send_message(&dir, &sid, &msg).await;
                                     }
+                                }
+                            }
+                            // Persist the sent message so refresh() can apply it every tick.
+                            // history.jsonl is not updated by --print mode, so the probe would
+                            // otherwise revert the display to the previous message.
+                            if !msg.is_empty() {
+                                if let Some(id) = container_id {
+                                    app.last_sent.insert(id, msg);
                                 }
                             }
                         }
@@ -533,7 +546,10 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             state: probe.state,
             session_id: probe.session_id,
             last_activity: probe.last_activity,
-            last_user_message: probe.last_user_message,
+            last_user_message: app.last_sent
+                .get(&entry.id)
+                .cloned()
+                .or(probe.last_user_message),
             pr_status,
         });
     }

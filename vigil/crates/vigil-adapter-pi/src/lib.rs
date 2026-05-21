@@ -216,7 +216,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                         events.push(LogEvent::UserMessage { text: user_text, time: user_time });
                     }
                     emit_tool_group(&mut events, &mut pending_tools);
-                    events.push(LogEvent::AgentMessage { text, time });
+                    events.push(LogEvent::AgentMessage { text, time, label: "Pi".to_string() });
                 }
             }
             // toolResult messages are metadata; the tool name is already captured from toolCall.
