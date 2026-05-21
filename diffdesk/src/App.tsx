@@ -225,6 +225,18 @@ export function App() {
     setComments((current) => current.filter((comment) => comment.id !== id));
   }, []);
 
+  const clearComments = useCallback(() => {
+    if (comments.length === 0 || submitted) return;
+    const confirmed = window.confirm(
+      `Clear all ${comments.length} queued note${comments.length === 1 ? "" : "s"}?`,
+    );
+    if (!confirmed) return;
+    setComments([]);
+    setComposer(null);
+    setDrag(null);
+    setStatus("All queued notes cleared");
+  }, [comments.length, submitted]);
+
   const submitReview = useCallback(async () => {
     if (state.kind !== "ready" || comments.length === 0) return;
     setSubmitted(true);
@@ -279,6 +291,7 @@ export function App() {
           session={state.session}
           noteCount={comments.length}
           submitted={submitted}
+          onClear={clearComments}
           onSend={() => void submitReview()}
         />
         <div className="window__body">
@@ -370,11 +383,13 @@ export function App() {
 
 function TitleBar({
   noteCount,
+  onClear,
   onSend,
   session,
   submitted,
 }: {
   noteCount: number;
+  onClear: () => void;
   onSend: () => void;
   session: SessionFile;
   submitted: boolean;
@@ -403,19 +418,29 @@ function TitleBar({
             </span>
           </div>
         ) : (
-          <button
-            className={`btn-send${noteCount === 0 ? " is-disabled" : ""}`}
-            disabled={noteCount === 0}
-            onClick={onSend}
-            type="button"
-          >
-            <Sparkles size={13} />
-            <span>
-              Send {noteCount > 0 ? `${noteCount} ` : ""}note
-              {noteCount === 1 ? "" : "s"} to agent
-            </span>
-            <span aria-hidden="true">→</span>
-          </button>
+          <>
+            <button
+              className={`btn-clear${noteCount === 0 ? " is-disabled" : ""}`}
+              disabled={noteCount === 0}
+              onClick={onClear}
+              type="button"
+            >
+              Clear all
+            </button>
+            <button
+              className={`btn-send${noteCount === 0 ? " is-disabled" : ""}`}
+              disabled={noteCount === 0}
+              onClick={onSend}
+              type="button"
+            >
+              <Sparkles size={13} />
+              <span>
+                Send {noteCount > 0 ? `${noteCount} ` : ""}note
+                {noteCount === 1 ? "" : "s"} to agent
+              </span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </>
         )}
       </div>
     </div>

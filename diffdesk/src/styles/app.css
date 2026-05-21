@@ -161,6 +161,7 @@ button {
 
 .titlebar__right {
   justify-content: flex-end;
+  gap: 8px;
   -webkit-app-region: no-drag;
 }
 
@@ -218,7 +219,8 @@ button {
   letter-spacing: 0.02em;
 }
 
-.btn-send {
+.btn-send,
+.btn-clear {
   appearance: none;
   border: none;
   cursor: pointer;
@@ -227,31 +229,52 @@ button {
   gap: 8px;
   white-space: nowrap;
   padding: 7px 12px;
-  background: var(--amigo-orange);
-  color: #fff;
   border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.07px;
+  transition:
+    background var(--motion-fast) var(--easing-std),
+    color var(--motion-fast) var(--easing-std),
+    transform var(--motion-fast) var(--easing-std);
+}
+
+.btn-send {
+  background: var(--amigo-orange);
+  color: #fff;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.2) inset,
     0 1px 2px rgba(170, 65, 42, 0.2);
-  transition:
-    background var(--motion-fast) var(--easing-std),
-    transform var(--motion-fast) var(--easing-std);
+}
+
+.btn-clear {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--content-secondary);
+  border: 0.5px solid var(--warm-150);
 }
 
 .btn-send:hover:not(.is-disabled) {
   background: var(--orange-500);
 }
 
-.btn-send:active:not(.is-disabled) {
-  background: var(--orange-400);
+.btn-clear:hover:not(.is-disabled) {
+  background: #fff;
+  color: var(--content-title);
+}
+
+.btn-send:active:not(.is-disabled),
+.btn-clear:active:not(.is-disabled) {
   transform: translateY(0.5px);
 }
 
+.btn-send:active:not(.is-disabled) {
+  background: var(--orange-400);
+}
+
 .btn-send.is-disabled,
-.btn-send:disabled {
+.btn-send:disabled,
+.btn-clear.is-disabled,
+.btn-clear:disabled {
   cursor: default;
   background: var(--warm-1);
   color: var(--content-placeholder);
