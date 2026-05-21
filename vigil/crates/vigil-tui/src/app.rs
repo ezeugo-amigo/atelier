@@ -48,6 +48,8 @@ pub enum Overlay {
         events: Vec<LogEvent>,
         /// Raw log lines fallback (Claude Code debug logs).
         lines: Vec<String>,
+        /// Number of rendered lines scrolled up from the live bottom of the log.
+        scroll: usize,
     },
     SendMessage {
         buf: String,
@@ -153,6 +155,7 @@ impl App {
                 agent: c.agent,
                 events,
                 lines,
+                scroll: 0,
             };
         }
     }
@@ -357,6 +360,16 @@ async fn event_loop(
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
                             app.overlay = Overlay::None;
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                *scroll = scroll.saturating_add(3);
+                            }
+                        }
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                *scroll = scroll.saturating_sub(3);
+                            }
                         }
                         _ => {}
                     }
@@ -574,13 +587,19 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     }
 
     // Keep LogView in sync while it's open.
-    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, .. } = &mut app.overlay {
+    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, scroll } = &mut app.overlay {
         if let Some((cached_events, cached_lines)) = app.log_cache.get(container_id) {
             *events = cached_events.clone();
             *lines = cached_lines.clone();
+            if events.is_empty() && lines.is_empty() {
+                *scroll = 0;
+            }
         } else if let Some(adapter) = adapters.get(agent) {
             *events = adapter.recent_log_events(worktree_path).await;
             *lines = adapter.recent_log(worktree_path).await;
+            if events.is_empty() && lines.is_empty() {
+                *scroll = 0;
+            }
         }
     }
 

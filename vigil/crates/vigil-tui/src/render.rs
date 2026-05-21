@@ -53,8 +53,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::RemoveConfirm { entry } => {
             draw_remove_confirm_overlay(f, area, &entry.id, &entry.worktree_path);
         }
-        Overlay::LogView { container_id, events, lines, .. } => {
-            draw_log_view_overlay(f, area, container_id, events, lines);
+        Overlay::LogView { container_id, events, lines, scroll, .. } => {
+            draw_log_view_overlay(f, area, container_id, events, lines, *scroll);
         }
         Overlay::ProjectPicker { query, all_repos, selected_idx, scanning } => {
             draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
@@ -363,6 +363,7 @@ fn draw_log_view_overlay(
     container_id: &str,
     events: &[LogEvent],
     lines: &[String],
+    scroll: usize,
 ) {
     const READ_COLOR: Color = Color::Rgb(74, 107, 138);
     const BASH_COLOR: Color = Color::Rgb(122, 90, 138);
@@ -394,7 +395,9 @@ fn draw_log_view_overlay(
         .sum();
     let mut hint_spans = vec![
         Span::styled("Esc / l", Style::default().fg(DIM)),
-        Span::raw(" close"),
+        Span::raw(" close  "),
+        Span::styled("j/k", Style::default().fg(DIM)),
+        Span::raw(" scroll"),
     ];
     if turn_count > 0 {
         hint_spans.push(Span::styled(
@@ -511,17 +514,21 @@ fn draw_log_view_overlay(
         }
 
         let max_lines = content.height as usize;
-        let start = display.len().saturating_sub(max_lines);
-        let visible: Vec<Line> = display.into_iter().skip(start).collect();
+        let max_scroll = display.len().saturating_sub(max_lines);
+        let scroll = scroll.min(max_scroll);
+        let start = display.len().saturating_sub(max_lines).saturating_sub(scroll);
+        let visible: Vec<Line> = display.into_iter().skip(start).take(max_lines).collect();
         f.render_widget(Paragraph::new(visible), content);
 
     } else if !lines.is_empty() {
         // ── Raw log fallback (Claude Code debug logs) ─────────────────────────
         let max_lines = content.height as usize;
+        let max_scroll = lines.len().saturating_sub(max_lines);
+        let scroll = scroll.min(max_scroll);
+        let start = lines.len().saturating_sub(max_lines).saturating_sub(scroll);
         let display: Vec<Line> = lines.iter()
-            .rev()
+            .skip(start)
             .take(max_lines)
-            .rev()
             .map(|s| {
                 let style = if s.contains(" ERR ") || s.contains("[ERR]") {
                     Style::default().fg(RED)
