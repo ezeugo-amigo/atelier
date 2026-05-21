@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vigil — worktree management</title>
+<style>
+  :root {
+    --bg:        #0e0d0b;
+    --surface:   #16140f;
+    --surface-2: #1d1a14;
+    --border:    #2a2620;
+    --text:      #e8e1d2;
+    --muted:     #8b8270;
+    --dim:       #5a5346;
+    --accent:    #d4a373;   /* candle */
+    --accent-2:  #c46b4a;   /* ember */
+    --good:      #8fbf73;
+    --warn:      #e0b870;
+    --alert:     #d97757;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --serif: "Iowan Old Style", "Hoefler Text", Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 96px 32px 160px; }
+
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 48px;
+    margin-bottom: 48px;
+  }
+  .name {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.32em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin: 0 0 28px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 52px;
+    line-height: 1.1;
+    margin: 0 0 18px;
+    letter-spacing: -0.01em;
+  }
+  h1 em { font-style: italic; color: var(--accent); }
+  .tagline {
+    color: var(--muted);
+    font-size: 19px;
+    margin: 0;
+    max-width: 56ch;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.28em;
+    color: var(--accent);
+    margin: 72px 0 20px;
+    font-weight: 600;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    margin: 36px 0 12px;
+    color: var(--text);
+  }
+  p { margin: 0 0 16px; }
+  p.lede { font-size: 19px; color: var(--text); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--border); }
+  a:hover { color: var(--accent-2); border-bottom-color: var(--accent-2); }
+  strong { color: var(--text); font-weight: 600; }
+  em { color: var(--muted); }
+
+  code {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: var(--accent);
+  }
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 20px 22px;
+    overflow-x: auto;
+    color: var(--text);
+    margin: 16px 0 24px;
+  }
+  pre code { background: transparent; border: 0; padding: 0; color: inherit; font-size: inherit; }
+  .k { color: var(--accent); }
+  .t { color: var(--warn); }
+  .s { color: var(--good); }
+  .c { color: var(--dim); font-style: italic; }
+  .p { color: var(--muted); }
+
+  ul, ol { padding-left: 20px; margin: 0 0 20px; }
+  ul li, ol li { margin: 6px 0; }
+  ul li::marker, ol li::marker { color: var(--dim); }
+
+  table.matrix {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 28px;
+    font-size: 14px;
+  }
+  table.matrix th, table.matrix td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.matrix th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  table.matrix td code { font-size: 12.5px; }
+
+  .mockup {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 18px 22px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+    margin: 16px 0 28px;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .mockup .label  { color: var(--muted); }
+  .mockup .accent { color: var(--accent); }
+  .mockup .good   { color: var(--good); }
+  .mockup .warn   { color: var(--warn); }
+  .mockup .alert  { color: var(--alert); }
+  .mockup .dim    { color: var(--dim); }
+  .mockup .prompt { color: var(--accent-2); }
+
+  .callout {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    padding: 16px 20px;
+    margin: 20px 0 28px;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .callout strong { color: var(--accent); }
+
+  .pillrow { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 24px; }
+  .pill {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    background: var(--surface);
+  }
+  .pill b { color: var(--accent); font-weight: 600; }
+
+  hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 64px 0;
+  }
+
+  .footnote {
+    color: var(--dim);
+    font-size: 13px;
+    font-family: var(--mono);
+    border-top: 1px solid var(--border);
+    padding-top: 20px;
+    margin-top: 64px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <p class="name">Vigil · Atelier</p>
+  <h1>Worktrees — <em>start fast,<br/>leave clean</em>.</h1>
+  <p class="tagline">A lightweight spec for creating, tracking, and removing git worktrees across multiple directories — with Vigil as the cleanup surface.</p>
+</header>
+
+<h2>The problem</h2>
+<p class="lede">Running five Claude sessions in one repo is fine until you want them working on truly isolated branches at the same time. Git worktrees solve the isolation problem. What they don't solve is the <strong>bookkeeping</strong>.</p>
+<p>Worktrees accumulate. You create one for a feature, another to investigate a bug, a third to prototype something. Each gets its own Claude session, its own branch. When the work is done you need to remove the directory, delete the branch, and maybe clean up any session artifacts — three steps that are easy to forget and annoying to look up. The last thing you want when you finish a task is a scavenger hunt.</p>
+<p>This spec covers a small tool that handles the full worktree lifecycle: create with one command, track automatically via Vigil, remove with one keypress when the session goes Done.</p>
+
+<h2>Lifecycle</h2>
+<div class="mockup"><span class="accent">create</span>   →   <span class="warn">develop</span>   →   <span class="good">merge / abandon</span>   →   <span class="dim">remove</span>
+
+<span class="dim">atelier wt new feature-auth</span>          <span class="label">← one command: worktree + branch + launch</span>
+<span class="dim">  ... work happens ...</span>
+<span class="dim">git push && gh pr create</span>             <span class="label">← normal git flow, nothing special</span>
+<span class="dim">  ... pr merges ...</span>
+<span class="dim">vigil → select Done session → R</span>      <span class="label">← remove: directory + branch in one step</span></div>
+
+<p>The create step is one command. The remove step is one keypress from Vigil, available whenever the session reaches Done. Between those two ends, nothing changes about how you work.</p>
+
+<h2>Create</h2>
+<p>A new <code>atelier wt new</code> command (or <code>atelier worktree new</code>) does three things atomically:</p>
+<ol>
+  <li>Runs <code>git worktree add &lt;path&gt; -b &lt;branch&gt;</code> from the current repo root.</li>
+  <li>Records the worktree in Atelier's registry (<code>~/.vigil/worktrees.json</code>), including which agent to use.</li>
+  <li>Launches the chosen agent inside the new worktree directory using its <code>AgentAdapter::attach_command()</code>.</li>
+</ol>
+
+<pre><code><span class="c"># Usage</span>
+atelier wt new [&lt;name&gt;] [--agent &lt;agent&gt;] [--repo &lt;path&gt;] [--dir &lt;path&gt;] [--no-launch]
+
+<span class="c"># Agents: claude (default), codex, pi, opencode — any adapter built into Vigil</span>
+
+atelier wt new
+<span class="c"># → name generated: e.g. "loose-einstein"</span>
+<span class="c"># → worktree at ~/.vigil/worktrees/myapp/loose-einstein</span>
+<span class="c"># → branch: loose-einstein</span>
+<span class="c"># → launches claude (default agent)</span>
+
+atelier wt new feature-auth
+<span class="c"># → explicit name, same flow</span>
+
+atelier wt new --agent pi
+<span class="c"># → generated name, launches pi</span>
+
+atelier wt new hotfix-login --agent codex --repo ~/code/myapp --dir ~/scratch/hotfix-login
+<span class="c"># → explicit name + explicit path, launches codex</span></code></pre>
+
+<h3>Agent selection</h3>
+<p>The <code>--agent</code> flag accepts any agent that has a Vigil adapter: <code>claude</code>, <code>codex</code>, <code>pi</code>, <code>opencode</code>. The default is <code>claude</code>. Atelier does not know how to launch agents itself — it delegates to <code>AgentAdapter::attach_command()</code>, which each adapter already implements for session resumption. For a fresh worktree with no existing session, the adapter's <em>launch</em> command is used instead (a separate method, <code>launch_command(working_dir)</code>, described below).</p>
+<p>Any agent that has a Vigil adapter can be used. Adding a new agent to Vigil automatically makes it available here — no worktree-specific code needed.</p>
+
+<h3>Default path resolution</h3>
+<p>When <code>--dir</code> is omitted, the worktree lands at <code>~/.vigil/worktrees/&lt;repo&gt;/&lt;name&gt;</code>, where <code>&lt;repo&gt;</code> is the basename of the git repo root. All Vigil-owned worktrees share one root, grouped by repo. <code>ls ~/.vigil/worktrees/</code> shows every repo that has active worktrees; <code>ls ~/.vigil/worktrees/myapp/</code> shows every worktree for that repo. No hunting across different directories.</p>
+<p>When <code>--repo</code> is omitted, Atelier infers the repo root from the current working directory using <code>git rev-parse --show-toplevel</code>. If the CWD isn't in a git repo, it errors immediately rather than silently creating something broken.</p>
+
+<h3>Branch naming</h3>
+<p>When a name is given, it is used as-is for both the branch and the worktree directory. Atelier does no sanitization — the user controls the name.</p>
+<p>When no name is given, Atelier generates one: an adjective paired with a notable proper noun — a scientist, mathematician, engineer, or other figure. <code>loose-einstein</code>, <code>restless-curie</code>, <code>patient-lovelace</code>. The name is checked for uniqueness against existing branches in the repo and existing entries in the registry before being accepted; if there's a collision (unlikely but possible), another pair is drawn. The generated name is printed to stdout before launch so the user always knows what was created.</p>
+<p>If the branch already exists and a name was explicitly given, <code>git worktree add</code> will error; Atelier surfaces that directly without wrapping it.</p>
+
+<h3>The registry</h3>
+<p>After a successful <code>git worktree add</code>, Atelier appends one entry to <code>~/.vigil/worktrees.json</code>:</p>
+<pre><code><span class="p">{</span>
+  <span class="s">"id"</span><span class="p">:</span>           <span class="s">"feature-auth"</span><span class="p">,</span>
+  <span class="s">"agent"</span><span class="p">:</span>        <span class="s">"claude"</span><span class="p">,</span>
+  <span class="s">"repo_root"</span><span class="p">:</span>    <span class="s">"/Users/ezeugo/code/myapp"</span><span class="p">,</span>
+  <span class="s">"worktree_path"</span><span class="p">:</span><span class="s">"/Users/ezeugo/.vigil/worktrees/myapp/feature-auth"</span><span class="p">,</span>
+  <span class="s">"branch"</span><span class="p">:</span>       <span class="s">"feature-auth"</span><span class="p">,</span>
+  <span class="s">"created_at"</span><span class="p">:</span>   <span class="s">"2026-05-17T14:00:00Z"</span>
+<span class="p">}</span></code></pre>
+
+<p>The registry is append-only on create; remove deletes the entry. Nothing else writes to it. If the file is missing or unparseable, <code>atelier wt list</code> treats it as empty and <code>atelier wt new</code> creates it.</p>
+
+<h2>List</h2>
+<pre><code>atelier wt list</code></pre>
+<div class="mockup"><span class="accent">NAME</span>             <span class="accent">AGENT</span>    <span class="accent">BRANCH</span>           <span class="accent">REPO</span>             <span class="accent">PATH</span>                                         <span class="accent">STATE</span>
+<span class="good">feature-auth</span>     claude   feature-auth     ~/code/myapp     ~/.vigil/worktrees/myapp/feature-auth        exists
+<span class="warn">hotfix-login</span>     codex    hotfix-login     ~/code/myapp     ~/.vigil/worktrees/myapp/hotfix-login        exists
+<span class="dim">old-experiment</span>   pi       old-experiment   ~/code/myapp     ~/.vigil/worktrees/myapp/old-experiment      <span class="alert">directory missing</span></div>
+
+<p><code>list</code> reads the registry, then verifies each entry by checking whether the worktree path still exists on disk. A missing directory is flagged as <em>stale</em> — the worktree was probably removed manually or by another tool. Stale entries can be pruned with <code>atelier wt prune</code>, which just removes them from the registry without touching git (since the directory is already gone).</p>
+
+<h2>Remove</h2>
+<p>Removal is either a CLI command or a keypress from Vigil.</p>
+
+<h3>CLI</h3>
+<pre><code>atelier wt remove &lt;name&gt;</code></pre>
+<p>Runs three steps in order, stopping on the first failure:</p>
+<ol>
+  <li><code>git worktree remove &lt;path&gt;</code> — removes the directory. Git refuses if there are uncommitted changes; Atelier surfaces the refusal and stops. Add <code>--force</code> to override.</li>
+  <li><code>git branch -d &lt;branch&gt;</code> — deletes the branch. Git refuses if the branch isn't fully merged; Atelier surfaces the refusal and stops. Add <code>--force</code> to use <code>-D</code> instead.</li>
+  <li>Remove the entry from the registry.</li>
+</ol>
+
+<div class="callout"><strong>Safety by default.</strong> The two-step refusal (uncommitted changes, unmerged branch) is intentional. <code>atelier wt remove</code> without <code>--force</code> should never silently destroy work. The friction is the feature.</div>
+
+<h3>From Vigil</h3>
+<p>When a session's <code>project_dir</code> matches a path in the Atelier worktree registry, Vigil marks it with a small <code>[w]</code> indicator in the state column. When that session reaches <code>Done</code>, pressing <kbd>R</kbd> (capital R, distinct from anything else) triggers a two-line confirmation overlay:</p>
+
+<div class="mockup"><span class="label">  session  </span> <span class="accent">feature-auth</span>  ·  ~/code/myapp/.claude/worktrees/feature-auth
+
+  <span class="warn">Remove worktree?</span>  branch: <span class="accent">feature-auth</span>
+
+  <span class="dim">y</span>  remove directory + delete branch
+  <span class="dim">n</span>  cancel
+</div>
+
+<p>On <kbd>y</kbd>, Vigil calls the same logic as <code>atelier wt remove</code>. If git refuses (uncommitted changes or unmerged branch), Vigil shows the error inline and returns to the session list without removing anything. The user can then attach (<kbd>↵</kbd>) to handle the git state and retry.</p>
+<p><kbd>R</kbd> is only available when:</p>
+<ul>
+  <li>The session is in <code>Done</code> or <code>Idle</code> state (not <code>Running</code> or <code>AwaitingInput</code>).</li>
+  <li>The session's <code>project_dir</code> is in the Atelier registry.</li>
+</ul>
+<p>Sessions not in the registry, and sessions that are still active, do not show the <kbd>R</kbd> binding in the footer.</p>
+
+<h2>Vigil integration details</h2>
+
+<h3>Registry read</h3>
+<p>Vigil reads the worktree registry once at startup and re-reads it after any <kbd>R</kbd> action. It does not watch the registry file for changes — a new <code>atelier wt new</code> in another terminal will show up on the next Vigil restart or after the next <kbd>R</kbd> round-trip. This is fine; worktrees are created infrequently.</p>
+
+<h3>The <code>[w]</code> indicator</h3>
+<p>A single character added to the right of the state label when the session is a registered worktree. It is the same dim color as the state column text — not alarming, just informational. The indicator disappears once the worktree is removed from the registry.</p>
+
+<div class="mockup"><span class="label">  STATE              PROJECT</span>
+  done <span class="dim">[w]</span>           ~/.vigil/worktrees/myapp/feature-auth
+  running            ~/code/myapp
+  awaiting           ~/code/other-project</div>
+
+<h3>Creating a worktree from Vigil</h3>
+<p>Going to the terminal to run <code>atelier wt new</code> is friction. If you're already looking at a session in Vigil and want to spin up a new worktree for the same repo, you shouldn't need to leave. Pressing <kbd>W</kbd> on any session opens a small creation overlay:</p>
+
+<div class="mockup">  <span class="warn">New worktree</span>  ·  repo: <span class="accent">~/code/myapp</span>
+
+  name   <span class="accent">_</span>  <span class="dim">(leave blank for generated name, e.g. loose-einstein)</span>
+  agent  <span class="label">claude  codex  pi  opencode</span>
+         <span class="dim">↑↓ / tab to cycle</span>
+
+  <span class="dim">↵</span> create and launch   <span class="dim">⎋</span> cancel
+</div>
+
+<p>The repo is pre-filled from the selected session's <code>project_dir</code>, resolved to its git root. The user types a name, optionally cycles the agent with <kbd>Tab</kbd>, and presses <kbd>↵</kbd>. Vigil calls the same <code>create()</code> path as the CLI — git worktree add, registry append, launch — then reloads the session list. The new session will appear on the next refresh tick.</p>
+<p><kbd>W</kbd> is available on any session that has a known <code>project_dir</code> inside a git repo. Sessions with no project dir (sub-sessions, orphaned logs) do not show the binding.</p>
+
+<h3>Footer</h3>
+<p>The footer adapts to the selected session. <kbd>W</kbd> is always shown when applicable. <kbd>R</kbd> is only shown for Done/Idle worktree sessions.</p>
+
+<div class="mockup"><span class="label">↑↓ jk</span> navigate  <span class="label">↵</span> attach  <span class="label">d</span> dismiss  <span class="label">u</span> undo  <span class="label">W</span> new worktree  <span class="label">R</span> remove worktree  <span class="label">q</span> quit</div>
+
+<h2>Data model</h2>
+<table class="matrix">
+  <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><code>id</code></td><td>String</td><td>The name given to <code>atelier wt new</code>. Unique within the registry. Used as the lookup key.</td></tr>
+    <tr><td><code>agent</code></td><td>AgentKind</td><td>Which agent to launch in this worktree. Must have a Vigil adapter. Defaults to <code>claude</code>. Stored so <code>atelier wt open</code> can re-launch the right agent without flags.</td></tr>
+    <tr><td><code>repo_root</code></td><td>PathBuf</td><td>Absolute path to the git repo. Used as the CWD for <code>git worktree remove</code> and <code>git branch -d</code>.</td></tr>
+    <tr><td><code>worktree_path</code></td><td>PathBuf</td><td>Absolute path to the worktree directory. Matched against session <code>project_dir</code> in Vigil.</td></tr>
+    <tr><td><code>branch</code></td><td>String</td><td>Branch name to delete on remove.</td></tr>
+    <tr><td><code>created_at</code></td><td>DateTime&lt;Utc&gt;</td><td>For display in <code>atelier wt list</code>.</td></tr>
+  </tbody>
+</table>
+
+<h2>Crate layout</h2>
+<pre><code>atelier/
+├── Cargo.toml                    <span class="c"># workspace</span>
+└── crates/
+    ├── atelier-worktree/         <span class="c"># registry, create, remove, prune logic</span>
+    │   └── src/
+    │       ├── lib.rs
+    │       ├── registry.rs       <span class="c"># read/write worktrees.json</span>
+    │       ├── create.rs         <span class="c"># git worktree add + registry append</span>
+    │       └── remove.rs         <span class="c"># git worktree remove + branch delete + registry drop</span>
+    └── atelier-cli/              <span class="c"># thin main, subcommands</span>
+        └── src/
+            └── main.rs           <span class="c"># wt new / wt list / wt remove / wt prune</span></code></pre>
+<p><code>atelier-worktree</code> is a library crate with no async — <code>git</code> is called via <code>std::process::Command</code>, the registry is plain JSON on disk. Vigil links against it to read the registry and call <code>remove()</code>.</p>
+
+<h3>AgentAdapter extension</h3>
+<p>The existing <code>AgentAdapter</code> trait already has <code>attach_command(id)</code> for resuming a session. Worktree launch needs one new method:</p>
+<pre><code><span class="k">fn</span> launch_command(<span class="p">&amp;</span><span class="k">self</span>, working_dir<span class="p">:</span> <span class="p">&amp;</span><span class="t">Path</span>) -&gt; <span class="t">Command</span><span class="p">;</span>
+<span class="c">// Claude:   `claude` (no flags) run from working_dir</span>
+<span class="c">// Codex:    `codex` run from working_dir</span>
+<span class="c">// Pi:       `pi` run from working_dir</span>
+<span class="c">// OpenCode: `opencode` run from working_dir</span></code></pre>
+<p>Each adapter implements it. <code>atelier wt new</code> calls it; <code>atelier wt open</code> (re-launch without recreating the worktree) also calls it. No adapter needs to know it's being called from a worktree — it just launches in the given directory.</p>
+
+<h2>Edge cases</h2>
+
+<h3>Worktree directory was deleted manually</h3>
+<p>The registry has an entry but the path doesn't exist. <code>git worktree list</code> would also show it as stale. On <code>atelier wt remove</code>: skip the <code>git worktree remove</code> step (nothing to delete), still run <code>git branch -d</code>, then drop the registry entry. <code>atelier wt prune</code> handles all stale entries at once.</p>
+
+<h3>Branch was already deleted</h3>
+<p>On <code>git branch -d</code> failure with "branch not found": treat as success — the user already cleaned it up. Drop the registry entry and move on.</p>
+
+<h3>Session in a worktree is still Running</h3>
+<p>Vigil does not show <kbd>R</kbd> for Running or AwaitingInput sessions. The CLI <code>atelier wt remove</code> will still attempt removal — <code>git worktree remove</code> will refuse because the directory is in use. The refusal surfaces to the user without Atelier doing anything destructive.</p>
+
+<h3>Multiple sessions from the same worktree</h3>
+<p>The registry matches on <code>worktree_path</code>, not on session ID. If two sessions both have <code>project_dir = worktree_path</code>, both show <code>[w]</code>. Either session can trigger removal. Once removal succeeds, the path no longer matches and the other session loses its <code>[w]</code> indicator on the next refresh.</p>
+
+<h3>Worktree created outside of Atelier</h3>
+<p>Vigil only shows <kbd>R</kbd> for paths in the Atelier registry. A worktree created with raw <code>git worktree add</code> will not appear in the registry — Vigil treats it as a normal session. The user can add it to the registry manually with a future <code>atelier wt import &lt;path&gt;</code> command, or just remove it with git directly.</p>
+
+<h2>What is not in scope</h2>
+<ul>
+  <li><strong>Auto-remove on Done.</strong> Vigil never removes a worktree without explicit user confirmation. Session → Done does not trigger anything automatically.</li>
+  <li><strong>Push / PR creation.</strong> Out of scope. Atelier creates and removes. Everything in between is normal git.</li>
+  <li><strong>Non-git projects.</strong> Worktrees are a git concept. No equivalent is planned for non-git directories.</li>
+  <li><strong>Remote repos.</strong> <code>atelier wt new</code> works on local repos only. Cloning first is the user's responsibility.</li>
+  <li><strong>Worktree renaming.</strong> Not supported. Remove and re-create.</li>
+</ul>
+
+<h2>Implementation order</h2>
+<ol>
+  <li><code>atelier-worktree</code> crate: registry read/write, <code>create()</code>, <code>remove()</code>.</li>
+  <li><code>AgentAdapter</code>: add <code>launch_command(working_dir)</code> to the trait; implement for each adapter.</li>
+  <li><code>atelier-cli</code> binary: <code>wt new</code>, <code>wt list</code>, <code>wt remove</code>, <code>wt prune</code>. Validate end-to-end with real repos before touching Vigil.</li>
+  <li>Vigil: read the registry at startup, match against <code>project_dir</code>, show <code>[w]</code> indicator.</li>
+  <li>Vigil: <kbd>R</kbd> keybinding, confirmation overlay, call <code>remove()</code>, show inline error on failure.</li>
+  <li>Vigil: <kbd>W</kbd> keybinding, creation overlay with name input and agent selector, call <code>create()</code>.</li>
+  <li>Vigil: conditional footer — <kbd>W</kbd> shown when session has a git repo; <kbd>R</kbd> shown for Done/Idle worktree sessions only.</li>
+</ol>
+
+<p class="footnote">Vigil · worktree management spec · v0 · 2026-05-17</p>
+
+</div>
+</body>
+</html>

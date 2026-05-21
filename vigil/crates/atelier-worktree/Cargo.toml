@@ -1,0 +1,18 @@
+[package]
+name = "atelier-worktree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Worktree registry, create, and remove logic for Atelier."
+
+[dependencies]
+vigil-core   = { path = "../vigil-core" }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+chrono       = { workspace = true }
+thiserror    = { workspace = true }
+directories  = { workspace = true }
+anyhow       = { workspace = true }
+rand         = { workspace = true }

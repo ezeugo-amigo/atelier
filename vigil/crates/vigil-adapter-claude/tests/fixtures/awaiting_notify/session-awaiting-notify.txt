@@ -1,0 +1,3 @@
+2026-05-17T18:15:09.183Z [DEBUG] Getting matching hook commands for Notification with query: permission_prompt
+2026-05-17T18:15:09.184Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:15:09.184Z [DEBUG] Matched 0 unique hooks for query "permission_prompt" (0 before deduplication)

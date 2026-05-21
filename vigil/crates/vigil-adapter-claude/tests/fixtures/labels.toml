@@ -1,0 +1,20 @@
+# Expected states for fixture files used in classify_test
+[running]
+file = "running/session-running.txt"
+expected_state = "Running"
+
+[awaiting_permission]
+file = "awaiting_permission/session-awaiting.txt"
+expected_state = "AwaitingInput"
+
+[awaiting_notify]
+file = "awaiting_notify/session-awaiting-notify.txt"
+expected_state = "AwaitingInput"
+
+[idle]
+file = "idle/session-idle.txt"
+expected_state = "Idle"
+
+[done]
+file = "done/session-done.txt"
+expected_state = "Done"

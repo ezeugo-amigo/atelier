@@ -1,0 +1,41 @@
+2026-05-17T18:16:32.608Z [DEBUG] Forked agent [prompt_suggestion] received message: type=assistant
+2026-05-17T18:16:32.702Z [DEBUG] Getting matching hook commands for SubagentStop with query:
+2026-05-17T18:16:32.703Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:16:32.703Z [DEBUG] Matched 0 unique hooks for query "no match query" (0 before deduplication)
+2026-05-17T18:16:32.703Z [DEBUG] Forked agent [prompt_suggestion] finished: 1 messages, types=[assistant], totalUsage: input=295 output=5 cacheRead=28641 cacheCreate=812
+2026-05-17T18:16:32.706Z [DEBUG] [Speculation] enabled=false
+2026-05-17T18:17:04.489Z [DEBUG] LSP Diagnostics: getLSPDiagnosticAttachments called
+2026-05-17T18:17:04.489Z [DEBUG] LSP Diagnostics: Checking registry - 0 pending
+2026-05-17T18:17:04.489Z [DEBUG] Hooks: Found 0 total hooks in registry
+2026-05-17T18:17:04.489Z [DEBUG] Hooks: checkForNewResponses returning 0 responses
+2026-05-17T18:17:04.498Z [DEBUG] Getting matching hook commands for UserPromptSubmit with query: undefined
+2026-05-17T18:17:04.498Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:17:04.498Z [DEBUG] Matched 0 unique hooks for query "no match query" (0 before deduplication)
+2026-05-17T18:17:04.499Z [DEBUG] FileHistory: Making snapshot for message 70773a28-265f-4299-8208-2cbcad61a61b
+2026-05-17T18:17:04.499Z [DEBUG] FileHistory: Added snapshot for 70773a28-265f-4299-8208-2cbcad61a61b, tracking 0 files
+2026-05-17T18:17:04.501Z [DEBUG] [useDeferredValue] Messages deferred by 1 (23→24)
+2026-05-17T18:17:04.524Z [DEBUG] Started caffeinate to prevent sleep
+2026-05-17T18:17:04.528Z [DEBUG] autocompact: tokens=29459 threshold=167000 effectiveWindow=180000
+2026-05-17T18:17:04.528Z [DEBUG] Auto tool search disabled: 0 tokens (threshold: 20000, 10% of context) [source: query]
+2026-05-17T18:17:04.531Z [DEBUG] attribution header x-anthropic-billing-header: cc_version=2.1.63.a43; cc_entrypoint=cli; cch=00000;
+2026-05-17T18:17:04.531Z [DEBUG] [API:request] Creating client, ANTHROPIC_CUSTOM_HEADERS present: false, has Authorization header: false
+2026-05-17T18:17:04.531Z [DEBUG] [API:auth] OAuth token check starting
+2026-05-17T18:17:04.532Z [DEBUG] [API:auth] OAuth token check complete
+2026-05-17T18:17:04.538Z [DEBUG] [useDeferredValue] Messages deferred by 1 (23→24)
+2026-05-17T18:17:08.107Z [DEBUG] Stream started - received first chunk
+2026-05-17T18:17:08.243Z [DEBUG] executePreToolHooks called for tool: Bash
+2026-05-17T18:17:08.245Z [DEBUG] Getting matching hook commands for PreToolUse with query: Bash
+2026-05-17T18:17:08.245Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:17:08.245Z [DEBUG] Matched 0 unique hooks for query "Bash" (0 before deduplication)
+2026-05-17T18:17:08.255Z [DEBUG] Permission suggestions for Bash: []
+2026-05-17T18:17:08.255Z [DEBUG] executePermissionRequestHooks called for tool: Bash
+2026-05-17T18:17:08.257Z [DEBUG] Getting matching hook commands for PermissionRequest with query: Bash
+2026-05-17T18:17:08.257Z [DEBUG] Found 0 hook matchers in settings
+2026-05-17T18:17:08.257Z [DEBUG] Matched 0 unique hooks for query "Bash" (0 before deduplication)
+2026-05-17T18:17:08.258Z [DEBUG] [useDeferredValue] Messages deferred by 1 (24→25)
+2026-05-17T18:17:08.265Z [DEBUG] High write ratio: blit=0, write=4001 (100.0% writes), screen=93x325
+2026-05-17T18:17:08.267Z [DEBUG] Stopped caffeinate, allowing sleep
+2026-05-17T18:17:08.269Z [DEBUG] [useDeferredValue] Messages deferred by 1 (24→25)
+2026-05-17T18:17:08.271Z [DEBUG] [useDeferredValue] Messages deferred by 1 (24→25)
+2026-05-17T18:17:10.018Z [DEBUG] Started caffeinate to prevent sleep
+2026-05-17T18:17:10.021Z [DEBUG] AutoUpdaterWrapper: Installation type: npm-local

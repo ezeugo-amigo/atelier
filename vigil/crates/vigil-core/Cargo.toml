@@ -6,3 +6,10 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Core types, traits, and registry for Vigil."
+
+[dependencies]
+tokio       = { workspace = true }
+chrono      = { workspace = true }
+serde       = { workspace = true }
+async-trait = { workspace = true }
+thiserror   = { workspace = true }

@@ -1,0 +1,2 @@
+{"type":"message","id":"a1","parentId":null,"timestamp":"2024-01-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Hello"}]}}
+{"type":"message","id":"a2","parentId":"a1","timestamp":"2024-01-01T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I should greet the user"},{"type":"text","text":"Hi there! How can I help?"}]}}

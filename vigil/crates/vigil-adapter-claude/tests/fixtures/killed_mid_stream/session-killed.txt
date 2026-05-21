@@ -1,0 +1,16 @@
+2026-05-17T21:22:50.000Z [DEBUG] UserPromptSubmit
+2026-05-17T21:22:51.000Z [DEBUG] [API:auth] OAuth token check starting
+2026-05-17T21:22:51.001Z [DEBUG] [API:auth] OAuth token check complete
+2026-05-17T21:22:52.000Z [DEBUG] [claudeai-mcp] Fetched 3 servers
+2026-05-17T21:22:52.100Z [DEBUG] MCP server "claude.ai Google Drive": Starting connection with timeout of 30000ms
+2026-05-17T21:22:52.200Z [DEBUG] MCP server "claude.ai Google Calendar": Starting connection with timeout of 30000ms
+2026-05-17T21:22:52.300Z [DEBUG] MCP server "claude.ai Gmail": Starting connection with timeout of 30000ms
+2026-05-17T21:22:53.000Z [DEBUG] attribution header x-anthropic-billing-header: cc_version=2.1.55; cc_entrypoint=cli;
+2026-05-17T21:22:53.500Z [DEBUG] Stream started - received first chunk
+2026-05-17T21:22:54.000Z [DEBUG] Writing to temp file: /Users/ezeugo/.claude.json.tmp.46478.123
+2026-05-17T21:22:54.001Z [DEBUG] Preserving file permissions: 100600
+2026-05-17T21:22:54.002Z [DEBUG] Temp file written successfully, size: 135837 bytes
+2026-05-17T21:22:54.003Z [DEBUG] Applied original permissions to temp file
+2026-05-17T21:22:54.004Z [DEBUG] Renaming /Users/ezeugo/.claude.json.tmp.46478.123 to /Users/ezeugo/.claude.json
+2026-05-17T21:22:54.005Z [DEBUG] File /Users/ezeugo/.claude.json written atomically
+2026-05-17T21:28:32.699Z [DEBUG] detectFileEncoding failed for expected reason: ENOENT

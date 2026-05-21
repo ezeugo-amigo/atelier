@@ -1,0 +1,22 @@
+[package]
+name = "atelier-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Atelier command-line tool."
+
+[[bin]]
+name = "atelier"
+path = "src/main.rs"
+
+[dependencies]
+atelier-worktree     = { path = "../atelier-worktree" }
+vigil-core           = { path = "../vigil-core" }
+vigil-adapter-claude = { path = "../vigil-adapter-claude" }
+vigil-adapter-codex  = { path = "../vigil-adapter-codex" }
+vigil-adapter-pi     = { path = "../vigil-adapter-pi" }
+vigil-adapter-opencode = { path = "../vigil-adapter-opencode" }
+clap                 = { workspace = true }
+anyhow               = { workspace = true }

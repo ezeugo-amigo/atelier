@@ -1,0 +1,2 @@
+{"type":"message","id":"c1","parentId":null,"timestamp":"2024-01-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Edit src/main.rs to add a function"}]}}
+{"type":"message","id":"c2","parentId":"c1","timestamp":"2024-01-01T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I'll read the file first"},{"type":"toolCall","id":"tc1","name":"read","arguments":{"path":"src/main.rs"}}]}}

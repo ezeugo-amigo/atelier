@@ -6,3 +6,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Codex adapter for Vigil."
+
+[dependencies]
+vigil-core  = { path = "../vigil-core" }
+async-trait = { workspace = true }
