@@ -27,6 +27,24 @@ const AGENTS: [AgentKind; 4] = [
     AgentKind::OpenCode,
 ];
 
+fn vigil_worktrees_prefix() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        "/.vigil/worktrees/".to_string()
+    } else {
+        format!("{home}/.vigil/worktrees/")
+    }
+}
+
+fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
+    let full = c.worktree_path.display().to_string();
+    if let Some(rest) = full.strip_prefix(vigil_wt) {
+        rest.split('/').next().unwrap_or("?").to_string()
+    } else {
+        c.repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+    }
+}
+
 pub enum Overlay {
     None,
     NewWorktree {
@@ -552,6 +570,20 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
                 .or(probe.last_user_message),
             pr_status,
         });
+    }
+
+    // Sort containers to match the visual grouping in render.rs (by repo, preserving
+    // first-seen order). Without this, j/k navigates in registry creation order rather
+    // than the order rows actually appear on screen.
+    {
+        let vigil_wt = vigil_worktrees_prefix();
+        let mut group_index: HashMap<String, usize> = HashMap::new();
+        for c in &containers {
+            let g = container_repo_group(c, &vigil_wt);
+            let next = group_index.len();
+            group_index.entry(g).or_insert(next);
+        }
+        containers.sort_by_key(|c| group_index[&container_repo_group(c, &vigil_wt)]);
     }
 
     app.containers = containers;
