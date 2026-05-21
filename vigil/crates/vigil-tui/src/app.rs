@@ -52,6 +52,13 @@ pub enum Overlay {
     SendMessage {
         buf: String,
     },
+    /// Ctrl+P style project picker: search home directory for git repos.
+    ProjectPicker {
+        query: String,
+        all_repos: Vec<PathBuf>,
+        selected_idx: usize,
+        scanning: bool,
+    },
 }
 
 pub struct App {
@@ -64,6 +71,10 @@ pub struct App {
     last_dismissed: Option<Container>,
     /// Cache of PR status per container id, with the time it was last fetched.
     pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    /// Cache of log data per container id, updated every tick for the selected container.
+    log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
+    /// Receiver for async git-repo scan results (feeds ProjectPicker).
+    scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
 }
 
 impl App {
@@ -78,7 +89,9 @@ impl App {
             registry: Registry::load().ok(),
             last_refresh: Instant::now(),
             last_dismissed: None,
+            log_cache: HashMap::new(),
             pr_cache: HashMap::new(),
+            scan_rx: None,
         }
     }
 
@@ -133,12 +146,13 @@ impl App {
 
     pub fn open_log_view(&mut self) {
         if let Some(c) = self.selected() {
+            let (events, lines) = self.log_cache.get(&c.id).cloned().unwrap_or_default();
             self.overlay = Overlay::LogView {
                 container_id: c.id.clone(),
                 worktree_path: c.worktree_path.clone(),
                 agent: c.agent,
-                events: vec![],
-                lines: vec![],
+                events,
+                lines,
             };
         }
     }
@@ -175,6 +189,16 @@ impl App {
         self.archive.restore_id(&container.id).ok();
         self.containers.insert(0, container);
         self.table_state.select(Some(0));
+    }
+
+    pub fn open_project_picker(&mut self) {
+        if self.registry.is_none() { return; }
+        self.overlay = Overlay::ProjectPicker {
+            query: String::new(),
+            all_repos: vec![],
+            selected_idx: 0,
+            scanning: true,
+        };
     }
 
     fn open_new_worktree(&mut self) {
@@ -295,6 +319,14 @@ async fn event_loop(
                         KeyCode::Char('d') => app.open_dismiss_confirm(),
                         KeyCode::Char('u') => app.undo_dismiss(),
                         KeyCode::Char('W') => app.open_new_worktree(),
+                        KeyCode::Char('A') => {
+                            if app.registry.is_some() {
+                                let (tx, rx) = tokio::sync::oneshot::channel();
+                                app.scan_rx = Some(rx);
+                                app.open_project_picker();
+                                tokio::spawn(async move { tx.send(scan_git_repos().await).ok(); });
+                            }
+                        }
                         KeyCode::Char('R') => app.open_remove_confirm(),
                         KeyCode::Enter => {
                             if let Some(c) = app.selected() {
@@ -342,6 +374,55 @@ async fn event_loop(
                             app.overlay = Overlay::None;
                         }
                         KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_remove(); }
+                        _ => {}
+                    }
+                } else if matches!(app.overlay, Overlay::ProjectPicker { .. }) {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app.overlay = Overlay::None;
+                            app.scan_rx = None;
+                        }
+                        KeyCode::Backspace => {
+                            if let Overlay::ProjectPicker { ref mut query, ref mut selected_idx, .. } = app.overlay {
+                                query.pop();
+                                *selected_idx = 0;
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Tab => {
+                            let count = picker_filtered_count(&app.overlay);
+                            if let Overlay::ProjectPicker { ref mut selected_idx, .. } = app.overlay {
+                                *selected_idx = (*selected_idx + 1).min(count.saturating_sub(1));
+                            }
+                        }
+                        KeyCode::Up => {
+                            if let Overlay::ProjectPicker { ref mut selected_idx, .. } = app.overlay {
+                                *selected_idx = selected_idx.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Enter => {
+                            // Extract selected repo, then transition to NewWorktree
+                            let selected = if let Overlay::ProjectPicker { ref all_repos, ref query, selected_idx, .. } = app.overlay {
+                                let q = query.to_lowercase();
+                                let filtered: Vec<&PathBuf> = all_repos.iter()
+                                    .filter(|p| p.display().to_string().to_lowercase().contains(&q))
+                                    .collect();
+                                filtered.get(selected_idx).map(|p| (*p).clone())
+                            } else { None };
+                            if let Some(repo_root) = selected {
+                                app.scan_rx = None;
+                                app.overlay = Overlay::NewWorktree {
+                                    name_buf: String::new(),
+                                    agent_idx: 0,
+                                    repo_root: Some(repo_root),
+                                };
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            if let Overlay::ProjectPicker { ref mut query, ref mut selected_idx, .. } = app.overlay {
+                                query.push(c);
+                                *selected_idx = 0;
+                            }
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
@@ -470,9 +551,34 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         app.table_state.select(Some(new_sel));
     }
 
-    // Refresh log data if the log view overlay is open
-    if let Overlay::LogView { worktree_path, agent, events, lines, .. } = &mut app.overlay {
-        if let Some(adapter) = adapters.get(agent) {
+    // Deliver scan results to ProjectPicker if ready.
+    let scan_ready = app.scan_rx.as_mut().and_then(|rx| rx.try_recv().ok());
+    if let Some(mut results) = scan_ready {
+        app.scan_rx = None;
+        results.sort_by(|a, b| a.display().to_string().cmp(&b.display().to_string()));
+        if let Overlay::ProjectPicker { ref mut all_repos, ref mut scanning, ref mut selected_idx, .. } = app.overlay {
+            *all_repos = results;
+            *scanning = false;
+            *selected_idx = 0;
+        }
+    }
+
+    // Pre-load log for the selected container into cache (so opening LogView is instant).
+    let selected_log_info = app.selected().map(|c| (c.id.clone(), c.worktree_path.clone(), c.agent));
+    if let Some((id, path, agent)) = selected_log_info {
+        if let Some(adapter) = adapters.get(&agent) {
+            let events = adapter.recent_log_events(&path).await;
+            let lines = adapter.recent_log(&path).await;
+            app.log_cache.insert(id, (events, lines));
+        }
+    }
+
+    // Keep LogView in sync while it's open.
+    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, .. } = &mut app.overlay {
+        if let Some((cached_events, cached_lines)) = app.log_cache.get(container_id) {
+            *events = cached_events.clone();
+            *lines = cached_lines.clone();
+        } else if let Some(adapter) = adapters.get(agent) {
             *events = adapter.recent_log_events(worktree_path).await;
             *lines = adapter.recent_log(worktree_path).await;
         }
@@ -506,6 +612,54 @@ async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus>
         }
         _ => Some(PrStatus::NoPr),
     }
+}
+
+/// Count filtered results for the ProjectPicker without taking ownership.
+fn picker_filtered_count(overlay: &Overlay) -> usize {
+    if let Overlay::ProjectPicker { all_repos, query, .. } = overlay {
+        let q = query.to_lowercase();
+        all_repos.iter().filter(|p| p.display().to_string().to_lowercase().contains(&q)).count()
+    } else { 0 }
+}
+
+/// Scan the home directory for git repositories using mdfind (macOS Spotlight) or find.
+async fn scan_git_repos() -> Vec<PathBuf> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() { return vec![]; }
+
+    // Try mdfind first — fast Spotlight index query, typically < 200ms on macOS.
+    let mdfind = tokio::process::Command::new("mdfind")
+        .args(["-onlyin", &home, "kMDItemFSName == '.git'"])
+        .output()
+        .await;
+
+    let stdout = match mdfind {
+        Ok(out) if out.status.success() && !out.stdout.is_empty() => out.stdout,
+        _ => {
+            // Fallback: find with depth limit, skipping common noise dirs.
+            tokio::process::Command::new("find")
+                .arg(&home)
+                .args(["-maxdepth", "5", "-type", "d", "-name", ".git",
+                       "-not", "-path", "*/node_modules/*",
+                       "-not", "-path", "*/.Trash/*"])
+                .output()
+                .await
+                .map(|o| o.stdout)
+                .unwrap_or_default()
+        }
+    };
+
+    String::from_utf8_lossy(&stdout)
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() { return None; }
+            // Skip .git dirs that live inside another .git (submodule metadata)
+            if line.contains("/.git/") { return None; }
+            let git_dir = PathBuf::from(line);
+            git_dir.parent().map(|p| p.to_path_buf())
+        })
+        .collect()
 }
 
 /// Attach to an existing session if `session_id` is Some, otherwise launch fresh.

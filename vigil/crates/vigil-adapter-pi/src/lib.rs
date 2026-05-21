@@ -11,7 +11,7 @@ pub mod classifier;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolKind};
+use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolKind, VigilError};
 
 pub struct PiAdapter;
 
@@ -70,7 +70,34 @@ impl AgentAdapter for PiAdapter {
         let session_dir = sessions_dir().join(encode_path(dir));
         let Some(latest) = find_latest(&session_dir) else { return vec![]; };
         let Ok(content) = tokio::fs::read_to_string(&latest).await else { return vec![]; };
-        parse_conversation_events(&content)
+        // Parse only the last 500 lines — enough for ~50 turns, avoids reading full large sessions.
+        let tail: String = content.lines().rev().take(500).collect::<Vec<_>>()
+            .into_iter().rev().collect::<Vec<_>>().join("\n");
+        parse_conversation_events(&tail)
+    }
+
+    async fn send_message(
+        &self,
+        dir: &Path,
+        _session_id: &SessionId,
+        msg: &str,
+    ) -> Result<(), VigilError> {
+        let session_dir = sessions_dir().join(encode_path(dir));
+        let Some(latest) = find_latest(&session_dir) else {
+            return Err(VigilError::NotSupported("no Pi session file found".into()));
+        };
+
+        // Use `pi --session <file> --print <msg>` — fire and forget.
+        tokio::process::Command::new("pi")
+            .arg("--session").arg(&latest)
+            .arg("--print").arg(msg)
+            .current_dir(dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
+        Ok(())
     }
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
@@ -162,7 +189,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                     .and_then(|a| a.iter().find(|c| c["type"] == "text"))
                     .and_then(|c| c["text"].as_str())
                     .unwrap_or("")
-                    .chars().take(200).collect();
+                    .chars().take(2000).collect();
                 pending_user = Some((text, time));
             }
             Some("assistant") => {
@@ -183,7 +210,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                         .find(|c| c["type"] == "text")
                         .and_then(|c| c["text"].as_str())
                         .unwrap_or("")
-                        .chars().take(200).collect();
+                        .chars().take(2000).collect();
 
                     if let Some((user_text, user_time)) = pending_user.take() {
                         events.push(LogEvent::UserMessage { text: user_text, time: user_time });

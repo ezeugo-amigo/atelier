@@ -134,34 +134,12 @@ impl AgentAdapter for ClaudeCodeAdapter {
         };
         let log_path = self.session_path(session_id);
 
-        let pids = process::get_pids_holding_file(&log_path).await;
+        let pids = vigil_core::process::get_pids_holding_file(&log_path).await;
         let pid = pids
             .first()
             .copied()
             .ok_or_else(|| VigilError::NotSupported("no process holds session file".into()))?;
 
-        let out = tokio::process::Command::new("ps")
-            .args(["-p", &pid.to_string(), "-o", "tty="])
-            .output()
-            .await
-            .map_err(|e| VigilError::ProcessProbe(e.to_string()))?;
-        let tty = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if tty == "??" || tty.is_empty() {
-            return Err(VigilError::NotSupported(
-                "process has no controlling TTY".into(),
-            ));
-        }
-
-        let tty_path = format!("/dev/{tty}");
-        let payload = format!("{msg}\n");
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&tty_path)
-            .and_then(|mut f| {
-                use std::io::Write as _;
-                f.write_all(payload.as_bytes())
-            })
-            .map_err(|e| VigilError::ProcessProbe(format!("write to {tty_path}: {e}")))?;
-        Ok(())
+        vigil_core::process::send_to_tty(pid, msg).await
     }
 }

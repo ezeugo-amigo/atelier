@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Vigil — Row Grouping Options</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0e0e0e;
+    color: #c8c0b4;
+    font-family: 'Berkeley Mono', 'JetBrains Mono', 'Fira Code', 'Menlo', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 40px 32px;
+  }
+  h1 {
+    color: #d4a36e;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 48px;
+    letter-spacing: 0.05em;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px 48px;
+  }
+  .option {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .option-label {
+    color: #6b6560;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .option-title {
+    color: #a89880;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .term {
+    background: #141414;
+    border: 1px solid #2a2826;
+    border-radius: 4px;
+    padding: 14px 16px;
+    white-space: pre;
+    line-height: 1.65;
+  }
+
+  /* colours */
+  .dim    { color: #3e3a36; }
+  .muted  { color: #6b6560; }
+  .accent { color: #d4a36e; }
+  .green  { color: #8fbf73; }
+  .red    { color: #d97757; }
+  .gold   { color: #e0b870; }
+  .white  { color: #e8e0d8; }
+  .purple { color: #a78bfa; }
+
+  .bold   { font-weight: 700; }
+  .sel    { background: #1e1c1a; border-left: 2px solid #d4a36e; padding-left: 6px; display: block; margin-left: -8px; }
+
+  .bar-accent { background: #d4a36e; display: inline-block; width: 3px; }
+  .sep-line { border-top: 1px solid #2a2826; margin: 2px 0; }
+
+  .badge {
+    background: #2a2520;
+    color: #d4a36e;
+    border: 1px solid #3a3028;
+    border-radius: 2px;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+  .tag {
+    background: #1e2a1e;
+    color: #8fbf73;
+    border-radius: 2px;
+    padding: 0 4px;
+    font-size: 11px;
+  }
+
+  .indent { display: inline-block; width: 16px; }
+  .tree-mid  { color: #3e3a36; }
+
+  /* group bg bands */
+  .band-a { background: #161412; }
+  .band-b { background: #121212; }
+
+  .border-l-accent { border-left: 2px solid #d4a36e; padding-left: 6px; }
+  .border-l-green  { border-left: 2px solid #8fbf73; padding-left: 6px; }
+  .border-l-dim    { border-left: 2px solid #2a2826; padding-left: 6px; }
+</style>
+</head>
+<body>
+
+<h1>vigil — row grouping options</h1>
+
+<div class="grid">
+
+  <!-- 1. Section header row -->
+  <div class="option">
+    <div class="option-label">Option 1</div>
+    <div class="option-title">Section header row</div>
+    <div class="term"><span class="dim">  STATE              CONTAINER   PR  BRANCH         AGE  LAST MESSAGE</span>
+
+<span class="muted">  ── eleve ──────────────────────────────────────────────────────</span>
+<span class="green">  ○ idle              eleve       ◯   main            2m  fix navbar spacing</span>
+<span class="accent">  ● awaiting          eleve            one            14s  should I delete this?</span>
+<span class="gold">  ◐ running           eleve            yellow-brick   31s  refactor auth module</span>
+
+<span class="muted">  ── atelier ─────────────────────────────────────────────────────</span>
+<span class="dim">  · done              atelier          vigil-rewrite  4h   add send_message</span>
+<span class="dim">  · no session        atelier          docs            –    –</span></div>
+  </div>
+
+  <!-- 2. Tree indent -->
+  <div class="option">
+    <div class="option-label">Option 2</div>
+    <div class="option-title">Tree indent with └ chars</div>
+    <div class="term"><span class="dim">  STATE              CONTAINER   PR  BRANCH         AGE  LAST MESSAGE</span>
+
+<span class="accent bold">  eleve</span>
+<span class="green">  ├ ○ idle                         ◯   main            2m  fix navbar spacing</span>
+<span class="accent">  ├ ● awaiting                          one            14s  should I delete this?</span>
+<span class="gold">  └ ◐ running                           yellow-brick   31s  refactor auth module</span>
+
+<span class="accent bold">  atelier</span>
+<span class="dim">  ├ · done                              vigil-rewrite  4h   add send_message</span>
+<span class="dim">  └ · no session                        docs            –    –</span></div>
+  </div>
+
+  <!-- 3. Dim repo prefix inline -->
+  <div class="option">
+    <div class="option-label">Option 3</div>
+    <div class="option-title">Dim repo / bold branch inline</div>
+    <div class="term"><span class="dim">  STATE              CONTAINER            PR  AGE  LAST MESSAGE</span>
+
+<span class="green">  ○ idle              <span class="muted">eleve /</span> <span class="white bold">main</span>         ◯   2m   fix navbar spacing</span>
+<span class="accent">  ● awaiting          <span class="muted">eleve /</span> <span class="white bold">one</span>              14s  should I delete this?</span>
+<span class="gold">  ◐ running           <span class="muted">eleve /</span> <span class="white bold">yellow-brick</span>     31s  refactor auth module</span>
+<span class="dim">  · done              <span class="muted">atelier /</span> <span class="white">vigil-rewrite</span>  4h   add send_message</span>
+<span class="dim">  · no session        <span class="muted">atelier /</span> <span class="white">docs</span>            –    –</span></div>
+  </div>
+
+  <!-- 4. Left border accent per group -->
+  <div class="option">
+    <div class="option-label">Option 4</div>
+    <div class="option-title">Left border accent per group</div>
+    <div class="term"><span class="dim">  STATE              BRANCH         PR  AGE  LAST MESSAGE</span>
+
+<span class="accent">  eleve</span>
+<span style="border-left:2px solid #d4a36e;padding-left:6px;display:block;margin-left:2px"><span class="green">  ○ idle              main           ◯   2m   fix navbar spacing</span>
+<span class="accent">  ● awaiting          one                14s  should I delete this?</span>
+<span class="gold">  ◐ running           yellow-brick       31s  refactor auth module</span></span>
+<span class="muted">  atelier</span>
+<span style="border-left:2px solid #3e3a36;padding-left:6px;display:block;margin-left:2px"><span class="dim">  · done              vigil-rewrite      4h   add send_message</span>
+<span class="dim">  · no session        docs               –    –</span></span></div>
+  </div>
+
+  <!-- 5. Badge on first row of group -->
+  <div class="option">
+    <div class="option-label">Option 5</div>
+    <div class="option-title">Repo badge on first row only</div>
+    <div class="term"><span class="dim">  STATE              BRANCH              AGE  LAST MESSAGE</span>
+
+<span class="green">  ○ idle    <span class="badge">eleve</span>  main               2m   fix navbar spacing</span>
+<span class="accent">  ● awaiting         one               14s  should I delete this?</span>
+<span class="gold">  ◐ running          yellow-brick      31s  refactor auth module</span>
+<span class="dim">  · done    <span class="badge" style="color:#6b6560;border-color:#2a2826;background:#1a1a1a">atelier</span> vigil-rewrite    4h   add send_message</span>
+<span class="dim">  · no session       docs               –   –</span></div>
+  </div>
+
+  <!-- 6. Alternating background bands -->
+  <div class="option">
+    <div class="option-label">Option 6</div>
+    <div class="option-title">Alternating background bands</div>
+    <div class="term"><span class="dim">  STATE              CONTAINER            AGE  LAST MESSAGE</span>
+
+<span style="display:block;background:#181614;padding:1px 0"><span class="green">  ○ idle              eleve / main          2m   fix navbar spacing</span>
+<span class="accent">  ● awaiting          eleve / one          14s  should I delete this?</span>
+<span class="gold">  ◐ running           eleve / yellow-brick 31s  refactor auth module</span></span>
+<span style="display:block;background:#121212;padding:1px 0"><span class="dim">  · done              atelier / vigil       4h   add send_message</span>
+<span class="dim">  · no session        atelier / docs         –   –</span></span></div>
+  </div>
+
+  <!-- 7. Collapsed repo line + nested count -->
+  <div class="option">
+    <div class="option-label">Option 7</div>
+    <div class="option-title">Collapsible group header with count</div>
+    <div class="term"><span class="dim">  STATE              CONTAINER            AGE  LAST MESSAGE</span>
+
+<span class="accent bold">  ▾ eleve</span><span class="muted">  3 containers  ·  1 awaiting  ·  1 running</span>
+<span class="green">    ○ idle            main                2m   fix navbar spacing</span>
+<span class="accent">    ● awaiting        one                14s  should I delete this?</span>
+<span class="gold">    ◐ running         yellow-brick       31s  refactor auth module</span>
+
+<span class="muted bold">  ▾ atelier</span><span class="muted">  2 containers</span>
+<span class="dim">    · done            vigil-rewrite       4h   add send_message</span>
+<span class="dim">    · no session      docs                –    –</span></div>
+  </div>
+
+  <!-- 8. Two-column split: repo | branch -->
+  <div class="option">
+    <div class="option-label">Option 8</div>
+    <div class="option-title">Two-column repo ┊ branch</div>
+    <div class="term"><span class="dim">  STATE    REPO        ┊  BRANCH          AGE  LAST MESSAGE</span>
+
+<span class="green">  ○ idle    <span class="muted">eleve</span>       ┊  main             2m   fix navbar spacing</span>
+<span class="accent">  ● await   <span class="dim">·</span>           ┊  one             14s   should I delete this?</span>
+<span class="gold">  ◐ run     <span class="dim">·</span>           ┊  yellow-brick    31s   refactor auth module</span>
+<span class="dim">  · done    <span class="muted">atelier</span>     ┊  vigil-rewrite    4h   add send_message</span>
+<span class="dim">  · none    <span class="dim">·</span>           ┊  docs              –   –</span></div>
+  </div>
+
+  <!-- 9. Hanging repo name left gutter -->
+  <div class="option">
+    <div class="option-label">Option 9</div>
+    <div class="option-title">Repo name in left gutter</div>
+    <div class="term"><span class="dim">         STATE   BRANCH         AGE  LAST MESSAGE</span>
+
+<span class="accent bold">  eleve</span>
+<span class="muted">    │</span>  <span class="green">  ○ idle    main            2m   fix navbar spacing</span>
+<span class="muted">    │</span>  <span class="accent">  ● await   one            14s   should I delete this?</span>
+<span class="muted">    └</span>  <span class="gold">  ◐ run     yellow-brick   31s   refactor auth module</span>
+
+<span class="muted bold">  atelier</span>
+<span class="muted">    │</span>  <span class="dim">  · done    vigil-rewrite   4h   add send_message</span>
+<span class="muted">    └</span>  <span class="dim">  · none    docs             –    –</span></div>
+  </div>
+
+  <!-- 10. Compact pill + slash -->
+  <div class="option">
+    <div class="option-label">Option 10</div>
+    <div class="option-title">Compact — first row shows repo, rest blank</div>
+    <div class="term"><span class="dim">  STATE   REPO      BRANCH         PR  AGE  LAST MESSAGE</span>
+
+<span class="green">  ○       <span class="accent">eleve</span>     main           ◯   2m   fix navbar spacing</span>
+<span class="accent">  ●                 one                14s  should I delete this?</span>
+<span class="gold">  ◐                 yellow-brick       31s  refactor auth module</span>
+<span class="dim">  ·       <span class="muted">atelier</span>   vigil-rewrite      4h   add send_message</span>
+<span class="dim">  ·                 docs                –   –</span></div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
@@ -16,17 +16,14 @@ const GREEN: Color = Color::Rgb(143, 191, 115);
 const ACCENT: Color = Color::Rgb(212, 163, 115);
 const PURPLE: Color = Color::Rgb(167, 139, 250);
 const DIM: Color = Color::DarkGray;
+const MUTED: Color = Color::Rgb(120, 112, 104);
 
 const AGENT_LABELS: [&str; 4] = ["Claude", "Codex", "Pi", "OpenCode"];
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
-    let border = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::White));
-    let inner = border.inner(area);
-    f.render_widget(border, area);
+    let inner = area.inner(Margin { horizontal: 2, vertical: 1 });
 
     let [header, table, footer] = Layout::vertical([
         Constraint::Length(1),
@@ -58,6 +55,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
         Overlay::LogView { container_id, events, lines, .. } => {
             draw_log_view_overlay(f, area, container_id, events, lines);
+        }
+        Overlay::ProjectPicker { query, all_repos, selected_idx, scanning } => {
+            draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
         }
     }
 }
@@ -105,26 +105,63 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
     let home = std::env::var("HOME").unwrap_or_default();
+    let vigil_wt = if home.is_empty() {
+        "/.vigil/worktrees/".to_string()
+    } else {
+        format!("{home}/.vigil/worktrees/")
+    };
     let selected = app.table_state.selected();
 
-    let rows: Vec<Row> = app
-        .containers
-        .iter()
-        .enumerate()
-        .map(|(i, c)| {
+    // Build ordered groups: preserve first-seen order of repos.
+    let mut group_order: Vec<String> = Vec::new();
+    let mut groups: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for (i, c) in app.containers.iter().enumerate() {
+        let full = c.worktree_path.display().to_string();
+        let repo = if let Some(rest) = full.strip_prefix(&vigil_wt) {
+            rest.split('/').next().unwrap_or("?").to_string()
+        } else {
+            c.repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+        };
+        if !groups.contains_key(&repo) {
+            group_order.push(repo.clone());
+        }
+        groups.entry(repo).or_default().push(i);
+    }
+
+    let mut rows: Vec<Row> = Vec::new();
+    let mut container_to_row: Vec<usize> = vec![0; app.containers.len()];
+
+    for repo in &group_order {
+        let indices = &groups[repo];
+
+        // Separator row — fill each cell with dashes, repo name in state column.
+        let state_cell = format!("── {repo} {}", "─".repeat(20_usize.saturating_sub(repo.len() + 4).max(2)));
+        rows.push(Row::new(vec![
+            Cell::from(""),
+            Cell::from(""),
+            Cell::from(Span::styled(state_cell,       Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(20),   Style::default().fg(DIM))),
+            Cell::from(Span::styled("───",            Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(26),   Style::default().fg(DIM))),
+            Cell::from(Span::styled("──────",         Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(50),   Style::default().fg(DIM))),
+        ]));
+
+        for &i in indices {
+            container_to_row[i] = rows.len();
+            let c = &app.containers[i];
+
             let (dot, dot_style) = state_dot(&c.state);
             let state_str = state_label(&c.state);
 
-            let project = {
-                // Strip ~/.vigil/worktrees/ prefix, showing just <repo>/<branch>
-                let vigil_wt = if home.is_empty() {
-                    String::from("/.vigil/worktrees/")
-                } else {
-                    format!("{home}/.vigil/worktrees/")
-                };
+            // Show only the branch name (last path component) within the group.
+            let branch = {
                 let full = c.worktree_path.display().to_string();
-                if let Some(rest) = full.strip_prefix(&vigil_wt) {
-                    rest.to_string()
+                if full.starts_with(&vigil_wt) {
+                    c.worktree_path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(c.branch.as_str())
+                        .to_string()
                 } else if !home.is_empty() {
                     full.replacen(&home, "~", 1)
                 } else {
@@ -152,42 +189,49 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 Cell::from(" ")
             };
-
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
 
-            Row::new(vec![
+            rows.push(Row::new(vec![
                 bar,
                 Cell::from(Span::styled(dot, dot_style)),
                 Cell::from(state_str),
                 Cell::from(c.id.clone()),
                 Cell::from(Span::styled(pr_icon, pr_style)),
-                Cell::from(project),
+                Cell::from(branch),
                 Cell::from(age),
                 Cell::from(msg),
-            ])
-            .style(row_style)
-        })
-        .collect();
+            ]).style(row_style));
+        }
+    }
+
+    // Remap container selection index → table row index for rendering.
+    let mut render_state = app.table_state.clone();
+    if let Some(ci) = selected {
+        if let Some(&ri) = container_to_row.get(ci) {
+            render_state.select(Some(ri));
+        }
+    }
 
     let widths = [
-        Constraint::Length(1),  // accent bar
-        Constraint::Length(2),  // dot
-        Constraint::Length(20), // state
-        Constraint::Length(20), // container id / branch name
-        Constraint::Length(3),  // pr status
-        Constraint::Length(26), // path
-        Constraint::Length(6),  // age
-        Constraint::Fill(1),    // message
+        Constraint::Length(1),
+        Constraint::Length(2),
+        Constraint::Length(20),
+        Constraint::Length(20),
+        Constraint::Length(3),
+        Constraint::Length(26),
+        Constraint::Length(6),
+        Constraint::Fill(1),
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "PATH", "AGE", "LAST MESSAGE"])
-        .style(Style::default().fg(DIM).add_modifier(Modifier::BOLD));
+    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE"])
+        .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
         .header(header)
+        .column_spacing(0)
         .block(Block::default());
 
-    f.render_stateful_widget(table, area, &mut app.table_state);
+    f.render_stateful_widget(table, area, &mut render_state);
 }
 
 fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
@@ -223,6 +267,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     if has_registry {
         spans.push(Span::styled("W", Style::default().fg(DIM)));
         spans.push(Span::raw(" new  "));
+        spans.push(Span::styled("A", Style::default().fg(DIM)));
+        spans.push(Span::raw(" open  "));
     }
     if app.can_remove_selected() {
         spans.push(Span::styled("R", Style::default().fg(DIM)));
@@ -327,7 +373,7 @@ fn draw_log_view_overlay(
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(popup);
+    let inner = block.inner(popup).inner(Margin { horizontal: 2, vertical: 1 });
     f.render_widget(block, popup);
 
     let [content, hint_area] = Layout::vertical([
@@ -358,24 +404,33 @@ fn draw_log_view_overlay(
         // ── Timeline view (structured JSONL sessions: Pi and future adapters) ──
         let render_width = content.width as usize;
         let mut display: Vec<Line> = Vec::new();
-        let mut prev_was_agent = false;
 
         for event in events {
             match event {
                 LogEvent::UserMessage { text, time } => {
-                    if prev_was_agent {
-                        display.push(Line::from(""));
-                    }
                     let time_str = time.as_deref().unwrap_or("");
                     let prefix = "  YOU  ";
-                    let avail = render_width.saturating_sub(prefix.len() + time_str.len() + 3);
-                    let truncated: String = text.chars().take(avail).collect();
-                    display.push(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                        Span::styled(truncated, Style::default().fg(Color::White)),
-                        Span::styled(format!("  {time_str}"), Style::default().fg(EMPTY_COLOR)),
-                    ]));
-                    prev_was_agent = false;
+                    let indent = " ".repeat(prefix.len());
+                    let text_width = render_width.saturating_sub(prefix.len());
+                    let mut first = true;
+                    for raw_line in text.lines() {
+                        let raw_line = if raw_line.is_empty() { " " } else { raw_line };
+                        for chunk in wrap_str(raw_line, text_width) {
+                            if first {
+                                display.push(Line::from(vec![
+                                    Span::styled(prefix, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                                    Span::styled(format!("{chunk}  "), Style::default().fg(Color::White)),
+                                    Span::styled(time_str.to_string(), Style::default().fg(EMPTY_COLOR)),
+                                ]));
+                                first = false;
+                            } else {
+                                display.push(Line::from(vec![
+                                    Span::raw(indent.clone()),
+                                    Span::styled(chunk, Style::default().fg(Color::White)),
+                                ]));
+                            }
+                        }
+                    }
                 }
                 LogEvent::ToolGroup { tools } if !tools.is_empty() => {
                     let bar_max = 12u32;
@@ -419,19 +474,33 @@ fn draw_log_view_overlay(
                         ));
                     }
                     display.push(Line::from(bar_spans));
-                    prev_was_agent = false;
                 }
                 LogEvent::AgentMessage { text, time } => {
                     let time_str = time.as_deref().unwrap_or("");
                     let prefix = "   PI  ";
-                    let avail = render_width.saturating_sub(prefix.len() + time_str.len() + 3);
-                    let truncated: String = text.chars().take(avail).collect();
-                    display.push(Line::from(vec![
-                        Span::styled(prefix, Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                        Span::styled(truncated, Style::default().fg(GREEN)),
-                        Span::styled(format!("  {time_str}"), Style::default().fg(EMPTY_COLOR)),
-                    ]));
-                    prev_was_agent = true;
+                    let indent = " ".repeat(prefix.len());
+                    let text_width = render_width.saturating_sub(prefix.len());
+                    let mut first = true;
+                    for raw_line in text.lines() {
+                        let raw_line = if raw_line.is_empty() { " " } else { raw_line };
+                        for chunk in wrap_str(raw_line, text_width) {
+                            let spans = render_inline(&chunk, GREEN, EMPTY_COLOR);
+                            if first {
+                                let mut line_spans = vec![
+                                    Span::styled(prefix, Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
+                                ];
+                                line_spans.extend(spans);
+                                line_spans.push(Span::styled(format!("  {time_str}"), Style::default().fg(EMPTY_COLOR)));
+                                display.push(Line::from(line_spans));
+                                first = false;
+                            } else {
+                                let mut line_spans = vec![Span::raw(indent.clone())];
+                                line_spans.extend(spans);
+                                display.push(Line::from(line_spans));
+                            }
+                        }
+                    }
+                    display.push(Line::from(""));
                 }
                 _ => {}
             }
@@ -546,6 +615,121 @@ fn draw_remove_confirm_overlay(
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+fn draw_project_picker_overlay(
+    f: &mut Frame,
+    area: Rect,
+    query: &str,
+    all_repos: &[std::path::PathBuf],
+    selected_idx: usize,
+    scanning: bool,
+) {
+    let height = (area.height * 65 / 100).max(12).min(area.height);
+    let popup = centered_rect(68, height, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Open Project ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let [search_area, divider_area, list_area, hint_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ]).areas(inner);
+
+    // Search input line
+    f.render_widget(
+        Line::from(vec![
+            Span::styled("▸ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(query.to_string(), Style::default().fg(Color::White)),
+            Span::styled("_", Style::default().fg(ACCENT)),
+        ]),
+        search_area,
+    );
+
+    // Divider
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(inner.width as usize),
+            Style::default().fg(DIM),
+        )),
+        divider_area,
+    );
+
+    // Filtered list
+    let home = std::env::var("HOME").unwrap_or_default();
+    let q = query.to_lowercase();
+    let filtered: Vec<&std::path::PathBuf> = all_repos.iter()
+        .filter(|p| p.display().to_string().to_lowercase().contains(&q))
+        .collect();
+
+    if scanning && filtered.is_empty() {
+        f.render_widget(
+            Paragraph::new(Span::styled("  scanning...", Style::default().fg(DIM))),
+            list_area,
+        );
+    } else if filtered.is_empty() {
+        f.render_widget(
+            Paragraph::new(Span::styled("  no matches", Style::default().fg(DIM))),
+            list_area,
+        );
+    } else {
+        let max_visible = list_area.height as usize;
+        let sel = selected_idx.min(filtered.len().saturating_sub(1));
+        let scroll_start = sel.saturating_sub(max_visible.saturating_sub(1));
+
+        let lines: Vec<Line> = filtered.iter()
+            .skip(scroll_start)
+            .take(max_visible)
+            .enumerate()
+            .map(|(i, path)| {
+                let is_selected = scroll_start + i == sel;
+                let path_str = {
+                    let s = path.display().to_string();
+                    if !home.is_empty() { s.replacen(&home, "~", 1) } else { s }
+                };
+                if is_selected {
+                    Line::from(vec![
+                        Span::styled("▸ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                        Span::styled(path_str, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(path_str, Style::default().fg(DIM)),
+                    ])
+                }
+            })
+            .collect();
+
+        f.render_widget(Paragraph::new(lines), list_area);
+    }
+
+    // Hint footer
+    let count_str = if scanning {
+        format!("{} repos (scanning...)", filtered.len())
+    } else {
+        format!("{} / {} repos", filtered.len(), all_repos.len())
+    };
+    f.render_widget(
+        Line::from(vec![
+            Span::styled(count_str, Style::default().fg(DIM)),
+            Span::raw("   "),
+            Span::styled("↑↓ / Tab", Style::default().fg(DIM)),
+            Span::raw(" navigate  "),
+            Span::styled("Enter", Style::default().fg(DIM)),
+            Span::raw(" open  "),
+            Span::styled("Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+        hint_area,
+    );
+}
+
 fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
     let popup_width = (r.width * percent_w / 100).max(1);
     Rect {
@@ -603,6 +787,61 @@ fn state_style(state: &SessionState) -> Style {
         }
         _ => Style::default().fg(Color::White),
     }
+}
+
+/// Split `text` into chunks of at most `width` chars without breaking mid-word.
+fn wrap_str(text: &str, width: usize) -> Vec<String> {
+    if width == 0 || text.is_empty() {
+        return vec![text.to_string()];
+    }
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        let char_count = remaining.chars().count();
+        if char_count <= width {
+            chunks.push(remaining.to_string());
+            break;
+        }
+        // Find last space within width chars
+        let byte_end = remaining.char_indices().nth(width).map(|(i, _)| i).unwrap_or(remaining.len());
+        let slice = &remaining[..byte_end];
+        let split = slice.rfind(' ').unwrap_or(byte_end);
+        chunks.push(remaining[..split].to_string());
+        remaining = remaining[split..].trim_start_matches(' ');
+    }
+    if chunks.is_empty() {
+        chunks.push(String::new());
+    }
+    chunks
+}
+
+/// Parse a line for inline backtick code spans and return styled Spans.
+fn render_inline(text: &str, text_color: Color, _code_color: Color) -> Vec<Span<'static>> {
+    const CODE_FG: Color = Color::Rgb(220, 200, 170);
+    const CODE_BG: Color = Color::Rgb(45, 42, 38);
+
+    let mut spans = Vec::new();
+    let mut remaining = text;
+    while let Some(start) = remaining.find('`') {
+        if !remaining[..start].is_empty() {
+            spans.push(Span::styled(remaining[..start].to_string(), Style::default().fg(text_color)));
+        }
+        remaining = &remaining[start + 1..];
+        if let Some(end) = remaining.find('`') {
+            spans.push(Span::styled(
+                format!(" {} ", &remaining[..end]),
+                Style::default().fg(CODE_FG).bg(CODE_BG),
+            ));
+            remaining = &remaining[end + 1..];
+        } else {
+            spans.push(Span::styled(format!("`{remaining}"), Style::default().fg(text_color)));
+            return spans;
+        }
+    }
+    if !remaining.is_empty() {
+        spans.push(Span::styled(remaining.to_string(), Style::default().fg(text_color)));
+    }
+    spans
 }
 
 fn fmt_age(ts: DateTime<Utc>) -> String {
