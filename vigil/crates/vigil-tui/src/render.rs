@@ -15,6 +15,7 @@ const GOLD: Color = Color::Rgb(224, 184, 112);
 const GREEN: Color = Color::Rgb(143, 191, 115);
 const ACCENT: Color = Color::Rgb(212, 163, 115);
 const PURPLE: Color = Color::Rgb(167, 139, 250);
+const BLUE: Color = Color::Rgb(100, 149, 237);
 const DIM: Color = Color::DarkGray;
 const MUTED: Color = Color::Rgb(120, 112, 104);
 
@@ -775,10 +776,10 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
 
 fn agent_label(agent: AgentKind) -> (&'static str, Style) {
     match agent {
-        AgentKind::ClaudeCode => ("✶ Claude", Style::default().fg(PURPLE)),
-        AgentKind::Codex => ("◇ Codex", Style::default().fg(GOLD)),
-        AgentKind::Pi => ("π Pi", Style::default().fg(ACCENT)),
-        AgentKind::OpenCode => ("◎ Open", Style::default().fg(GREEN)),
+        AgentKind::ClaudeCode => ("◆", Style::default().fg(RED)),
+        AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
+        AgentKind::Pi => ("π", Style::default().fg(BLUE)),
+        AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
     }
 }
 
