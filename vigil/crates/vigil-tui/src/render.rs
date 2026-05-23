@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
     Frame,
 };
 use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
@@ -47,7 +47,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 
     match &app.overlay {
-        Overlay::None | Overlay::SendMessage { .. } => {}
+        Overlay::None => {}
+        Overlay::SendMessage { buf } => {
+            draw_send_message_overlay(f, area, buf);
+        }
         Overlay::NewWorktree { name_buf, agent_idx, repo_root } => {
             draw_new_worktree_overlay(f, area, name_buf, *agent_idx, repo_root.as_deref());
         }
@@ -247,16 +250,6 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
-    if let Overlay::SendMessage { buf } = &app.overlay {
-        let line = Line::from(vec![
-            Span::styled("▸ ", Style::default().fg(ACCENT)),
-            Span::raw(buf.as_str()),
-            Span::styled("_", Style::default().fg(ACCENT)),
-        ]);
-        f.render_widget(line, area);
-        return;
-    }
-
     let has_registry = app.registry.is_some();
 
     let mut spans = vec![
@@ -291,6 +284,44 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     spans.push(Span::raw(" quit"));
 
     f.render_widget(Line::from(spans), area);
+}
+
+fn draw_send_message_overlay(f: &mut Frame, area: Rect, buf: &str) {
+    let popup = centered_rect(70, 12, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Send Message ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(popup).inner(Margin { horizontal: 1, vertical: 0 });
+    f.render_widget(block, popup);
+
+    let [content, hint_area] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
+
+    let display = format!("{buf}▋");
+    f.render_widget(
+        Paragraph::new(display)
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false }),
+        content,
+    );
+
+    f.render_widget(
+        Line::from(vec![
+            Span::styled("Ctrl+Enter", Style::default().fg(DIM)),
+            Span::raw(" newline  "),
+            Span::styled("Enter", Style::default().fg(DIM)),
+            Span::raw(" send  "),
+            Span::styled("Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+        hint_area,
+    );
 }
 
 fn draw_new_worktree_overlay(
