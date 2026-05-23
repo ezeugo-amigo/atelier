@@ -1,11 +1,11 @@
-use std::time::Instant;
 use std::collections::HashMap;
+use std::time::Instant;
 
 use anyhow::Result;
+use atelier_worktree::Registry;
 use clap::{Parser, Subcommand};
 use vigil_adapter_claude::ClaudeCodeAdapter;
 use vigil_core::{AgentAdapter, SessionState};
-use atelier_worktree::Registry;
 
 #[derive(Parser)]
 #[command(name = "vigil-probe", about = "Probe registered containers")]
@@ -63,17 +63,26 @@ async fn load_entries(filter: Option<&str>) -> Result<Vec<atelier_worktree::Work
 
 async fn list(adapter: &ClaudeCodeAdapter, filter: Option<&str>) -> Result<()> {
     let entries = load_entries(filter).await?;
-    if entries.is_empty() { return Ok(()); }
+    if entries.is_empty() {
+        return Ok(());
+    }
 
-    println!("{:<22}  {:<12}  {:<30}  {}",
-        "CONTAINER", "STATE", "LAST MESSAGE", "PATH");
+    println!(
+        "{:<22}  {:<12}  {:<30}  {}",
+        "CONTAINER", "STATE", "LAST MESSAGE", "PATH"
+    );
     println!("{}", "-".repeat(110));
 
     for entry in entries {
         let probe = adapter.probe(&entry.worktree_path).await;
         let state = fmt_state(&probe.state);
-        let msg = probe.last_user_message.as_deref().unwrap_or("-")
-            .chars().take(30).collect::<String>();
+        let msg = probe
+            .last_user_message
+            .as_deref()
+            .unwrap_or("-")
+            .chars()
+            .take(30)
+            .collect::<String>();
         let path = entry.worktree_path.display().to_string();
         println!("{:<22}  {:<12}  {:<30}  {}", entry.id, state, msg, path);
     }
@@ -85,8 +94,10 @@ async fn trace(adapter: &ClaudeCodeAdapter, filter: Option<&str>) -> Result<()> 
     let mut seen: HashMap<String, (SessionState, Instant)> = HashMap::new();
     let mut tick: u64 = 0;
 
-    println!("{:<8}  {:<22}  {:<6}  {:<8}  {:<6}  {}",
-        "TICK", "CONTAINER", "IDLE_S", "HELD", "→", "STATE");
+    println!(
+        "{:<8}  {:<22}  {:<6}  {:<8}  {:<6}  {}",
+        "TICK", "CONTAINER", "IDLE_S", "HELD", "→", "STATE"
+    );
     println!("{}", "-".repeat(90));
 
     loop {
@@ -100,14 +111,20 @@ async fn trace(adapter: &ClaudeCodeAdapter, filter: Option<&str>) -> Result<()> 
             let changed = prev.map(|(s, _)| s != &state).unwrap_or(true);
 
             if changed {
-                let duration = prev.map(|(s, t)| {
-                    format!(" [{:.1}s in {}]", t.elapsed().as_secs_f64(), fmt_state(s))
-                }).unwrap_or_default();
+                let duration = prev
+                    .map(|(s, t)| {
+                        format!(" [{:.1}s in {}]", t.elapsed().as_secs_f64(), fmt_state(s))
+                    })
+                    .unwrap_or_default();
 
                 let arrow = if prev.is_some() { "→" } else { " " };
                 println!(
                     "{:<8}  {:<22}  {}  {}  {}",
-                    tick, entry.id, arrow, fmt_state(&state), duration
+                    tick,
+                    entry.id,
+                    arrow,
+                    fmt_state(&state),
+                    duration
                 );
 
                 seen.insert(entry.id.clone(), (state, Instant::now()));

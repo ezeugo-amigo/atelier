@@ -17,12 +17,11 @@ pub enum LastMessage {
 
 /// Parse the last meaningful message from JSONL session content.
 pub fn parse_last_message(content: &str) -> LastMessage {
-    let last_line = content
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty());
+    let last_line = content.lines().rev().find(|l| !l.trim().is_empty());
 
-    let Some(line) = last_line else { return LastMessage::Unknown };
+    let Some(line) = last_line else {
+        return LastMessage::Unknown;
+    };
 
     let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
         return LastMessage::Unknown;

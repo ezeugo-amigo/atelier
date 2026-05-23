@@ -23,10 +23,8 @@ fn fs_fresh() -> FsSignals {
 }
 
 fn load_fixture(rel_path: &str) -> vigil_core::SessionLog {
-    let text = std::fs::read_to_string(
-        std::path::Path::new("tests/fixtures").join(rel_path),
-    )
-    .unwrap_or_else(|_| panic!("fixture not found: {rel_path}"));
+    let text = std::fs::read_to_string(std::path::Path::new("tests/fixtures").join(rel_path))
+        .unwrap_or_else(|_| panic!("fixture not found: {rel_path}"));
     log_parser::parse_lines(&text, 200);
     let tail = log_parser::parse_lines(&text, 200);
     let last_line_ts = tail.last().map(|l| l.timestamp);
@@ -62,14 +60,20 @@ fn awaiting_notify_fixture_classifies_as_awaiting() {
 fn idle_fixture_with_held_process_classifies_as_idle() {
     let log = load_fixture("idle/session-idle.txt");
     let state = classifier::classify(&log, &fs_old(Some(true)));
-    assert!(matches!(state, SessionState::Idle), "expected Idle, got {state:?}");
+    assert!(
+        matches!(state, SessionState::Idle),
+        "expected Idle, got {state:?}"
+    );
 }
 
 #[test]
 fn done_fixture_without_held_process_classifies_as_done() {
     let log = load_fixture("done/session-done.txt");
     let state = classifier::classify(&log, &fs_old(Some(false)));
-    assert!(matches!(state, SessionState::Done), "expected Done, got {state:?}");
+    assert!(
+        matches!(state, SessionState::Done),
+        "expected Done, got {state:?}"
+    );
 }
 
 #[test]

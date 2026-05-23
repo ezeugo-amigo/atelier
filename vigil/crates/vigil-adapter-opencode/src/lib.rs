@@ -7,7 +7,9 @@ pub struct OpenCodeAdapter;
 
 #[async_trait::async_trait]
 impl AgentAdapter for OpenCodeAdapter {
-    fn kind(&self) -> AgentKind { AgentKind::OpenCode }
+    fn kind(&self) -> AgentKind {
+        AgentKind::OpenCode
+    }
 
     async fn probe(&self, _dir: &Path) -> ProbeResult {
         ProbeResult::no_session()

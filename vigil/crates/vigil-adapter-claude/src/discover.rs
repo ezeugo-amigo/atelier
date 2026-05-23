@@ -22,9 +22,9 @@ fn is_uuid_filename(name: &str) -> bool {
 pub async fn discover_sessions(debug_dir: &Path) -> Result<Vec<SessionId>, VigilError> {
     let mut entries: Vec<(std::time::SystemTime, PathBuf)> = Vec::new();
 
-    let mut dir = tokio::fs::read_dir(debug_dir).await.map_err(|e| {
-        VigilError::Io(e)
-    })?;
+    let mut dir = tokio::fs::read_dir(debug_dir)
+        .await
+        .map_err(|e| VigilError::Io(e))?;
 
     while let Some(entry) = dir.next_entry().await? {
         let name = entry.file_name();
@@ -56,15 +56,15 @@ mod tests {
 
     #[test]
     fn uuid_filename_valid() {
-        assert!(is_uuid_filename(
-            "a032f5c1-f7ab-462f-9005-c924c16bf31a.txt"
-        ));
+        assert!(is_uuid_filename("a032f5c1-f7ab-462f-9005-c924c16bf31a.txt"));
     }
 
     #[test]
     fn uuid_filename_invalid() {
         assert!(!is_uuid_filename("not-a-uuid.txt"));
-        assert!(!is_uuid_filename("a032f5c1-f7ab-462f-9005-c924c16bf31a.log"));
+        assert!(!is_uuid_filename(
+            "a032f5c1-f7ab-462f-9005-c924c16bf31a.log"
+        ));
         assert!(!is_uuid_filename("session.txt"));
     }
 }

@@ -11,7 +11,9 @@ async fn discover_from_real_debug_dir() {
         return;
     }
 
-    let ids = discover_sessions(&debug_dir).await.expect("discover should succeed");
+    let ids = discover_sessions(&debug_dir)
+        .await
+        .expect("discover should succeed");
     // Should find at least one UUID session file (if any exist)
     println!("Found {} sessions", ids.len());
     for id in ids.iter().take(5) {

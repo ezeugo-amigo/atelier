@@ -7,7 +7,9 @@ pub struct CodexAdapter;
 
 #[async_trait::async_trait]
 impl AgentAdapter for CodexAdapter {
-    fn kind(&self) -> AgentKind { AgentKind::Codex }
+    fn kind(&self) -> AgentKind {
+        AgentKind::Codex
+    }
 
     async fn probe(&self, _dir: &Path) -> ProbeResult {
         ProbeResult::no_session()

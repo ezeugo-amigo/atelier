@@ -1,6 +1,6 @@
+use chrono::{DateTime, Utc};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
-use chrono::{DateTime, Utc};
 use vigil_core::{LogLevel, LogLine, SessionLog, VigilError};
 
 const READ_TAIL_BYTES: u64 = 65536; // 64 KB

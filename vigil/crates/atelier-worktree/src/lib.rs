@@ -3,7 +3,7 @@ pub mod names;
 pub mod registry;
 pub mod remove;
 
-pub use create::{CreateOptions, create, resolve_repo_root};
+pub use create::{create, resolve_repo_root, CreateOptions};
 pub use names::generate_name;
 pub use registry::{Registry, WorktreeEntry, WorktreeError};
-pub use remove::{RemoveOptions, prune, remove};
+pub use remove::{prune, remove, RemoveOptions};

@@ -1,5 +1,5 @@
-use std::process::Command;
 use crate::registry::{Registry, WorktreeError};
+use std::process::Command;
 
 pub struct RemoveOptions {
     /// Pass --force to git worktree remove and use -D for branch delete.
@@ -27,7 +27,8 @@ pub fn remove(id: &str, opts: RemoveOptions, registry: &mut Registry) -> Result<
             .status()?;
         if !status.success() {
             return Err(WorktreeError::Git(
-                "git worktree remove refused — uncommitted changes? Use --force to override.".into(),
+                "git worktree remove refused — uncommitted changes? Use --force to override."
+                    .into(),
             ));
         }
     }
@@ -44,9 +45,10 @@ pub fn remove(id: &str, opts: RemoveOptions, registry: &mut Registry) -> Result<
             || stderr.contains("no branch named")
             || stderr.contains("error: branch");
         if !is_missing {
-            return Err(WorktreeError::Git(
-                format!("git branch {branch_flag} failed: {}", stderr.trim())
-            ));
+            return Err(WorktreeError::Git(format!(
+                "git branch {branch_flag} failed: {}",
+                stderr.trim()
+            )));
         }
     }
 

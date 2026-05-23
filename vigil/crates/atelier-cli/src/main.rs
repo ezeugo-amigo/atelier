@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use atelier_worktree::{create, prune, remove, CreateOptions, Registry, RemoveOptions};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use vigil_core::AgentKind;
-use atelier_worktree::{CreateOptions, Registry, RemoveOptions, create, prune, remove};
 
 #[derive(Parser)]
 #[command(name = "atelier", about = "Atelier agent tooling")]
@@ -78,7 +78,12 @@ fn main() -> Result<()> {
 
 fn handle_wt(action: WtAction) -> Result<()> {
     match action {
-        WtAction::New { name, agent, repo, no_launch } => {
+        WtAction::New {
+            name,
+            agent,
+            repo,
+            no_launch,
+        } => {
             let agent_kind = parse_agent(&agent)?;
             let mut registry = Registry::load().context("failed to load registry")?;
 
@@ -92,8 +97,8 @@ fn handle_wt(action: WtAction) -> Result<()> {
                 no_launch,
             };
 
-            let entry = create(opts, &mut registry, launch_cmd)
-                .context("failed to create worktree")?;
+            let entry =
+                create(opts, &mut registry, launch_cmd).context("failed to create worktree")?;
 
             println!("Created worktree '{}'", entry.id);
             println!("  path:   {}", entry.worktree_path.display());

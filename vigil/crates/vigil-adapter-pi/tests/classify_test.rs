@@ -54,8 +54,14 @@ fn awaiting_even_when_stale() {
 
 #[test]
 fn running_when_tool_result_recent() {
-    assert_eq!(classify(LastMessage::ToolResult, 2.0), SessionState::Running);
-    assert_eq!(classify(LastMessage::ToolResult, 10.0), SessionState::Running);
+    assert_eq!(
+        classify(LastMessage::ToolResult, 2.0),
+        SessionState::Running
+    );
+    assert_eq!(
+        classify(LastMessage::ToolResult, 10.0),
+        SessionState::Running
+    );
 }
 
 #[test]
@@ -65,12 +71,18 @@ fn idle_when_tool_result_stale() {
 
 #[test]
 fn running_when_tool_call_recent() {
-    assert_eq!(classify(LastMessage::AssistantToolCall, 5.0), SessionState::Running);
+    assert_eq!(
+        classify(LastMessage::AssistantToolCall, 5.0),
+        SessionState::Running
+    );
 }
 
 #[test]
 fn idle_when_tool_call_stale() {
-    assert_eq!(classify(LastMessage::AssistantToolCall, 60.0), SessionState::Idle);
+    assert_eq!(
+        classify(LastMessage::AssistantToolCall, 60.0),
+        SessionState::Idle
+    );
 }
 
 #[test]
@@ -86,6 +98,9 @@ fn idle_when_user_message_stale() {
 #[test]
 fn always_running_when_file_just_written() {
     // < 3s mtime means the file is being actively written regardless of message kind
-    assert_eq!(classify(LastMessage::AssistantText, 1.0), SessionState::Running);
+    assert_eq!(
+        classify(LastMessage::AssistantText, 1.0),
+        SessionState::Running
+    );
     assert_eq!(classify(LastMessage::Unknown, 1.0), SessionState::Running);
 }

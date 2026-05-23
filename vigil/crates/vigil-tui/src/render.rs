@@ -48,8 +48,24 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     match &app.overlay {
         Overlay::None => {}
-        Overlay::SendMessage { buf } => {
-            draw_send_message_overlay(f, area, buf);
+        Overlay::SendMessage {
+            buf,
+            container_id,
+            return_to_log,
+        } => {
+            let note = send_target_note(app, container_id.as_deref());
+            if *return_to_log {
+                draw_log_response_overlay(
+                    f,
+                    area,
+                    app,
+                    container_id.as_deref(),
+                    buf,
+                    note.as_deref(),
+                );
+            } else {
+                draw_send_message_overlay(f, area, buf, note.as_deref());
+            }
         }
         Overlay::NewWorktree {
             name_buf,
@@ -340,12 +356,16 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     f.render_widget(Line::from(spans), area);
 }
 
-fn draw_send_message_overlay(f: &mut Frame, area: Rect, buf: &str) {
+fn draw_send_message_overlay(f: &mut Frame, area: Rect, buf: &str, note: Option<&str>) {
     let popup = centered_rect(70, 12, area);
+    draw_send_message_box(f, popup, " Send Message ", buf, note);
+}
+
+fn draw_send_message_box(f: &mut Frame, popup: Rect, title: &str, buf: &str, note: Option<&str>) {
     f.render_widget(Clear, popup);
 
     let block = Block::default()
-        .title(" Send Message ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
     let inner = block.inner(popup).inner(Margin {
@@ -357,13 +377,20 @@ fn draw_send_message_overlay(f: &mut Frame, area: Rect, buf: &str) {
     let [content, hint_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
 
-    let display = format!("{buf}▋");
-    f.render_widget(
-        Paragraph::new(display)
-            .style(Style::default().fg(Color::White))
-            .wrap(Wrap { trim: false }),
-        content,
-    );
+    let mut lines = Vec::new();
+    if let Some(note) = note {
+        lines.push(Line::from(vec![
+            Span::styled("replying to ", Style::default().fg(DIM)),
+            Span::styled(note.to_string(), Style::default().fg(ACCENT)),
+        ]));
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(Span::styled(
+        format!("{buf}▋"),
+        Style::default().fg(Color::White),
+    )));
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), content);
 
     f.render_widget(
         Line::from(vec![
@@ -465,12 +492,49 @@ fn draw_log_view_overlay(
     lines: &[String],
     scroll: usize,
 ) {
+    let popup = centered_rect(92, area.height.saturating_sub(4), area);
+    draw_log_view_panel(f, popup, container_id, events, lines, scroll);
+}
+
+fn draw_log_response_overlay(
+    f: &mut Frame,
+    area: Rect,
+    app: &App,
+    container_id: Option<&str>,
+    buf: &str,
+    note: Option<&str>,
+) {
+    let popup = centered_rect(92, area.height.saturating_sub(4), area);
+    f.render_widget(Clear, popup);
+
+    let input_height = 7.min(popup.height.saturating_sub(4)).max(3);
+    let [log_area, input_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(input_height)]).areas(popup);
+
+    let (id, events, lines) = container_id
+        .and_then(|id| {
+            app.cached_log_data(id)
+                .map(|(events, lines)| (id, events, lines))
+        })
+        .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
+
+    draw_log_view_panel(f, log_area, id, events, lines, 0);
+    draw_send_message_box(f, input_area, " Reply ", buf, note);
+}
+
+fn draw_log_view_panel(
+    f: &mut Frame,
+    popup: Rect,
+    container_id: &str,
+    events: &[LogEvent],
+    lines: &[String],
+    scroll: usize,
+) {
     const READ_COLOR: Color = Color::Rgb(74, 107, 138);
     const BASH_COLOR: Color = Color::Rgb(122, 90, 138);
     const EDIT_COLOR: Color = Color::Rgb(107, 138, 74);
     const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
 
-    let popup = centered_rect(92, area.height.saturating_sub(4), area);
     f.render_widget(Clear, popup);
 
     let title = format!(" {} — log ", container_id);
@@ -506,7 +570,9 @@ fn draw_log_view_overlay(
         Span::styled("Esc / l", Style::default().fg(DIM)),
         Span::raw(" close  "),
         Span::styled("j/k", Style::default().fg(DIM)),
-        Span::raw(" scroll"),
+        Span::raw(" scroll  "),
+        Span::styled("i", Style::default().fg(DIM)),
+        Span::raw(" send"),
     ];
     if turn_count > 0 {
         hint_spans.push(Span::styled(
@@ -899,6 +965,14 @@ fn draw_project_picker_overlay(
         ]),
         hint_area,
     );
+}
+
+fn send_target_note(app: &App, container_id: Option<&str>) -> Option<String> {
+    let target = container_id
+        .and_then(|id| app.containers.iter().find(|c| c.id == id))
+        .or_else(|| app.selected());
+
+    target.map(|c| c.branch.clone())
 }
 
 fn app_content_rect(area: Rect) -> Rect {

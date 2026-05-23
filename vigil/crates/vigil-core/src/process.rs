@@ -1,5 +1,5 @@
-use std::path::Path;
 use crate::VigilError;
+use std::path::Path;
 
 /// Find the PID of a running process named exactly `process_name` whose current
 /// working directory is `dir`. Uses `pgrep -x` for exact name match, then
