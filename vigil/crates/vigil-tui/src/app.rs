@@ -12,13 +12,20 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
-use vigil_core::{AgentAdapter, AgentKind, Container, LogEvent, ProbeResult, PrStatus, SessionId};
+use serde::{Deserialize, Serialize};
+use vigil_core::{AgentAdapter, AgentKind, Container, LogEvent, PrStatus, ProbeResult, SessionId};
 
 use crate::archive::Archive;
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
 const PR_REFRESH: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RepoScanCache {
+    search_dirs: Vec<PathBuf>,
+    repos: Vec<PathBuf>,
+}
 
 const AGENTS: [AgentKind; 4] = [
     AgentKind::ClaudeCode,
@@ -41,7 +48,11 @@ fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
     if let Some(rest) = full.strip_prefix(vigil_wt) {
         rest.split('/').next().unwrap_or("?").to_string()
     } else {
-        c.repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+        c.repo_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string()
     }
 }
 
@@ -60,8 +71,6 @@ pub enum Overlay {
     },
     LogView {
         container_id: String,
-        worktree_path: PathBuf,
-        agent: AgentKind,
         /// Structured turn events (Pi and others with JSONL sessions).
         events: Vec<LogEvent>,
         /// Raw log lines fallback (Claude Code debug logs).
@@ -95,6 +104,9 @@ pub struct App {
     log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
+    /// Receiver for the background refresh job. The UI keeps rendering cached
+    /// containers while this probes the registry/adapters/PR state off-thread.
+    refresh_rx: Option<tokio::sync::oneshot::Receiver<RefreshResult>>,
     /// Last message sent via the SendMessage overlay, keyed by container id.
     /// Persists across refresh() cycles since history.jsonl isn't updated by --print mode.
     last_sent: HashMap<String, String>,
@@ -115,6 +127,7 @@ impl App {
             log_cache: HashMap::new(),
             pr_cache: HashMap::new(),
             scan_rx: None,
+            refresh_rx: None,
             last_sent: HashMap::new(),
         }
     }
@@ -143,9 +156,12 @@ impl App {
     }
 
     fn next(&mut self) {
-        if self.containers.is_empty() { return; }
+        if self.containers.is_empty() {
+            return;
+        }
         let i = self.table_state.selected().unwrap_or(0);
-        self.table_state.select(Some((i + 1).min(self.containers.len() - 1)));
+        self.table_state
+            .select(Some((i + 1).min(self.containers.len() - 1)));
     }
 
     fn prev(&mut self) {
@@ -159,9 +175,9 @@ impl App {
         let current = c.agent;
         let next = match current {
             AgentKind::ClaudeCode => AgentKind::Codex,
-            AgentKind::Codex      => AgentKind::Pi,
-            AgentKind::Pi         => AgentKind::OpenCode,
-            AgentKind::OpenCode   => AgentKind::ClaudeCode,
+            AgentKind::Codex => AgentKind::Pi,
+            AgentKind::Pi => AgentKind::OpenCode,
+            AgentKind::OpenCode => AgentKind::ClaudeCode,
         };
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
@@ -173,8 +189,6 @@ impl App {
             let (events, lines) = self.log_cache.get(&c.id).cloned().unwrap_or_default();
             self.overlay = Overlay::LogView {
                 container_id: c.id.clone(),
-                worktree_path: c.worktree_path.clone(),
-                agent: c.agent,
                 events,
                 lines,
                 scroll: 0,
@@ -184,7 +198,9 @@ impl App {
 
     fn open_dismiss_confirm(&mut self) {
         if let Some(c) = self.selected() {
-            self.overlay = Overlay::DismissConfirm { container_id: c.id.clone() };
+            self.overlay = Overlay::DismissConfirm {
+                container_id: c.id.clone(),
+            };
         }
     }
 
@@ -210,51 +226,79 @@ impl App {
     }
 
     fn undo_dismiss(&mut self) {
-        let Some(container) = self.last_dismissed.take() else { return };
+        let Some(container) = self.last_dismissed.take() else {
+            return;
+        };
         self.archive.restore_id(&container.id).ok();
         self.containers.insert(0, container);
         self.table_state.select(Some(0));
     }
 
     pub fn open_project_picker(&mut self) {
-        if self.registry.is_none() { return; }
+        if self.registry.is_none() {
+            return;
+        }
         self.overlay = Overlay::ProjectPicker {
             query: String::new(),
-            all_repos: vec![],
+            all_repos: load_repo_scan_cache(),
             selected_idx: 0,
             scanning: true,
         };
     }
 
     fn open_new_worktree(&mut self) {
-        if self.registry.is_none() { return; }
-        let repo_root = self.selected().and_then(|c| Some(c.repo_root.clone()));
-        self.overlay = Overlay::NewWorktree { name_buf: String::new(), agent_idx: 0, repo_root };
+        if self.registry.is_none() {
+            return;
+        }
+        let repo_root = self.selected().map(|c| c.repo_root.clone());
+        self.overlay = Overlay::NewWorktree {
+            name_buf: String::new(),
+            agent_idx: 0,
+            repo_root,
+        };
     }
 
     fn open_remove_confirm(&mut self) {
         let entry = {
-            let c = match self.selected() { Some(c) => c, None => return };
-            let reg = match self.registry.as_ref() { Some(r) => r, None => return };
-            match reg.find_by_id(&c.id) { Some(e) => e.clone(), None => return }
+            let c = match self.selected() {
+                Some(c) => c,
+                None => return,
+            };
+            let reg = match self.registry.as_ref() {
+                Some(r) => r,
+                None => return,
+            };
+            match reg.find_by_id(&c.id) {
+                Some(e) => e.clone(),
+                None => return,
+            }
         };
         self.overlay = Overlay::RemoveConfirm { entry };
     }
 
     fn cycle_agent(&mut self) {
-        if let Overlay::NewWorktree { ref mut agent_idx, .. } = self.overlay {
+        if let Overlay::NewWorktree {
+            ref mut agent_idx, ..
+        } = self.overlay
+        {
             *agent_idx = (*agent_idx + 1) % AGENTS.len();
         }
     }
 
     fn wt_name_push(&mut self, c: char) {
-        if let Overlay::NewWorktree { ref mut name_buf, .. } = self.overlay {
+        if let Overlay::NewWorktree {
+            ref mut name_buf, ..
+        } = self.overlay
+        {
             name_buf.push(c);
         }
     }
 
     fn wt_name_backspace(&mut self) {
-        if let Overlay::NewWorktree { ref mut name_buf, .. } = self.overlay {
+        if let Overlay::NewWorktree {
+            ref mut name_buf, ..
+        } = self.overlay
+        {
             name_buf.pop();
         }
     }
@@ -262,8 +306,16 @@ impl App {
     /// Returns the (worktree_path, agent_kind) to launch after the overlay closes, if any.
     fn confirm_new_worktree(&mut self) -> Option<(std::path::PathBuf, AgentKind)> {
         let (name, agent_kind, repo_root) = match &self.overlay {
-            Overlay::NewWorktree { name_buf, agent_idx, repo_root } => {
-                let name = if name_buf.is_empty() { None } else { Some(name_buf.clone()) };
+            Overlay::NewWorktree {
+                name_buf,
+                agent_idx,
+                repo_root,
+            } => {
+                let name = if name_buf.is_empty() {
+                    None
+                } else {
+                    Some(name_buf.clone())
+                };
                 (name, AGENTS[*agent_idx], repo_root.clone())
             }
             _ => return None,
@@ -296,8 +348,13 @@ impl App {
     }
 }
 
-
 pub type AdapterMap = HashMap<AgentKind, Arc<dyn AgentAdapter>>;
+
+struct RefreshResult {
+    containers: Vec<Container>,
+    pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    selected_log: Option<(String, Vec<vigil_core::LogEvent>, Vec<String>)>,
+}
 
 pub async fn run(adapters: AdapterMap) -> Result<()> {
     enable_raw_mode()?;
@@ -327,7 +384,9 @@ async fn event_loop(
 
         if event::poll(POLL)? {
             if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press { continue; }
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
 
                 if app.overlay_is_none() {
                     match key.code {
@@ -349,7 +408,9 @@ async fn event_loop(
                                 let (tx, rx) = tokio::sync::oneshot::channel();
                                 app.scan_rx = Some(rx);
                                 app.open_project_picker();
-                                tokio::spawn(async move { tx.send(scan_git_repos().await).ok(); });
+                                tokio::spawn(async move {
+                                    tx.send(scan_git_repos().await).ok();
+                                });
                             }
                         }
                         KeyCode::Char('R') => app.open_remove_confirm(),
@@ -358,7 +419,13 @@ async fn event_loop(
                                 let session_id = c.session_id.clone();
                                 let path = c.worktree_path.clone();
                                 let agent = c.agent;
-                                attach_or_launch(terminal, &adapters, session_id.as_ref(), &path, agent)?;
+                                attach_or_launch(
+                                    terminal,
+                                    &adapters,
+                                    session_id.as_ref(),
+                                    &path,
+                                    agent,
+                                )?;
                                 terminal.clear()?;
                             }
                         }
@@ -366,16 +433,24 @@ async fn event_loop(
                     }
                 } else if matches!(app.overlay, Overlay::NewWorktree { .. }) {
                     match key.code {
-                        KeyCode::Esc => { app.overlay = Overlay::None; }
-                        KeyCode::Tab => { app.cycle_agent(); }
-                        KeyCode::Backspace => { app.wt_name_backspace(); }
+                        KeyCode::Esc => {
+                            app.overlay = Overlay::None;
+                        }
+                        KeyCode::Tab => {
+                            app.cycle_agent();
+                        }
+                        KeyCode::Backspace => {
+                            app.wt_name_backspace();
+                        }
                         KeyCode::Enter => {
                             if let Some((path, agent)) = app.confirm_new_worktree() {
                                 attach_or_launch(terminal, &adapters, None, &path, agent)?;
                                 terminal.clear()?;
                             }
                         }
-                        KeyCode::Char(c) => { app.wt_name_push(c); }
+                        KeyCode::Char(c) => {
+                            app.wt_name_push(c);
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::LogView { .. }) {
@@ -400,7 +475,9 @@ async fn event_loop(
                         KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                             app.overlay = Overlay::None;
                         }
-                        KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_dismiss(); }
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            app.confirm_dismiss();
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::RemoveConfirm { .. }) {
@@ -408,7 +485,9 @@ async fn event_loop(
                         KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
                             app.overlay = Overlay::None;
                         }
-                        KeyCode::Char('y') | KeyCode::Char('Y') => { app.confirm_remove(); }
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            app.confirm_remove();
+                        }
                         _ => {}
                     }
                 } else if matches!(app.overlay, Overlay::ProjectPicker { .. }) {
@@ -418,31 +497,53 @@ async fn event_loop(
                             app.scan_rx = None;
                         }
                         KeyCode::Backspace => {
-                            if let Overlay::ProjectPicker { ref mut query, ref mut selected_idx, .. } = app.overlay {
+                            if let Overlay::ProjectPicker {
+                                ref mut query,
+                                ref mut selected_idx,
+                                ..
+                            } = app.overlay
+                            {
                                 query.pop();
                                 *selected_idx = 0;
                             }
                         }
                         KeyCode::Down | KeyCode::Tab => {
                             let count = picker_filtered_count(&app.overlay);
-                            if let Overlay::ProjectPicker { ref mut selected_idx, .. } = app.overlay {
+                            if let Overlay::ProjectPicker {
+                                ref mut selected_idx,
+                                ..
+                            } = app.overlay
+                            {
                                 *selected_idx = (*selected_idx + 1).min(count.saturating_sub(1));
                             }
                         }
                         KeyCode::Up => {
-                            if let Overlay::ProjectPicker { ref mut selected_idx, .. } = app.overlay {
+                            if let Overlay::ProjectPicker {
+                                ref mut selected_idx,
+                                ..
+                            } = app.overlay
+                            {
                                 *selected_idx = selected_idx.saturating_sub(1);
                             }
                         }
                         KeyCode::Enter => {
                             // Extract selected repo, then transition to NewWorktree
-                            let selected = if let Overlay::ProjectPicker { ref all_repos, ref query, selected_idx, .. } = app.overlay {
+                            let selected = if let Overlay::ProjectPicker {
+                                ref all_repos,
+                                ref query,
+                                selected_idx,
+                                ..
+                            } = app.overlay
+                            {
                                 let q = query.to_lowercase();
-                                let filtered: Vec<&PathBuf> = all_repos.iter()
+                                let filtered: Vec<&PathBuf> = all_repos
+                                    .iter()
                                     .filter(|p| p.display().to_string().to_lowercase().contains(&q))
                                     .collect();
                                 filtered.get(selected_idx).map(|p| (*p).clone())
-                            } else { None };
+                            } else {
+                                None
+                            };
                             if let Some(repo_root) = selected {
                                 app.scan_rx = None;
                                 app.overlay = Overlay::NewWorktree {
@@ -453,7 +554,12 @@ async fn event_loop(
                             }
                         }
                         KeyCode::Char(c) => {
-                            if let Overlay::ProjectPicker { ref mut query, ref mut selected_idx, .. } = app.overlay {
+                            if let Overlay::ProjectPicker {
+                                ref mut query,
+                                ref mut selected_idx,
+                                ..
+                            } = app.overlay
+                            {
                                 query.push(c);
                                 *selected_idx = 0;
                             }
@@ -462,21 +568,24 @@ async fn event_loop(
                     }
                 } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
                     match key.code {
-                        KeyCode::Esc => { app.overlay = Overlay::None; }
+                        KeyCode::Esc => {
+                            app.overlay = Overlay::None;
+                        }
                         KeyCode::Backspace => {
                             if let Overlay::SendMessage { ref mut buf } = app.overlay {
                                 buf.pop();
                             }
                         }
                         KeyCode::Enter => {
-                            let (msg, dir, sid) = if let Overlay::SendMessage { ref buf } = app.overlay {
-                                let msg = buf.clone();
-                                let dir = app.selected_dir().cloned();
-                                let sid = app.selected_session_id().cloned();
-                                (msg, dir, sid)
-                            } else {
-                                unreachable!()
-                            };
+                            let (msg, dir, sid) =
+                                if let Overlay::SendMessage { ref buf } = app.overlay {
+                                    let msg = buf.clone();
+                                    let dir = app.selected_dir().cloned();
+                                    let sid = app.selected_session_id().cloned();
+                                    (msg, dir, sid)
+                                } else {
+                                    unreachable!()
+                                };
                             let container_id = app.selected().map(|c| c.id.clone());
                             app.overlay = Overlay::None;
                             if let (Some(dir), Some(sid)) = (dir, sid) {
@@ -518,20 +627,120 @@ async fn event_loop(
 async fn refresh(app: &mut App, adapters: &AdapterMap) {
     app.registry = Registry::load().ok();
 
-    let entries: Vec<WorktreeEntry> = match &app.registry {
-        Some(reg) => reg.entries().iter()
-            .filter(|e| !app.archive.is_dismissed_id(&e.id))
-            .cloned()
-            .collect(),
-        None => vec![],
-    };
+    let selected_id = app.selected().map(|c| c.id.clone());
 
-    // Probe all containers in parallel using the appropriate adapter for each agent kind
+    if let Some(rx) = app.refresh_rx.as_mut() {
+        match rx.try_recv() {
+            Ok(result) => {
+                app.refresh_rx = None;
+                app.pr_cache = result.pr_cache;
+                if let Some((id, events, lines)) = result.selected_log {
+                    app.log_cache.insert(id, (events, lines));
+                }
+                app.containers = result.containers;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                app.refresh_rx = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+    }
+
+    // Reconcile cached rows against the current registry/archive immediately. The
+    // expensive part (adapter probing, PR lookups, logs) happens in the background;
+    // this cheap diff keeps deleted/dismissed rows from hanging around while that
+    // work is in flight.
+    let live_ids: std::collections::HashSet<String> = match &app.registry {
+        Some(reg) => reg
+            .entries()
+            .iter()
+            .filter(|e| !app.archive.is_dismissed_id(&e.id))
+            .map(|e| e.id.clone())
+            .collect(),
+        None => std::collections::HashSet::new(),
+    };
+    app.containers.retain(|c| live_ids.contains(&c.id));
+    sort_containers(&mut app.containers);
+    restore_selection(app, selected_id);
+
+    // Deliver scan results to ProjectPicker if ready.
+    let scan_ready = app.scan_rx.as_mut().and_then(|rx| rx.try_recv().ok());
+    if let Some(mut results) = scan_ready {
+        app.scan_rx = None;
+        results.sort_by_key(|a| a.display().to_string());
+        if let Overlay::ProjectPicker {
+            ref mut all_repos,
+            ref mut scanning,
+            ref mut selected_idx,
+            ..
+        } = app.overlay
+        {
+            *all_repos = results;
+            *scanning = false;
+            *selected_idx = 0;
+        }
+    }
+
+    // Keep LogView in sync from cache while it is open. If the cache is missing,
+    // the background refresh will populate it rather than blocking this frame.
+    if let Overlay::LogView {
+        container_id,
+        events,
+        lines,
+        scroll,
+        ..
+    } = &mut app.overlay
+    {
+        if let Some((cached_events, cached_lines)) = app.log_cache.get(container_id) {
+            *events = cached_events.clone();
+            *lines = cached_lines.clone();
+            if events.is_empty() && lines.is_empty() {
+                *scroll = 0;
+            }
+        }
+    }
+
+    if app.refresh_rx.is_none() {
+        let entries: Vec<WorktreeEntry> = match &app.registry {
+            Some(reg) => reg
+                .entries()
+                .iter()
+                .filter(|e| !app.archive.is_dismissed_id(&e.id))
+                .cloned()
+                .collect(),
+            None => vec![],
+        };
+        let adapters = adapters.clone();
+        let pr_cache = app.pr_cache.clone();
+        let last_sent = app.last_sent.clone();
+        let selected_log_info = app
+            .selected()
+            .map(|c| (c.id.clone(), c.worktree_path.clone(), c.agent));
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.refresh_rx = Some(rx);
+        tokio::spawn(async move {
+            let result =
+                build_refresh_result(entries, adapters, pr_cache, last_sent, selected_log_info)
+                    .await;
+            tx.send(result).ok();
+        });
+    }
+
+    app.last_refresh = Instant::now();
+}
+
+async fn build_refresh_result(
+    entries: Vec<WorktreeEntry>,
+    adapters: AdapterMap,
+    mut pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    last_sent: HashMap<String, String>,
+    selected_log_info: Option<(String, PathBuf, AgentKind)>,
+) -> RefreshResult {
     let mut handles = Vec::with_capacity(entries.len());
     for entry in &entries {
         let path = entry.worktree_path.clone();
-        // Fall back to the first available adapter if the agent's adapter isn't registered
-        let adapter = adapters.get(&entry.agent)
+        let adapter = adapters
+            .get(&entry.agent)
             .or_else(|| adapters.values().next())
             .map(Arc::clone);
         handles.push(tokio::spawn(async move {
@@ -542,31 +751,29 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         }));
     }
 
-    let selected_id = app.selected().map(|c| c.id.clone());
-    let mut containers = Vec::with_capacity(entries.len());
-
-    // Spawn stale PR probes in parallel
     let mut pr_handles: Vec<(String, _)> = Vec::new();
     for entry in &entries {
-        let cached = app.pr_cache.get(&entry.id);
-        let stale = cached.map_or(true, |(_, t)| t.elapsed() >= PR_REFRESH);
+        let cached = pr_cache.get(&entry.id);
+        let stale = cached.is_none_or(|(_, t)| t.elapsed() >= PR_REFRESH);
         if stale {
             let repo_root = entry.repo_root.clone();
             let branch = entry.branch.clone();
             let id = entry.id.clone();
-            pr_handles.push((id, tokio::spawn(async move {
-                probe_pr(&repo_root, &branch).await
-            })));
+            pr_handles.push((
+                id,
+                tokio::spawn(async move { probe_pr(&repo_root, &branch).await }),
+            ));
         }
     }
     for (id, handle) in pr_handles {
         let status = handle.await.unwrap_or(None);
-        app.pr_cache.insert(id, (status, Instant::now()));
+        pr_cache.insert(id, (status, Instant::now()));
     }
 
+    let mut containers = Vec::with_capacity(entries.len());
     for (entry, handle) in entries.iter().zip(handles) {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
-        let pr_status = app.pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
+        let pr_status = pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
         containers.push(Container {
             id: entry.id.clone(),
             worktree_path: entry.worktree_path.clone(),
@@ -577,30 +784,46 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             state: probe.state,
             session_id: probe.session_id,
             last_activity: probe.last_activity,
-            last_user_message: app.last_sent
+            last_user_message: last_sent
                 .get(&entry.id)
                 .cloned()
                 .or(probe.last_user_message),
             pr_status,
         });
     }
+    sort_containers(&mut containers);
 
-    // Sort containers to match the visual grouping in render.rs (by repo, preserving
-    // first-seen order). Without this, j/k navigates in registry creation order rather
-    // than the order rows actually appear on screen.
-    {
-        let vigil_wt = vigil_worktrees_prefix();
-        let mut group_index: HashMap<String, usize> = HashMap::new();
-        for c in &containers {
-            let g = container_repo_group(c, &vigil_wt);
-            let next = group_index.len();
-            group_index.entry(g).or_insert(next);
-        }
-        containers.sort_by_key(|c| group_index[&container_repo_group(c, &vigil_wt)]);
+    let selected_log = match selected_log_info {
+        Some((id, path, agent)) => match adapters.get(&agent) {
+            Some(adapter) => {
+                let events = adapter.recent_log_events(&path).await;
+                let lines = adapter.recent_log(&path).await;
+                Some((id, events, lines))
+            }
+            None => None,
+        },
+        None => None,
+    };
+
+    RefreshResult {
+        containers,
+        pr_cache,
+        selected_log,
     }
+}
 
-    app.containers = containers;
+fn sort_containers(containers: &mut [Container]) {
+    let vigil_wt = vigil_worktrees_prefix();
+    let mut group_index: HashMap<String, usize> = HashMap::new();
+    for c in containers.iter() {
+        let g = container_repo_group(c, &vigil_wt);
+        let next = group_index.len();
+        group_index.entry(g).or_insert(next);
+    }
+    containers.sort_by_key(|c| group_index[&container_repo_group(c, &vigil_wt)]);
+}
 
+fn restore_selection(app: &mut App, selected_id: Option<String>) {
     let new_sel = selected_id
         .and_then(|id| app.containers.iter().position(|c| c.id == id))
         .unwrap_or(app.table_state.selected().unwrap_or(0))
@@ -611,47 +834,6 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     } else {
         app.table_state.select(Some(new_sel));
     }
-
-    // Deliver scan results to ProjectPicker if ready.
-    let scan_ready = app.scan_rx.as_mut().and_then(|rx| rx.try_recv().ok());
-    if let Some(mut results) = scan_ready {
-        app.scan_rx = None;
-        results.sort_by(|a, b| a.display().to_string().cmp(&b.display().to_string()));
-        if let Overlay::ProjectPicker { ref mut all_repos, ref mut scanning, ref mut selected_idx, .. } = app.overlay {
-            *all_repos = results;
-            *scanning = false;
-            *selected_idx = 0;
-        }
-    }
-
-    // Pre-load log for the selected container into cache (so opening LogView is instant).
-    let selected_log_info = app.selected().map(|c| (c.id.clone(), c.worktree_path.clone(), c.agent));
-    if let Some((id, path, agent)) = selected_log_info {
-        if let Some(adapter) = adapters.get(&agent) {
-            let events = adapter.recent_log_events(&path).await;
-            let lines = adapter.recent_log(&path).await;
-            app.log_cache.insert(id, (events, lines));
-        }
-    }
-
-    // Keep LogView in sync while it's open.
-    if let Overlay::LogView { container_id, worktree_path, agent, events, lines, scroll } = &mut app.overlay {
-        if let Some((cached_events, cached_lines)) = app.log_cache.get(container_id) {
-            *events = cached_events.clone();
-            *lines = cached_lines.clone();
-            if events.is_empty() && lines.is_empty() {
-                *scroll = 0;
-            }
-        } else if let Some(adapter) = adapters.get(agent) {
-            *events = adapter.recent_log_events(worktree_path).await;
-            *lines = adapter.recent_log(worktree_path).await;
-            if events.is_empty() && lines.is_empty() {
-                *scroll = 0;
-            }
-        }
-    }
-
-    app.last_refresh = Instant::now();
 }
 
 /// Query `gh pr view` to get PR status for a branch. Returns None if gh is unavailable.
@@ -683,17 +865,57 @@ async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus>
 
 /// Count filtered results for the ProjectPicker without taking ownership.
 fn picker_filtered_count(overlay: &Overlay) -> usize {
-    if let Overlay::ProjectPicker { all_repos, query, .. } = overlay {
+    if let Overlay::ProjectPicker {
+        all_repos, query, ..
+    } = overlay
+    {
         let q = query.to_lowercase();
-        all_repos.iter().filter(|p| p.display().to_string().to_lowercase().contains(&q)).count()
-    } else { 0 }
+        all_repos
+            .iter()
+            .filter(|p| p.display().to_string().to_lowercase().contains(&q))
+            .count()
+    } else {
+        0
+    }
+}
+
+fn repo_scan_cache_path() -> PathBuf {
+    directories::BaseDirs::new()
+        .map(|b| b.home_dir().join(".vigil").join("repo-scan-cache.json"))
+        .unwrap_or_else(|| PathBuf::from("~/.vigil/repo-scan-cache.json"))
+}
+
+fn current_search_dirs() -> Vec<PathBuf> {
+    crate::config::Config::load().search_paths()
+}
+
+fn load_repo_scan_cache() -> Vec<PathBuf> {
+    let dirs = current_search_dirs();
+    std::fs::read_to_string(repo_scan_cache_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<RepoScanCache>(&s).ok())
+        .filter(|cache| cache.search_dirs == dirs)
+        .map(|cache| cache.repos)
+        .unwrap_or_default()
+}
+
+fn save_repo_scan_cache(search_dirs: Vec<PathBuf>, repos: Vec<PathBuf>) {
+    let path = repo_scan_cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let cache = RepoScanCache { search_dirs, repos };
+    if let Ok(json) = serde_json::to_string_pretty(&cache) {
+        let _ = std::fs::write(path, json);
+    }
 }
 
 /// Scan configured directories for git repositories using mdfind (macOS Spotlight) or find.
 async fn scan_git_repos() -> Vec<PathBuf> {
-    let config = crate::config::Config::load();
-    let dirs = config.search_paths();
-    if dirs.is_empty() { return vec![]; }
+    let dirs = current_search_dirs();
+    if dirs.is_empty() {
+        return vec![];
+    }
 
     let mut all_stdout = Vec::new();
 
@@ -712,9 +934,20 @@ async fn scan_git_repos() -> Vec<PathBuf> {
                 // Fallback: find with depth limit, skipping common noise dirs.
                 tokio::process::Command::new("find")
                     .arg(&dir_str)
-                    .args(["-maxdepth", "5", "-type", "d", "-name", ".git",
-                           "-not", "-path", "*/node_modules/*",
-                           "-not", "-path", "*/.Trash/*"])
+                    .args([
+                        "-maxdepth",
+                        "5",
+                        "-type",
+                        "d",
+                        "-name",
+                        ".git",
+                        "-not",
+                        "-path",
+                        "*/node_modules/*",
+                        "-not",
+                        "-path",
+                        "*/.Trash/*",
+                    ])
                     .output()
                     .await
                     .map(|o| o.stdout)
@@ -725,18 +958,26 @@ async fn scan_git_repos() -> Vec<PathBuf> {
     }
 
     let mut seen = std::collections::HashSet::new();
-    String::from_utf8_lossy(&all_stdout)
+    let mut repos: Vec<PathBuf> = String::from_utf8_lossy(&all_stdout)
         .lines()
         .filter_map(|line| {
             let line = line.trim();
-            if line.is_empty() { return None; }
+            if line.is_empty() {
+                return None;
+            }
             // Skip .git dirs that live inside another .git (submodule metadata)
-            if line.contains("/.git/") { return None; }
+            if line.contains("/.git/") {
+                return None;
+            }
             let git_dir = PathBuf::from(line);
             git_dir.parent().map(|p| p.to_path_buf())
         })
         .filter(|p| seen.insert(p.clone()))
-        .collect()
+        .collect();
+
+    repos.sort_by_key(|a| a.display().to_string());
+    save_repo_scan_cache(dirs, repos.clone());
+    repos
 }
 
 /// Attach to an existing session if `session_id` is Some, otherwise launch fresh.
