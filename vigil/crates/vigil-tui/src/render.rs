@@ -785,10 +785,10 @@ fn agent_label(agent: AgentKind) -> (&'static str, Style) {
 
 fn pr_dot(status: Option<&PrStatus>) -> (&'static str, Style) {
     match status {
-        None | Some(PrStatus::NoPr) => ("  ", Style::default()),
-        Some(PrStatus::InProgress)   => ("◯ ", Style::default().fg(GOLD)),
-        Some(PrStatus::ReadyToMerge) => ("◉ ", Style::default().fg(GREEN)),
-        Some(PrStatus::Merged)       => ("● ", Style::default().fg(PURPLE)),
+        None | Some(PrStatus::NoPr) => ("   ", Style::default()),
+        Some(PrStatus::InProgress)   => (" ◯ ", Style::default().fg(GOLD)),
+        Some(PrStatus::ReadyToMerge) => (" ◉ ", Style::default().fg(GREEN)),
+        Some(PrStatus::Merged)       => (" ● ", Style::default().fg(PURPLE)),
     }
 }
 
