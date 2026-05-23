@@ -76,6 +76,22 @@ impl AgentAdapter for PiAdapter {
         parse_conversation_events(&tail)
     }
 
+    async fn start_with_message(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<(), VigilError> {
+        tokio::process::Command::new("pi")
+            .arg("--print").arg(msg)
+            .current_dir(dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
+        Ok(())
+    }
+
     async fn send_message(
         &self,
         dir: &Path,

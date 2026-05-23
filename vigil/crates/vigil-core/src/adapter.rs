@@ -53,4 +53,15 @@ pub trait AgentAdapter: Send + Sync {
     ) -> Result<(), crate::VigilError> {
         Err(crate::VigilError::NotSupported("send_message not implemented".into()))
     }
+
+    /// Start a brand-new agent session in `dir` with an initial message, running in the
+    /// background (fire-and-forget). Used when there is no existing session to resume.
+    /// The default implementation returns `NotSupported`; adapters that support it override this.
+    async fn start_with_message(
+        &self,
+        _dir: &Path,
+        _msg: &str,
+    ) -> Result<(), crate::VigilError> {
+        Err(crate::VigilError::NotSupported("start_with_message not implemented".into()))
+    }
 }

@@ -166,6 +166,25 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
+    async fn start_with_message(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<(), VigilError> {
+        tokio::process::Command::new("claude")
+            .arg("--dangerously-skip-permissions")
+            .arg("--debug")
+            .arg("--print").arg(msg)
+            .env_remove("CLAUDECODE")
+            .current_dir(dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
+        Ok(())
+    }
+
     async fn send_message(
         &self,
         dir: &Path,
