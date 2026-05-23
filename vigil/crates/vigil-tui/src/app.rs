@@ -689,34 +689,43 @@ fn picker_filtered_count(overlay: &Overlay) -> usize {
     } else { 0 }
 }
 
-/// Scan the home directory for git repositories using mdfind (macOS Spotlight) or find.
+/// Scan configured directories for git repositories using mdfind (macOS Spotlight) or find.
 async fn scan_git_repos() -> Vec<PathBuf> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    if home.is_empty() { return vec![]; }
+    let config = crate::config::Config::load();
+    let dirs = config.search_paths();
+    if dirs.is_empty() { return vec![]; }
 
-    // Try mdfind first — fast Spotlight index query, typically < 200ms on macOS.
-    let mdfind = tokio::process::Command::new("mdfind")
-        .args(["-onlyin", &home, "kMDItemFSName == '.git'"])
-        .output()
-        .await;
+    let mut all_stdout = Vec::new();
 
-    let stdout = match mdfind {
-        Ok(out) if out.status.success() && !out.stdout.is_empty() => out.stdout,
-        _ => {
-            // Fallback: find with depth limit, skipping common noise dirs.
-            tokio::process::Command::new("find")
-                .arg(&home)
-                .args(["-maxdepth", "5", "-type", "d", "-name", ".git",
-                       "-not", "-path", "*/node_modules/*",
-                       "-not", "-path", "*/.Trash/*"])
-                .output()
-                .await
-                .map(|o| o.stdout)
-                .unwrap_or_default()
-        }
-    };
+    for dir in &dirs {
+        let dir_str = dir.display().to_string();
 
-    String::from_utf8_lossy(&stdout)
+        // Try mdfind first — fast Spotlight index query, typically < 200ms on macOS.
+        let mdfind = tokio::process::Command::new("mdfind")
+            .args(["-onlyin", &dir_str, "kMDItemFSName == '.git'"])
+            .output()
+            .await;
+
+        let stdout = match mdfind {
+            Ok(out) if out.status.success() && !out.stdout.is_empty() => out.stdout,
+            _ => {
+                // Fallback: find with depth limit, skipping common noise dirs.
+                tokio::process::Command::new("find")
+                    .arg(&dir_str)
+                    .args(["-maxdepth", "5", "-type", "d", "-name", ".git",
+                           "-not", "-path", "*/node_modules/*",
+                           "-not", "-path", "*/.Trash/*"])
+                    .output()
+                    .await
+                    .map(|o| o.stdout)
+                    .unwrap_or_default()
+            }
+        };
+        all_stdout.extend_from_slice(&stdout);
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    String::from_utf8_lossy(&all_stdout)
         .lines()
         .filter_map(|line| {
             let line = line.trim();
@@ -726,6 +735,7 @@ async fn scan_git_repos() -> Vec<PathBuf> {
             let git_dir = PathBuf::from(line);
             git_dir.parent().map(|p| p.to_path_buf())
         })
+        .filter(|p| seen.insert(p.clone()))
         .collect()
 }
 
