@@ -51,7 +51,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::SendMessage { buf } => {
             draw_send_message_overlay(f, area, buf);
         }
-        Overlay::NewWorktree { name_buf, agent_idx, repo_root } => {
+        Overlay::NewWorktree {
+            name_buf,
+            agent_idx,
+            repo_root,
+        } => {
             draw_new_worktree_overlay(f, area, name_buf, *agent_idx, repo_root.as_deref());
         }
         Overlay::DismissConfirm { container_id } => {
@@ -60,10 +64,21 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::RemoveConfirm { entry } => {
             draw_remove_confirm_overlay(f, area, &entry.id, &entry.worktree_path);
         }
-        Overlay::LogView { container_id, events, lines, scroll, .. } => {
+        Overlay::LogView {
+            container_id,
+            events,
+            lines,
+            scroll,
+            ..
+        } => {
             draw_log_view_overlay(f, area, container_id, events, lines, *scroll);
         }
-        Overlay::ProjectPicker { query, all_repos, selected_idx, scanning } => {
+        Overlay::ProjectPicker {
+            query,
+            all_repos,
+            selected_idx,
+            scanning,
+        } => {
             draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
         }
     }
@@ -71,7 +86,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let containers = &app.containers;
-    let awaiting = containers.iter().filter(|c| c.state.needs_attention()).count();
+    let awaiting = containers
+        .iter()
+        .filter(|c| c.state.needs_attention())
+        .count();
     let running = containers
         .iter()
         .filter(|c| matches!(c.state, SessionState::Running))
@@ -82,7 +100,10 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         .count();
 
     let mut spans = vec![
-        Span::styled("vigil", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "vigil",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(
             format!("  ·  {} containers", containers.len()),
             Style::default().fg(DIM),
@@ -121,13 +142,18 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     // Build ordered groups: preserve first-seen order of repos.
     let mut group_order: Vec<String> = Vec::new();
-    let mut groups: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
     for (i, c) in app.containers.iter().enumerate() {
         let full = c.worktree_path.display().to_string();
         let repo = if let Some(rest) = full.strip_prefix(&vigil_wt) {
             rest.split('/').next().unwrap_or("?").to_string()
         } else {
-            c.repo_root.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string()
+            c.repo_root
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string()
         };
         if !groups.contains_key(&repo) {
             group_order.push(repo.clone());
@@ -137,6 +163,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     let mut rows: Vec<Row> = Vec::new();
     let mut container_to_row: Vec<usize> = vec![0; app.containers.len()];
+    let message_width = last_message_column_width(area.width);
 
     for repo in &group_order {
         let indices = &groups[repo];
@@ -144,19 +171,24 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         // Separator row — repo name in white, dashes in dim.
         let dashes = 20_usize.saturating_sub(repo.len() + 4).max(2);
         rows.push(Row::new(vec![
-            Cell::from(Span::styled("──",                        Style::default().fg(DIM))),
+            Cell::from(Span::styled("──", Style::default().fg(DIM))),
             Cell::from(""),
             Cell::from(Line::from(vec![
-                Span::styled(" ".to_string(),                    Style::default()),
-                Span::styled(repo.clone(),                       Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled(" ".to_string(), Style::default()),
+                Span::styled(
+                    repo.clone(),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(format!(" {}", "─".repeat(dashes)), Style::default().fg(DIM)),
             ])),
-            Cell::from(Span::styled("─".repeat(20),   Style::default().fg(DIM))),
-            Cell::from(Span::styled("───",            Style::default().fg(DIM))),
-            Cell::from(Span::styled("─".repeat(26),   Style::default().fg(DIM))),
-            Cell::from(Span::styled("──────",         Style::default().fg(DIM))),
-            Cell::from(Span::styled("─".repeat(50),   Style::default().fg(DIM))),
-            Cell::from(Span::styled("─".repeat(10),   Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(20), Style::default().fg(DIM))),
+            Cell::from(Span::styled("───", Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(26), Style::default().fg(DIM))),
+            Cell::from(Span::styled("──────", Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(50), Style::default().fg(DIM))),
+            Cell::from(Span::styled("─".repeat(10), Style::default().fg(DIM))),
         ]));
 
         for &i in indices {
@@ -170,7 +202,8 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let branch = {
                 let full = c.worktree_path.display().to_string();
                 if full.starts_with(&vigil_wt) {
-                    c.worktree_path.file_name()
+                    c.worktree_path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or(c.branch.as_str())
                         .to_string()
@@ -181,19 +214,19 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 }
             };
 
-            let age = c.last_activity
+            let age = c
+                .last_activity
                 .or(Some(c.created_at))
                 .map(fmt_age)
                 .unwrap_or_else(|| "-".into());
 
             let msg = match &c.state {
                 SessionState::NoSession => format!("↵ launch {}", c.agent.display_name()),
-                _ => c.last_user_message.as_deref()
-                    .unwrap_or("-")
-                    .chars()
-                    .take(60)
-                    .collect::<String>(),
+                _ => c.last_user_message.as_deref().unwrap_or("-").to_string(),
             };
+            let msg_lines = wrap_str(&msg, message_width);
+            let msg_height = msg_lines.len().max(1) as u16;
+            let msg = msg_lines.join("\n");
 
             let row_style = state_style(&c.state);
             let bar = if selected == Some(i) {
@@ -204,17 +237,21 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
 
-            rows.push(Row::new(vec![
-                bar,
-                Cell::from(Span::styled(dot, dot_style)),
-                Cell::from(state_str),
-                Cell::from(c.id.clone()),
-                Cell::from(Span::styled(pr_icon, pr_style)),
-                Cell::from(branch),
-                Cell::from(age),
-                Cell::from(msg),
-                Cell::from(Span::styled(format!(" {agent_text}"), agent_style)),
-            ]).style(row_style));
+            rows.push(
+                Row::new(vec![
+                    bar,
+                    Cell::from(Span::styled(dot, dot_style)),
+                    Cell::from(state_str),
+                    Cell::from(c.id.clone()),
+                    Cell::from(Span::styled(pr_icon, pr_style)),
+                    Cell::from(branch),
+                    Cell::from(age),
+                    Cell::from(msg),
+                    Cell::from(Span::styled(format!(" {agent_text}"), agent_style)),
+                ])
+                .height(msg_height)
+                .style(row_style),
+            );
         }
     }
 
@@ -238,8 +275,18 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(10),
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "", "BRANCH", "AGE", "LAST MESSAGE", " AGENT"])
-        .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
+    let header = Row::new([
+        "",
+        "",
+        "STATE",
+        "CONTAINER",
+        "",
+        "BRANCH",
+        "AGE",
+        "LAST MESSAGE",
+        " AGENT",
+    ])
+    .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -247,6 +294,13 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         .block(Block::default());
 
     f.render_stateful_widget(table, area, &mut render_state);
+}
+
+fn last_message_column_width(table_width: u16) -> usize {
+    // Fixed columns: selection bar, state dot, state, container, PR, branch, age, agent.
+    // The last-message column is the remaining Fill(1) column.
+    const FIXED_COLUMNS_WIDTH: u16 = 1 + 2 + 20 + 20 + 3 + 26 + 6 + 10;
+    table_width.saturating_sub(FIXED_COLUMNS_WIDTH).max(1) as usize
 }
 
 fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
@@ -294,14 +348,14 @@ fn draw_send_message_overlay(f: &mut Frame, area: Rect, buf: &str) {
         .title(" Send Message ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(popup).inner(Margin { horizontal: 1, vertical: 0 });
+    let inner = block.inner(popup).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
     f.render_widget(block, popup);
 
-    let [content, hint_area] = Layout::vertical([
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .areas(inner);
+    let [content, hint_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
 
     let display = format!("{buf}▋");
     f.render_widget(
@@ -345,7 +399,11 @@ fn draw_new_worktree_overlay(
     let repo_str = repo_root
         .map(|p| {
             let s = p.display().to_string();
-            if !home.is_empty() { s.replacen(&home, "~", 1) } else { s }
+            if !home.is_empty() {
+                s.replacen(&home, "~", 1)
+            } else {
+                s
+            }
         })
         .unwrap_or_else(|| "(inferred from cwd)".into());
 
@@ -354,7 +412,10 @@ fn draw_new_worktree_overlay(
         .enumerate()
         .flat_map(|(i, label)| {
             let (bullet, style) = if i == agent_idx {
-                ("◉ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+                (
+                    "◉ ",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                )
             } else {
                 ("○ ", Style::default().fg(DIM))
             };
@@ -417,20 +478,29 @@ fn draw_log_view_overlay(
         .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
-    let inner = block.inner(popup).inner(Margin { horizontal: 2, vertical: 1 });
+    let inner = block.inner(popup).inner(Margin {
+        horizontal: 2,
+        vertical: 1,
+    });
     f.render_widget(block, popup);
 
-    let [content, hint_area] = Layout::vertical([
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ]).areas(inner);
+    let [content, hint_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
 
     // Footer with hint + stats (for structured view).
-    let turn_count = events.iter().filter(|e| matches!(e, LogEvent::UserMessage { .. })).count();
-    let tool_count: u32 = events.iter()
-        .filter_map(|e| if let LogEvent::ToolGroup { tools } = e {
-            Some(tools.iter().map(|(_, n)| *n).sum::<u32>())
-        } else { None })
+    let turn_count = events
+        .iter()
+        .filter(|e| matches!(e, LogEvent::UserMessage { .. }))
+        .count();
+    let tool_count: u32 = events
+        .iter()
+        .filter_map(|e| {
+            if let LogEvent::ToolGroup { tools } = e {
+                Some(tools.iter().map(|(_, n)| *n).sum::<u32>())
+            } else {
+                None
+            }
+        })
         .sum();
     let mut hint_spans = vec![
         Span::styled("Esc / l", Style::default().fg(DIM)),
@@ -464,9 +534,18 @@ fn draw_log_view_overlay(
                         for chunk in wrap_str(raw_line, text_width) {
                             if first {
                                 display.push(Line::from(vec![
-                                    Span::styled(prefix, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                                    Span::styled(format!("{chunk}  "), Style::default().fg(Color::White)),
-                                    Span::styled(time_str.to_string(), Style::default().fg(EMPTY_COLOR)),
+                                    Span::styled(
+                                        prefix,
+                                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                                    ),
+                                    Span::styled(
+                                        format!("{chunk}  "),
+                                        Style::default().fg(Color::White),
+                                    ),
+                                    Span::styled(
+                                        time_str.to_string(),
+                                        Style::default().fg(EMPTY_COLOR),
+                                    ),
                                 ]));
                                 first = false;
                             } else {
@@ -481,13 +560,13 @@ fn draw_log_view_overlay(
                 LogEvent::ToolGroup { tools } if !tools.is_empty() => {
                     let bar_max = 12u32;
                     let total_count: u32 = tools.iter().map(|(_, n)| *n).sum();
-                    let mut bar_spans: Vec<Span> = vec![
-                        Span::styled(" TOOLS  ", Style::default().fg(DIM)),
-                    ];
+                    let mut bar_spans: Vec<Span> =
+                        vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
                     let mut used = 0u32;
                     for (kind, count) in tools {
                         let blocks = ((count * bar_max + total_count / 2) / total_count)
-                            .max(1).min(4);
+                            .max(1)
+                            .min(4);
                         used += blocks;
                         let color = match kind {
                             ToolKind::Read => READ_COLOR,
@@ -533,11 +612,15 @@ fn draw_log_view_overlay(
                         for chunk in wrap_str(raw_line, text_width) {
                             let spans = render_inline(&chunk, GREEN, EMPTY_COLOR);
                             if first {
-                                let mut line_spans = vec![
-                                    Span::styled(prefix_str.clone(), Style::default().fg(GREEN).add_modifier(Modifier::BOLD)),
-                                ];
+                                let mut line_spans = vec![Span::styled(
+                                    prefix_str.clone(),
+                                    Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                                )];
                                 line_spans.extend(spans);
-                                line_spans.push(Span::styled(format!("  {time_str}"), Style::default().fg(EMPTY_COLOR)));
+                                line_spans.push(Span::styled(
+                                    format!("  {time_str}"),
+                                    Style::default().fg(EMPTY_COLOR),
+                                ));
                                 display.push(Line::from(line_spans));
                                 first = false;
                             } else {
@@ -556,17 +639,20 @@ fn draw_log_view_overlay(
         let max_lines = content.height as usize;
         let max_scroll = display.len().saturating_sub(max_lines);
         let scroll = scroll.min(max_scroll);
-        let start = display.len().saturating_sub(max_lines).saturating_sub(scroll);
+        let start = display
+            .len()
+            .saturating_sub(max_lines)
+            .saturating_sub(scroll);
         let visible: Vec<Line> = display.into_iter().skip(start).take(max_lines).collect();
         f.render_widget(Paragraph::new(visible), content);
-
     } else if !lines.is_empty() {
         // ── Raw log fallback (Claude Code debug logs) ─────────────────────────
         let max_lines = content.height as usize;
         let max_scroll = lines.len().saturating_sub(max_lines);
         let scroll = scroll.min(max_scroll);
         let start = lines.len().saturating_sub(max_lines).saturating_sub(scroll);
-        let display: Vec<Line> = lines.iter()
+        let display: Vec<Line> = lines
+            .iter()
             .skip(start)
             .take(max_lines)
             .map(|s| {
@@ -606,10 +692,16 @@ fn draw_dismiss_confirm_overlay(f: &mut Frame, area: Rect, container_id: &str) {
         Line::from(""),
         Line::from(vec![
             Span::raw("  Dismiss  "),
-            Span::styled(container_id, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                container_id,
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  from view?"),
         ]),
-        Line::from(vec![Span::styled("  (undo with u)", Style::default().fg(DIM))]),
+        Line::from(vec![Span::styled(
+            "  (undo with u)",
+            Style::default().fg(DIM),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
@@ -642,17 +734,27 @@ fn draw_remove_confirm_overlay(
     let home = std::env::var("HOME").unwrap_or_default();
     let path_str = {
         let s = worktree_path.display().to_string();
-        if !home.is_empty() { s.replacen(&home, "~", 1) } else { s }
+        if !home.is_empty() {
+            s.replacen(&home, "~", 1)
+        } else {
+            s
+        }
     };
 
     let lines: Vec<Line> = vec![
         Line::from(""),
         Line::from(vec![
             Span::raw("  Remove  "),
-            Span::styled(container_id, Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                container_id,
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("?"),
         ]),
-        Line::from(vec![Span::styled(format!("  {path_str}"), Style::default().fg(DIM))]),
+        Line::from(vec![Span::styled(
+            format!("  {path_str}"),
+            Style::default().fg(DIM),
+        )]),
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
@@ -690,12 +792,16 @@ fn draw_project_picker_overlay(
         Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(1),
-    ]).areas(inner);
+    ])
+    .areas(inner);
 
     // Search input line
     f.render_widget(
         Line::from(vec![
-            Span::styled("▸ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "▸ ",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(query.to_string(), Style::default().fg(Color::White)),
             Span::styled("_", Style::default().fg(ACCENT)),
         ]),
@@ -714,7 +820,8 @@ fn draw_project_picker_overlay(
     // Filtered list
     let home = std::env::var("HOME").unwrap_or_default();
     let q = query.to_lowercase();
-    let filtered: Vec<&std::path::PathBuf> = all_repos.iter()
+    let filtered: Vec<&std::path::PathBuf> = all_repos
+        .iter()
         .filter(|p| p.display().to_string().to_lowercase().contains(&q))
         .collect();
 
@@ -733,7 +840,8 @@ fn draw_project_picker_overlay(
         let sel = selected_idx.min(filtered.len().saturating_sub(1));
         let scroll_start = sel.saturating_sub(max_visible.saturating_sub(1));
 
-        let lines: Vec<Line> = filtered.iter()
+        let lines: Vec<Line> = filtered
+            .iter()
             .skip(scroll_start)
             .take(max_visible)
             .enumerate()
@@ -741,12 +849,24 @@ fn draw_project_picker_overlay(
                 let is_selected = scroll_start + i == sel;
                 let path_str = {
                     let s = path.display().to_string();
-                    if !home.is_empty() { s.replacen(&home, "~", 1) } else { s }
+                    if !home.is_empty() {
+                        s.replacen(&home, "~", 1)
+                    } else {
+                        s
+                    }
                 };
                 if is_selected {
                     Line::from(vec![
-                        Span::styled("▸ ", Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-                        Span::styled(path_str, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            "▸ ",
+                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            path_str,
+                            Style::default()
+                                .fg(Color::White)
+                                .add_modifier(Modifier::BOLD),
+                        ),
                     ])
                 } else {
                     Line::from(vec![
@@ -782,9 +902,15 @@ fn draw_project_picker_overlay(
 }
 
 fn app_content_rect(area: Rect) -> Rect {
-    let inner = area.inner(Margin { horizontal: 0, vertical: 1 });
+    let inner = area.inner(Margin {
+        horizontal: 0,
+        vertical: 1,
+    });
     let padding = APP_HORIZONTAL_PADDING.min(inner.width.saturating_sub(APP_MIN_WIDTH) / 2);
-    let padded = inner.inner(Margin { horizontal: padding, vertical: 0 });
+    let padded = inner.inner(Margin {
+        horizontal: padding,
+        vertical: 0,
+    });
     let width = padded.width.min(APP_MAX_WIDTH);
 
     Rect {
@@ -817,9 +943,9 @@ fn agent_label(agent: AgentKind) -> (&'static str, Style) {
 fn pr_dot(status: Option<&PrStatus>) -> (&'static str, Style) {
     match status {
         None | Some(PrStatus::NoPr) => ("   ", Style::default()),
-        Some(PrStatus::InProgress)   => (" ◯ ", Style::default().fg(GOLD)),
+        Some(PrStatus::InProgress) => (" ◯ ", Style::default().fg(GOLD)),
         Some(PrStatus::ReadyToMerge) => (" ◉ ", Style::default().fg(GREEN)),
-        Some(PrStatus::Merged)       => (" ● ", Style::default().fg(PURPLE)),
+        Some(PrStatus::Merged) => (" ● ", Style::default().fg(PURPLE)),
     }
 }
 
@@ -877,7 +1003,11 @@ fn wrap_str(text: &str, width: usize) -> Vec<String> {
             break;
         }
         // Find last space within width chars
-        let byte_end = remaining.char_indices().nth(width).map(|(i, _)| i).unwrap_or(remaining.len());
+        let byte_end = remaining
+            .char_indices()
+            .nth(width)
+            .map(|(i, _)| i)
+            .unwrap_or(remaining.len());
         let slice = &remaining[..byte_end];
         let split = slice.rfind(' ').unwrap_or(byte_end);
         chunks.push(remaining[..split].to_string());
@@ -898,7 +1028,10 @@ fn render_inline(text: &str, text_color: Color, _code_color: Color) -> Vec<Span<
     let mut remaining = text;
     while let Some(start) = remaining.find('`') {
         if !remaining[..start].is_empty() {
-            spans.push(Span::styled(remaining[..start].to_string(), Style::default().fg(text_color)));
+            spans.push(Span::styled(
+                remaining[..start].to_string(),
+                Style::default().fg(text_color),
+            ));
         }
         remaining = &remaining[start + 1..];
         if let Some(end) = remaining.find('`') {
@@ -908,12 +1041,18 @@ fn render_inline(text: &str, text_color: Color, _code_color: Color) -> Vec<Span<
             ));
             remaining = &remaining[end + 1..];
         } else {
-            spans.push(Span::styled(format!("`{remaining}"), Style::default().fg(text_color)));
+            spans.push(Span::styled(
+                format!("`{remaining}"),
+                Style::default().fg(text_color),
+            ));
             return spans;
         }
     }
     if !remaining.is_empty() {
-        spans.push(Span::styled(remaining.to_string(), Style::default().fg(text_color)));
+        spans.push(Span::styled(
+            remaining.to_string(),
+            Style::default().fg(text_color),
+        ));
     }
     spans
 }
