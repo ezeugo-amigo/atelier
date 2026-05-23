@@ -110,6 +110,9 @@ pub struct App {
     /// Last message sent via the SendMessage overlay, keyed by container id.
     /// Persists across refresh() cycles since history.jsonl isn't updated by --print mode.
     last_sent: HashMap<String, String>,
+    /// After creating a new worktree, hold its path here so the next refresh
+    /// can auto-select it once the background probe delivers the container.
+    pending_select_path: Option<PathBuf>,
 }
 
 impl App {
@@ -129,6 +132,7 @@ impl App {
             scan_rx: None,
             refresh_rx: None,
             last_sent: HashMap::new(),
+            pending_select_path: None,
         }
     }
 
@@ -443,9 +447,12 @@ async fn event_loop(
                             app.wt_name_backspace();
                         }
                         KeyCode::Enter => {
-                            if let Some((path, agent)) = app.confirm_new_worktree() {
-                                attach_or_launch(terminal, &adapters, None, &path, agent)?;
-                                terminal.clear()?;
+                            if let Some((path, _agent)) = app.confirm_new_worktree() {
+                                // Stay in vigil — set pending_select_path so the new
+                                // worktree is auto-selected once the probe delivers it.
+                                app.pending_select_path = Some(path);
+                                // Force registry reload so the fast-path picks up the entry.
+                                app.registry = Registry::load().ok();
                             }
                         }
                         KeyCode::Char(c) => {
@@ -587,12 +594,17 @@ async fn event_loop(
                                     unreachable!()
                                 };
                             let container_id = app.selected().map(|c| c.id.clone());
+                            let agent = app.selected().map(|c| c.agent);
                             app.overlay = Overlay::None;
-                            if let (Some(dir), Some(sid)) = (dir, sid) {
-                                let agent = app.selected().map(|c| c.agent);
+                            if let Some(dir) = dir {
                                 if let Some(agent) = agent {
                                     if let Some(adapter) = adapters.get(&agent) {
-                                        let _ = adapter.send_message(&dir, &sid, &msg).await;
+                                        if let Some(sid) = sid {
+                                            let _ = adapter.send_message(&dir, &sid, &msg).await;
+                                        } else {
+                                            // No session yet — start a fresh one with this message.
+                                            let _ = adapter.start_with_message(&dir, &msg).await;
+                                        }
                                     }
                                 }
                             }
@@ -661,7 +673,16 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     };
     app.containers.retain(|c| live_ids.contains(&c.id));
     sort_containers(&mut app.containers);
-    restore_selection(app, selected_id);
+
+    // If we're waiting to auto-select a freshly-created worktree, check if it
+    // has now appeared in the container list (i.e. background probe completed).
+    let pending_id = app.pending_select_path.as_ref()
+        .and_then(|path| app.containers.iter().find(|c| &c.worktree_path == path))
+        .map(|c| c.id.clone());
+    if pending_id.is_some() {
+        app.pending_select_path = None;
+    }
+    restore_selection(app, pending_id.or(selected_id));
 
     // Deliver scan results to ProjectPicker if ready.
     let scan_ready = app.scan_rx.as_mut().and_then(|rx| rx.try_recv().ok());
