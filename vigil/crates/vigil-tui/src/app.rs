@@ -607,10 +607,10 @@ async fn event_loop(
                                     if let Some(agent) = agent {
                                         if let Some(adapter) = adapters.get(&agent) {
                                             if let Some(sid) = sid {
-                                                let _ = adapter.send_message(&dir, &sid, &msg).await;
+                                                adapter.send_message(&dir, &sid, &msg).await.ok();
                                             } else {
                                                 // No session yet — start a fresh one with this message.
-                                                let _ = adapter.start_with_message(&dir, &msg).await;
+                                                adapter.start_with_message(&dir, &msg).await.ok();
                                             }
                                         }
                                     }
