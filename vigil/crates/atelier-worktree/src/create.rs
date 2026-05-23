@@ -110,11 +110,19 @@ fn git_worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), Worktr
         std::fs::create_dir_all(parent)
             .map_err(|e| WorktreeError::Git(format!("failed to create parent dir: {e}")))?;
     }
+
+    // Fetch latest from origin so the worktree starts from the newest main.
+    let _ = Command::new("git")
+        .args(["fetch", "origin", "main"])
+        .current_dir(repo)
+        .status();
+
     let status = Command::new("git")
         .args(["worktree", "add"])
         .arg(path)
         .arg("-b")
         .arg(branch)
+        .arg("origin/main")
         .current_dir(repo)
         .status()?;
     if !status.success() {
