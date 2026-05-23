@@ -105,6 +105,17 @@ fn list_git_branches(repo_root: &Path) -> Result<Vec<String>, WorktreeError> {
         .collect())
 }
 
+fn git_output_details(stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(stderr).trim().to_string();
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!(": {stdout}"),
+        (true, false) => format!(": {stderr}"),
+        (false, false) => format!(": {stderr}\n{stdout}"),
+    }
+}
+
 fn git_worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), WorktreeError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -112,22 +123,25 @@ fn git_worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), Worktr
     }
 
     // Fetch latest from origin so the worktree starts from the newest main.
+    // Use `output()` instead of `status()` so git's progress / worktree messages
+    // don't leak into the TUI or CLI screen during normal creation.
     let _ = Command::new("git")
         .args(["fetch", "origin", "main"])
         .current_dir(repo)
-        .status();
+        .output();
 
-    let status = Command::new("git")
+    let output = Command::new("git")
         .args(["worktree", "add"])
         .arg(path)
         .arg("-b")
         .arg(branch)
         .arg("origin/main")
         .current_dir(repo)
-        .status()?;
-    if !status.success() {
+        .output()?;
+    if !output.status.success() {
+        let details = git_output_details(&output.stdout, &output.stderr);
         return Err(WorktreeError::Git(format!(
-            "git worktree add failed for branch '{branch}'"
+            "git worktree add failed for branch '{branch}'{details}"
         )));
     }
     Ok(())
