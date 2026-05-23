@@ -1,3 +1,5 @@
+import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
+import { PatchDiff } from "@pierre/diffs/react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
@@ -47,12 +49,6 @@ type ComposerState = {
   body: string;
 };
 
-type DragState = {
-  fileId: string;
-  anchor: LineKey;
-  current: LineKey;
-};
-
 type ParsedKey = {
   fileId: string;
   hunkIndex: number;
@@ -67,6 +63,10 @@ type FlatLine = {
   line: DiffLine;
 };
 
+type DiffdeskAnnotation =
+  | { kind: "comment"; comment: AppComment }
+  | { kind: "composer"; rangeSize: number };
+
 const outputFormat: OutputFormat = "markdown";
 
 export function App() {
@@ -74,11 +74,8 @@ export function App() {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [comments, setComments] = useState<AppComment[]>([]);
   const [composer, setComposer] = useState<ComposerState | null>(null);
-  const [drag, setDrag] = useState<DragState | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [status, setStatus] = useState("Loading session…");
-  const dragRef = useRef<DragState | null>(null);
-  dragRef.current = drag;
 
   useEffect(() => {
     async function load() {
@@ -124,34 +121,6 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [comments, state]);
 
-  useEffect(() => {
-    function handleMouseUp() {
-      const currentDrag = dragRef.current;
-      if (currentDrag === null) return;
-      const [startKey, endKey] = normalizeRange(
-        currentDrag.anchor,
-        currentDrag.current,
-      );
-      const file =
-        state.kind === "ready"
-          ? state.files.find((item) => item.id === currentDrag.fileId)
-          : null;
-      if (file !== undefined && file !== null) {
-        setComposer({
-          fileId: file.id,
-          filePath: file.newPath ?? file.oldPath ?? file.displayPath,
-          startKey,
-          endKey,
-          body: "",
-        });
-      }
-      setDrag(null);
-    }
-
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
-  }, [state]);
-
   const visibleFiles = useMemo(() => {
     if (state.kind !== "ready") return [];
     return selectedFileId === null
@@ -165,26 +134,6 @@ export function App() {
       return accumulator;
     }, {});
   }, [comments]);
-
-  const handleGutterDown = useCallback(
-    (key: LineKey, shiftKey: boolean) => {
-      if (submitted) return;
-      const parsed = parseLineKey(key);
-      if (shiftKey && composer !== null && composer.fileId === parsed.fileId) {
-        setComposer({ ...composer, endKey: key });
-        return;
-      }
-      setDrag({ fileId: parsed.fileId, anchor: key, current: key });
-    },
-    [composer, submitted],
-  );
-
-  const handleGutterEnter = useCallback((key: LineKey) => {
-    const currentDrag = dragRef.current;
-    if (currentDrag === null) return;
-    if (parseLineKey(key).fileId !== currentDrag.fileId) return;
-    setDrag({ ...currentDrag, current: key });
-  }, []);
 
   const submitComposer = useCallback(() => {
     if (composer === null || composer.body.trim() === "") return;
@@ -233,7 +182,6 @@ export function App() {
     if (!confirmed) return;
     setComments([]);
     setComposer(null);
-    setDrag(null);
     setStatus("All queued notes cleared");
   }, [comments.length, submitted]);
 
@@ -285,7 +233,7 @@ export function App() {
   const totals = totalStats(state.files);
 
   return (
-    <div className={`desktop-bg${drag !== null ? " is-dragging" : ""}`}>
+    <div className="desktop-bg">
       <div className="window">
         <TitleBar
           session={state.session}
@@ -333,14 +281,21 @@ export function App() {
                   key={file.id}
                   comments={comments}
                   composer={composer}
-                  draggingRange={drag}
                   file={file}
                   locked={submitted}
                   onCancelComposer={() => setComposer(null)}
                   onDeleteComment={deleteComment}
                   onEditComment={editComment}
-                  onGutterDown={handleGutterDown}
-                  onGutterEnter={handleGutterEnter}
+                  onSelectRange={(file, startKey, endKey) => {
+                    setComposer({
+                      fileId: file.id,
+                      filePath:
+                        file.newPath ?? file.oldPath ?? file.displayPath,
+                      startKey,
+                      endKey,
+                      body: "",
+                    });
+                  }}
                   onSubmitComposer={submitComposer}
                   onUpdateComposerBody={(body) =>
                     setComposer((current) =>
@@ -562,36 +517,27 @@ function Sidebar({
 function FileDiff({
   comments,
   composer,
-  draggingRange,
   file,
   locked,
   onCancelComposer,
   onDeleteComment,
   onEditComment,
-  onGutterDown,
-  onGutterEnter,
+  onSelectRange,
   onSubmitComposer,
   onUpdateComposerBody,
 }: {
   comments: AppComment[];
   composer: ComposerState | null;
-  draggingRange: DragState | null;
   file: DiffFile;
   locked: boolean;
   onCancelComposer: () => void;
   onDeleteComment: (id: string) => void;
   onEditComment: (id: string, body: string) => void;
-  onGutterDown: (key: LineKey, shiftKey: boolean) => void;
-  onGutterEnter: (key: LineKey) => void;
+  onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
   onSubmitComposer: () => void;
   onUpdateComposerBody: (body: string) => void;
 }) {
   const flat = useMemo(() => flattenFile(file), [file]);
-  const dragKeys = useMemo(() => {
-    if (draggingRange === null || draggingRange.fileId !== file.id)
-      return new Set<LineKey>();
-    return keysBetween(flat, draggingRange.anchor, draggingRange.current);
-  }, [draggingRange, file.id, flat]);
 
   const composerKeys = useMemo(() => {
     if (composer === null || composer.fileId !== file.id) return null;
@@ -599,24 +545,33 @@ function FileDiff({
     return { start, end, keys: keysBetween(flat, start, end) };
   }, [composer, file.id, flat]);
 
-  const commentRangeKeys = useMemo(() => {
-    const keys = new Set<LineKey>();
+  const annotations = useMemo(() => {
+    const result: DiffLineAnnotation<DiffdeskAnnotation>[] = [];
     for (const comment of comments.filter((item) => item.fileId === file.id)) {
-      for (const key of keysBetween(flat, comment.startKey, comment.endKey))
-        keys.add(key);
+      const [, endKey] = normalizeRange(comment.startKey, comment.endKey);
+      const anchor = annotationAnchorForKey(file, endKey);
+      if (anchor === null) continue;
+      result.push({ ...anchor, metadata: { kind: "comment", comment } });
     }
-    return keys;
-  }, [comments, file.id, flat]);
+    if (composerKeys !== null) {
+      const anchor = annotationAnchorForKey(file, composerKeys.end);
+      if (anchor !== null) {
+        result.push({
+          ...anchor,
+          metadata: {
+            kind: "composer",
+            rangeSize: composerKeys.keys.size || 1,
+          },
+        });
+      }
+    }
+    return result;
+  }, [comments, composerKeys, file]);
 
-  const commentsByEndKey = useMemo(() => {
-    return comments
-      .filter((comment) => comment.fileId === file.id)
-      .reduce<Record<string, AppComment[]>>((accumulator, comment) => {
-        const [, end] = normalizeRange(comment.startKey, comment.endKey);
-        accumulator[end] = [...(accumulator[end] ?? []), comment];
-        return accumulator;
-      }, {});
-  }, [comments, file.id]);
+  const selectedLines = useMemo<SelectedLineRange | null>(() => {
+    if (composerKeys === null) return null;
+    return selectedLineRangeForKeys(file, composerKeys.start, composerKeys.end);
+  }, [composerKeys, file]);
 
   return (
     <section className="file">
@@ -634,107 +589,57 @@ function FileDiff({
         </span>
       </header>
 
-      <div className="diff">
-        {file.hunks.map((hunk, hunkIndex) => (
-          <div className="hunk" key={hunk.id}>
-            <div className="hunk-header">
-              <span className="type-mono">{hunk.header}</span>
-            </div>
-            {hunk.lines.map((line, lineIndex) => {
-              const key = lineKey(file.id, hunkIndex, lineIndex);
-              const commentThread = commentsByEndKey[key] ?? [];
-              const rangeSize =
-                composerKeys === null ? 1 : composerKeys.keys.size || 1;
+      <div className="pierre-diff">
+        <PatchDiff<DiffdeskAnnotation>
+          disableWorkerPool
+          lineAnnotations={annotations}
+          patch={patchForFile(file)}
+          renderAnnotation={(annotation) => {
+            if (annotation.metadata.kind === "composer") {
               return (
-                <div className="line-block" key={line.id}>
-                  <DiffLineView
-                    hasComment={commentRangeKeys.has(key)}
-                    isInRange={
-                      dragKeys.has(key) || composerKeys?.keys.has(key) === true
-                    }
-                    line={line}
-                    lineKeyValue={key}
-                    onGutterDown={onGutterDown}
-                    onGutterEnter={onGutterEnter}
+                <div className="thread thread--composer pierre-thread">
+                  <Composer
+                    body={composer?.body ?? ""}
+                    rangeSize={annotation.metadata.rangeSize}
+                    onBodyChange={onUpdateComposerBody}
+                    onCancel={onCancelComposer}
+                    onSubmit={onSubmitComposer}
                   />
-                  {commentThread.length > 0 ? (
-                    <div className="thread">
-                      {commentThread.map((comment) => (
-                        <CommentBubble
-                          comment={comment}
-                          key={comment.id}
-                          locked={locked}
-                          onDelete={() => onDeleteComment(comment.id)}
-                          onEdit={(body) => onEditComment(comment.id, body)}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                  {composerKeys !== null && key === composerKeys.end ? (
-                    <div className="thread thread--composer">
-                      <Composer
-                        body={composer?.body ?? ""}
-                        rangeSize={rangeSize}
-                        onBodyChange={onUpdateComposerBody}
-                        onCancel={onCancelComposer}
-                        onSubmit={onSubmitComposer}
-                      />
-                    </div>
-                  ) : null}
                 </div>
               );
-            })}
-          </div>
-        ))}
+            }
+            const { comment } = annotation.metadata;
+            return (
+              <div className="thread pierre-thread">
+                <CommentBubble
+                  comment={comment}
+                  locked={locked}
+                  onDelete={() => onDeleteComment(comment.id)}
+                  onEdit={(body) => onEditComment(comment.id, body)}
+                />
+              </div>
+            );
+          }}
+          selectedLines={selectedLines}
+          options={{
+            disableFileHeader: true,
+            diffStyle: "unified",
+            enableLineSelection: !locked,
+            hunkSeparators: "metadata",
+            lineHoverHighlight: "both",
+            onLineSelected: (range) => {
+              if (range === null || locked) return;
+              const keys = keysForSelectedLineRange(file, range);
+              if (keys === null) return;
+              onSelectRange(file, keys[0], keys[1]);
+            },
+            overflow: "scroll",
+            theme: "pierre-light",
+            themeType: "light",
+          }}
+        />
       </div>
     </section>
-  );
-}
-
-function DiffLineView({
-  hasComment,
-  isInRange,
-  line,
-  lineKeyValue,
-  onGutterDown,
-  onGutterEnter,
-}: {
-  hasComment: boolean;
-  isInRange: boolean;
-  line: DiffLine;
-  lineKeyValue: LineKey;
-  onGutterDown: (key: LineKey, shiftKey: boolean) => void;
-  onGutterEnter: (key: LineKey) => void;
-}) {
-  const marker =
-    line.kind === "addition" ? "+" : line.kind === "deletion" ? "−" : " ";
-  return (
-    <div
-      className={`dl dl--${line.kind}${isInRange ? " is-in-range" : ""}${hasComment ? " has-comment" : ""}`}
-      onMouseEnter={() => onGutterEnter(lineKeyValue)}
-    >
-      <button
-        className="dl__gutter dl__gutter--old"
-        onMouseDown={(event) =>
-          handleLineMouseDown(event, lineKeyValue, onGutterDown)
-        }
-        type="button"
-      >
-        <span className="dl__num">{line.oldLineNumber ?? ""}</span>
-        <span className="dl__add">+</span>
-      </button>
-      <button
-        className="dl__gutter dl__gutter--new"
-        onMouseDown={(event) =>
-          handleLineMouseDown(event, lineKeyValue, onGutterDown)
-        }
-        type="button"
-      >
-        <span className="dl__num">{line.newLineNumber ?? ""}</span>
-      </button>
-      <span className="dl__marker">{marker}</span>
-      <pre className="dl__code">{line.content || "\u00A0"}</pre>
-    </div>
   );
 }
 
@@ -975,6 +880,77 @@ function findLineKeyForReviewComment(
   return match?.key ?? null;
 }
 
+function patchForFile(file: DiffFile): string {
+  const oldPath = file.oldPath === null ? "/dev/null" : `a/${file.oldPath}`;
+  const newPath = file.newPath === null ? "/dev/null" : `b/${file.newPath}`;
+  return [
+    `diff --git ${oldPath} ${newPath}`,
+    `--- ${oldPath}`,
+    `+++ ${newPath}`,
+    ...file.hunks.flatMap((hunk) => [
+      hunk.header,
+      ...hunk.lines.map((line) => line.raw),
+    ]),
+  ].join("\n");
+}
+
+function annotationAnchorForKey(
+  file: DiffFile,
+  key: LineKey,
+): Pick<DiffLineAnnotation<DiffdeskAnnotation>, "lineNumber" | "side"> | null {
+  const line = lineForKey(file, key);
+  if (line === null) return null;
+  if (line.kind === "deletion" && line.oldLineNumber !== null) {
+    return { lineNumber: line.oldLineNumber, side: "deletions" };
+  }
+  if (line.newLineNumber !== null) {
+    return { lineNumber: line.newLineNumber, side: "additions" };
+  }
+  if (line.oldLineNumber !== null) {
+    return { lineNumber: line.oldLineNumber, side: "deletions" };
+  }
+  return null;
+}
+
+function selectedLineRangeForKeys(
+  file: DiffFile,
+  startKey: LineKey,
+  endKey: LineKey,
+): SelectedLineRange | null {
+  const start = annotationAnchorForKey(file, startKey);
+  const end = annotationAnchorForKey(file, endKey);
+  if (start === null || end === null) return null;
+  return {
+    start: start.lineNumber,
+    side: start.side,
+    end: end.lineNumber,
+    endSide: end.side,
+  };
+}
+
+function keysForSelectedLineRange(
+  file: DiffFile,
+  range: SelectedLineRange,
+): [LineKey, LineKey] | null {
+  const start = keyForSelectedLine(file, range.start, range.side);
+  const end = keyForSelectedLine(file, range.end, range.endSide ?? range.side);
+  if (start === null || end === null) return null;
+  return normalizeRange(start, end);
+}
+
+function keyForSelectedLine(
+  file: DiffFile,
+  lineNumber: number,
+  side: SelectedLineRange["side"] = "additions",
+): LineKey | null {
+  const flat = flattenFile(file);
+  const match = flat.find(({ line }) => {
+    if (side === "deletions") return line.oldLineNumber === lineNumber;
+    return line.newLineNumber === lineNumber;
+  });
+  return match?.key ?? null;
+}
+
 function flattenFile(file: DiffFile): FlatLine[] {
   return file.hunks.flatMap((hunk, hunkIndex) =>
     hunk.lines.map((line, lineIndex) => ({
@@ -1049,15 +1025,6 @@ function rangeContext(
     .filter((item) => keys.has(item.key))
     .map(({ line }) => line.content)
     .join("\n");
-}
-
-function handleLineMouseDown(
-  event: React.MouseEvent<HTMLButtonElement>,
-  key: LineKey,
-  onGutterDown: (key: LineKey, shiftKey: boolean) => void,
-) {
-  event.preventDefault();
-  onGutterDown(key, event.shiftKey);
 }
 
 function filePath(file: DiffFile): string {
