@@ -307,8 +307,8 @@ impl App {
         }
     }
 
-    /// Returns the (worktree_path, agent_kind) to launch after the overlay closes, if any.
-    fn confirm_new_worktree(&mut self) -> Option<(std::path::PathBuf, AgentKind)> {
+    /// Returns the worktree_path of the newly created worktree, if any.
+    fn confirm_new_worktree(&mut self) -> Option<std::path::PathBuf> {
         let (name, agent_kind, repo_root) = match &self.overlay {
             Overlay::NewWorktree {
                 name_buf,
@@ -334,7 +334,7 @@ impl App {
                 no_launch: true,
             };
             if let Ok(entry) = atelier_worktree::create(opts, registry, None) {
-                return Some((entry.worktree_path, agent_kind));
+                return Some(entry.worktree_path);
             }
         }
         None
@@ -447,7 +447,7 @@ async fn event_loop(
                             app.wt_name_backspace();
                         }
                         KeyCode::Enter => {
-                            if let Some((path, _agent)) = app.confirm_new_worktree() {
+                            if let Some(path) = app.confirm_new_worktree() {
                                 // Stay in vigil — set pending_select_path so the new
                                 // worktree is auto-selected once the probe delivers it.
                                 app.pending_select_path = Some(path);
