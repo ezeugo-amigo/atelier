@@ -210,7 +210,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 Cell::from(branch),
                 Cell::from(age),
                 Cell::from(msg),
-                Cell::from(Span::styled(agent_text, agent_style)),
+                Cell::from(Span::styled(format!(" {agent_text}"), agent_style)),
             ]).style(row_style));
         }
     }
@@ -235,7 +235,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(10),
     ];
 
-    let header = Row::new(["", "", "STATE", "CONTAINER", "PR", "BRANCH", "AGE", "LAST MESSAGE", "AGENT"])
+    let header = Row::new(["", "", "STATE", "CONTAINER", "", "BRANCH", "AGE", "LAST MESSAGE", " AGENT"])
         .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
 
     let table = Table::new(rows, widths)
