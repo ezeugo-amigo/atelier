@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use atelier_worktree::{CreateOptions, Registry, RemoveOptions, WorktreeEntry};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -584,36 +584,44 @@ async fn event_loop(
                             }
                         }
                         KeyCode::Enter => {
-                            let (msg, dir, sid) =
-                                if let Overlay::SendMessage { ref buf } = app.overlay {
-                                    let msg = buf.clone();
-                                    let dir = app.selected_dir().cloned();
-                                    let sid = app.selected_session_id().cloned();
-                                    (msg, dir, sid)
-                                } else {
-                                    unreachable!()
-                                };
-                            let container_id = app.selected().map(|c| c.id.clone());
-                            let agent = app.selected().map(|c| c.agent);
-                            app.overlay = Overlay::None;
-                            if let Some(dir) = dir {
-                                if let Some(agent) = agent {
-                                    if let Some(adapter) = adapters.get(&agent) {
-                                        if let Some(sid) = sid {
-                                            let _ = adapter.send_message(&dir, &sid, &msg).await;
-                                        } else {
-                                            // No session yet — start a fresh one with this message.
-                                            let _ = adapter.start_with_message(&dir, &msg).await;
+                            let is_newline = key.modifiers.contains(KeyModifiers::CONTROL)
+                                || key.modifiers.contains(KeyModifiers::ALT);
+                            if is_newline {
+                                if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                                    buf.push('\n');
+                                }
+                            } else {
+                                let (msg, dir, sid) =
+                                    if let Overlay::SendMessage { ref buf } = app.overlay {
+                                        let msg = buf.clone();
+                                        let dir = app.selected_dir().cloned();
+                                        let sid = app.selected_session_id().cloned();
+                                        (msg, dir, sid)
+                                    } else {
+                                        unreachable!()
+                                    };
+                                let container_id = app.selected().map(|c| c.id.clone());
+                                let agent = app.selected().map(|c| c.agent);
+                                app.overlay = Overlay::None;
+                                if let Some(dir) = dir {
+                                    if let Some(agent) = agent {
+                                        if let Some(adapter) = adapters.get(&agent) {
+                                            if let Some(sid) = sid {
+                                                let _ = adapter.send_message(&dir, &sid, &msg).await;
+                                            } else {
+                                                // No session yet — start a fresh one with this message.
+                                                let _ = adapter.start_with_message(&dir, &msg).await;
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            // Persist the sent message so refresh() can apply it every tick.
-                            // history.jsonl is not updated by --print mode, so the probe would
-                            // otherwise revert the display to the previous message.
-                            if !msg.is_empty() {
-                                if let Some(id) = container_id {
-                                    app.last_sent.insert(id, msg);
+                                // Persist the sent message so refresh() can apply it every tick.
+                                // history.jsonl is not updated by --print mode, so the probe would
+                                // otherwise revert the display to the previous message.
+                                if !msg.is_empty() {
+                                    if let Some(id) = container_id {
+                                        app.last_sent.insert(id, msg);
+                                    }
                                 }
                             }
                         }
