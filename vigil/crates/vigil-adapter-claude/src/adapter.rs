@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use chrono::{DateTime, Utc};
 use vigil_core::{AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError};
 
 use crate::{classifier, history, log_parser, process, session_parser};
@@ -53,6 +54,102 @@ async fn find_session_jsonl(projects_dir: &Path, session_id: &SessionId) -> Opti
     None
 }
 
+#[derive(Debug, Clone)]
+struct JsonlSession {
+    id: SessionId,
+    path: PathBuf,
+    last_ts: Option<DateTime<Utc>>,
+    last_user_message: Option<String>,
+}
+
+fn claude_project_dir_name(dir: &Path) -> String {
+    dir.display()
+        .to_string()
+        .chars()
+        .map(|c| if c == '/' || c == '.' { '-' } else { c })
+        .collect()
+}
+
+fn extract_user_text(content: &serde_json::Value) -> Option<String> {
+    if let Some(s) = content.as_str() {
+        return Some(s.to_string());
+    }
+
+    let text = content
+        .as_array()?
+        .iter()
+        .filter(|block| block["type"].as_str() == Some("text"))
+        .filter_map(|block| block["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    (!text.trim().is_empty()).then_some(text)
+}
+
+async fn parse_jsonl_session_for_dir(path: PathBuf, dir: &Path) -> Option<JsonlSession> {
+    let content = tokio::fs::read_to_string(&path).await.ok()?;
+    let mut id = None;
+    let mut matches_dir = false;
+    let mut last_ts: Option<DateTime<Utc>> = None;
+    let mut last_user_message = None;
+
+    for line in content.lines().filter(|l| !l.trim().is_empty()) {
+        let val: serde_json::Value = serde_json::from_str(line).ok()?;
+        if val["cwd"].as_str().map(Path::new) == Some(dir) {
+            matches_dir = true;
+        }
+        if id.is_none() {
+            id = val["sessionId"].as_str().map(|s| SessionId(s.to_string()));
+        }
+        if let Some(ts) = val["timestamp"]
+            .as_str()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&Utc))
+        {
+            last_ts = Some(last_ts.map_or(ts, |prev| prev.max(ts)));
+        }
+        if val["type"].as_str() == Some("user")
+            && val["message"]["role"].as_str() == Some("user")
+        {
+            if let Some(text) = extract_user_text(&val["message"]["content"]) {
+                last_user_message = Some(text);
+            }
+        }
+    }
+
+    Some(JsonlSession {
+        id: id?,
+        path,
+        last_ts,
+        last_user_message: matches_dir.then_some(last_user_message).flatten(),
+    })
+    .filter(|_| matches_dir)
+}
+
+/// `claude --print` does not reliably update `~/.claude/history.jsonl`, so
+/// discover the newest session for a worktree directly from project JSONL files.
+async fn find_jsonl_session_for_dir(projects_dir: &Path, dir: &Path) -> Option<JsonlSession> {
+    let project_dir = projects_dir.join(claude_project_dir_name(dir));
+    let mut best = None;
+
+    let mut entries = tokio::fs::read_dir(project_dir).await.ok()?;
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let Some(session) = parse_jsonl_session_for_dir(path, dir).await else { continue };
+        let replace = best
+            .as_ref()
+            .is_none_or(|current: &JsonlSession| session.last_ts > current.last_ts);
+        if replace {
+            best = Some(session);
+        }
+    }
+
+    best
+}
+
 #[async_trait::async_trait]
 impl AgentAdapter for ClaudeCodeAdapter {
     fn kind(&self) -> AgentKind { AgentKind::ClaudeCode }
@@ -66,11 +163,18 @@ impl AgentAdapter for ClaudeCodeAdapter {
             Default::default()
         };
 
-        let Some((session_id, hist)) = history::find_session_for_dir(&history_map, dir) else {
-            return ProbeResult::no_session();
+        let (session_id, last_user_message) = match history::find_session_for_dir(&history_map, dir) {
+            Some((session_id, hist)) => (
+                session_id.clone(),
+                hist.last_display().map(str::to_string),
+            ),
+            None => match find_jsonl_session_for_dir(&self.projects_dir, dir).await {
+                Some(session) => (session.id, session.last_user_message),
+                None => return ProbeResult::no_session(),
+            },
         };
 
-        let path = self.session_path(session_id);
+        let path = self.session_path(&session_id);
         if !path.exists() {
             return ProbeResult::no_session();
         }
@@ -92,9 +196,9 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
         ProbeResult {
             state,
-            session_id: Some(session_id.clone()),
+            session_id: Some(session_id),
             last_activity: log.last_line_ts,
-            last_user_message: hist.last_display().map(str::to_string),
+            last_user_message,
         }
     }
 
@@ -102,13 +206,17 @@ impl AgentAdapter for ClaudeCodeAdapter {
         let history_map = if self.history_path.exists() {
             history::load_history(&self.history_path).await.unwrap_or_default()
         } else {
-            return vec![];
+            Default::default()
         };
-        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
-            return vec![];
-        };
-        let Some(jsonl_path) = find_session_jsonl(&self.projects_dir, session_id).await else {
-            return vec![];
+        let jsonl_path = match history::find_session_for_dir(&history_map, dir) {
+            Some((session_id, _)) => match find_session_jsonl(&self.projects_dir, session_id).await {
+                Some(path) => path,
+                None => return vec![],
+            },
+            None => match find_jsonl_session_for_dir(&self.projects_dir, dir).await {
+                Some(session) => session.path,
+                None => return vec![],
+            },
         };
         let content = match tokio::fs::read_to_string(&jsonl_path).await {
             Ok(c) => c,
@@ -121,12 +229,16 @@ impl AgentAdapter for ClaudeCodeAdapter {
         let history_map = if self.history_path.exists() {
             history::load_history(&self.history_path).await.unwrap_or_default()
         } else {
-            return vec![];
+            Default::default()
         };
-        let Some((session_id, _)) = history::find_session_for_dir(&history_map, dir) else {
-            return vec![];
+        let session_id = match history::find_session_for_dir(&history_map, dir) {
+            Some((session_id, _)) => session_id.clone(),
+            None => match find_jsonl_session_for_dir(&self.projects_dir, dir).await {
+                Some(session) => session.id,
+                None => return vec![],
+            },
         };
-        let path = self.session_path(session_id);
+        let path = self.session_path(&session_id);
         let log = match log_parser::read_log_tail(&path, 100).await {
             Ok(l) => l,
             Err(_) => return vec![],
