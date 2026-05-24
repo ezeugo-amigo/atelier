@@ -8,12 +8,13 @@ ROOT := $(CURDIR)
 .PHONY: build install uninstall which
 
 build:
+	@corepack enable
 	@if [ ! -d node_modules ]; then \
 		echo "diffdesk: installing frontend dependencies"; \
 		$(PNPM) install; \
 	fi
-	$(PNPM) vite:build
-	cargo build -p diffdesk-cli -p diffdesk-app --release
+	cargo build -p diffdesk-cli --release
+	$(PNPM) tauri build --bundles app
 
 install: build
 	@mkdir -p "$(BINDIR)"
@@ -23,17 +24,23 @@ install: build
 		printf '%s\n' ''; \
 		printf '%s\n' 'ROOT="$(ROOT)"'; \
 		printf '%s\n' 'CLI="$$ROOT/target/release/diffdesk"'; \
-		printf '%s\n' 'APP="$$ROOT/target/release/diffdesk-app"'; \
+		printf '%s\n' 'APP_BUNDLE="$$ROOT/target/release/bundle/macos/Diffdesk.app"'; \
+		printf '%s\n' 'APP_BINARY="$$ROOT/target/release/diffdesk-app"'; \
 		printf '%s\n' ''; \
-		printf '%s\n' 'if [ ! -x "$$CLI" ] || [ ! -x "$$APP" ]; then'; \
-		printf '%s\n' '  echo "diffdesk: building release binaries in $$ROOT..." >&2'; \
+		printf '%s\n' 'if [ ! -x "$$CLI" ] || [ ! -d "$$APP_BUNDLE" ]; then'; \
+		printf '%s\n' '  echo "diffdesk: building release app in $$ROOT..." >&2'; \
+		printf '%s\n' '  corepack enable'; \
 		printf '%s\n' '  if [ ! -d "$$ROOT/node_modules" ]; then'; \
 		printf '%s\n' '    (cd "$$ROOT" && corepack pnpm install)'; \
 		printf '%s\n' '  fi'; \
-		printf '%s\n' '  (cd "$$ROOT" && corepack pnpm vite:build && cargo build -p diffdesk-cli -p diffdesk-app --release)'; \
+		printf '%s\n' '  (cd "$$ROOT" && cargo build -p diffdesk-cli --release && corepack pnpm tauri build --bundles app)'; \
 		printf '%s\n' 'fi'; \
 		printf '%s\n' ''; \
-		printf '%s\n' 'export DIFFDESK_APP="$$APP"'; \
+		printf '%s\n' 'if [ -d "$$APP_BUNDLE" ]; then'; \
+		printf '%s\n' '  export DIFFDESK_APP="/usr/bin/open -n $$APP_BUNDLE --args"'; \
+		printf '%s\n' 'else'; \
+		printf '%s\n' '  export DIFFDESK_APP="$$APP_BINARY"'; \
+		printf '%s\n' 'fi'; \
 		printf '%s\n' 'exec "$$CLI" "$$@"'; \
 	} > "$(BINDIR)/diffdesk"
 	@chmod +x "$(BINDIR)/diffdesk"
