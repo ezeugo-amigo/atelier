@@ -80,6 +80,12 @@ pub enum Overlay {
     },
     SendMessage {
         buf: String,
+        /// Container receiving the message. Captured when the composer opens so
+        /// it also works from LogView without relying on selection changes.
+        container_id: Option<String>,
+        /// Return to the log view after sending/canceling when the composer was
+        /// opened from LogView.
+        return_to_log: bool,
     },
     /// Ctrl+P style project picker: search home directory for git repos.
     ProjectPicker {
@@ -142,16 +148,14 @@ impl App {
             .and_then(|i| self.containers.get(i))
     }
 
-    pub fn selected_dir(&self) -> Option<&PathBuf> {
-        self.selected().map(|c| &c.worktree_path)
-    }
-
-    pub fn selected_session_id(&self) -> Option<&SessionId> {
-        self.selected().and_then(|c| c.session_id.as_ref())
-    }
-
     pub fn overlay_is_none(&self) -> bool {
         matches!(self.overlay, Overlay::None)
+    }
+
+    pub fn cached_log_data(&self, container_id: &str) -> Option<(&[LogEvent], &[String])> {
+        self.log_cache
+            .get(container_id)
+            .map(|(events, lines)| (events.as_slice(), lines.as_slice()))
     }
 
     /// Whether the selected container can be removed (it's registered in the registry).
@@ -399,8 +403,12 @@ async fn event_loop(
                         KeyCode::Up | KeyCode::Char('k') => app.prev(),
                         KeyCode::Char('a') => app.cycle_selected_agent(),
                         KeyCode::Char('i') => {
-                            if app.selected().is_some() {
-                                app.overlay = Overlay::SendMessage { buf: String::new() };
+                            if let Some(c) = app.selected() {
+                                app.overlay = Overlay::SendMessage {
+                                    buf: String::new(),
+                                    container_id: Some(c.id.clone()),
+                                    return_to_log: false,
+                                };
                             }
                         }
                         KeyCode::Char('l') => app.open_log_view(),
@@ -464,6 +472,19 @@ async fn event_loop(
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
                             app.overlay = Overlay::None;
+                        }
+                        KeyCode::Char('i') => {
+                            let container_id =
+                                if let Overlay::LogView { container_id, .. } = &app.overlay {
+                                    Some(container_id.clone())
+                                } else {
+                                    None
+                                };
+                            app.overlay = Overlay::SendMessage {
+                                buf: String::new(),
+                                container_id,
+                                return_to_log: true,
+                            };
                         }
                         KeyCode::Char('k') | KeyCode::Up => {
                             if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
@@ -576,10 +597,10 @@ async fn event_loop(
                 } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
                     match key.code {
                         KeyCode::Esc => {
-                            app.overlay = Overlay::None;
+                            close_send_message(&mut app);
                         }
                         KeyCode::Backspace => {
-                            if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                            if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
                                 buf.pop();
                             }
                         }
@@ -587,22 +608,36 @@ async fn event_loop(
                             let is_newline = key.modifiers.contains(KeyModifiers::CONTROL)
                                 || key.modifiers.contains(KeyModifiers::ALT);
                             if is_newline {
-                                if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                                if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
                                     buf.push('\n');
                                 }
                             } else {
-                                let (msg, dir, sid) =
-                                    if let Overlay::SendMessage { ref buf } = app.overlay {
-                                        let msg = buf.clone();
-                                        let dir = app.selected_dir().cloned();
-                                        let sid = app.selected_session_id().cloned();
-                                        (msg, dir, sid)
+                                let (msg, container_id, return_to_log) =
+                                    if let Overlay::SendMessage {
+                                        buf,
+                                        container_id,
+                                        return_to_log,
+                                    } = &app.overlay
+                                    {
+                                        (buf.clone(), container_id.clone(), *return_to_log)
                                     } else {
                                         unreachable!()
                                     };
-                                let container_id = app.selected().map(|c| c.id.clone());
-                                let agent = app.selected().map(|c| c.agent);
-                                app.overlay = Overlay::None;
+                                let target = container_id
+                                    .as_ref()
+                                    .and_then(|id| app.containers.iter().find(|c| &c.id == id))
+                                    .or_else(|| app.selected());
+                                let dir = target.map(|c| c.worktree_path.clone());
+                                let sid = target.and_then(|c| c.session_id.clone());
+                                let agent = target.map(|c| c.agent);
+                                app.overlay = if return_to_log {
+                                    container_id
+                                        .as_ref()
+                                        .map(|id| log_view_overlay_from_cache(&app, id))
+                                        .unwrap_or(Overlay::None)
+                                } else {
+                                    Overlay::None
+                                };
                                 if let Some(dir) = dir {
                                     if let Some(agent) = agent {
                                         if let Some(adapter) = adapters.get(&agent) {
@@ -626,7 +661,7 @@ async fn event_loop(
                             }
                         }
                         KeyCode::Char(c) => {
-                            if let Overlay::SendMessage { ref mut buf } = app.overlay {
+                            if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
                                 buf.push(c);
                             }
                         }
@@ -642,6 +677,38 @@ async fn event_loop(
     }
 
     Ok(())
+}
+
+fn close_send_message(app: &mut App) {
+    let (return_to_log, container_id) = if let Overlay::SendMessage {
+        container_id,
+        return_to_log,
+        ..
+    } = &app.overlay
+    {
+        (*return_to_log, container_id.clone())
+    } else {
+        (false, None)
+    };
+
+    app.overlay = if return_to_log {
+        container_id
+            .as_ref()
+            .map(|id| log_view_overlay_from_cache(app, id))
+            .unwrap_or(Overlay::None)
+    } else {
+        Overlay::None
+    };
+}
+
+fn log_view_overlay_from_cache(app: &App, container_id: &str) -> Overlay {
+    let (events, lines) = app.log_cache.get(container_id).cloned().unwrap_or_default();
+    Overlay::LogView {
+        container_id: container_id.to_string(),
+        events,
+        lines,
+        scroll: 0,
+    }
 }
 
 async fn refresh(app: &mut App, adapters: &AdapterMap) {
@@ -684,7 +751,9 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
 
     // If we're waiting to auto-select a freshly-created worktree, check if it
     // has now appeared in the container list (i.e. background probe completed).
-    let pending_id = app.pending_select_path.as_ref()
+    let pending_id = app
+        .pending_select_path
+        .as_ref()
         .and_then(|path| app.containers.iter().find(|c| &c.worktree_path == path))
         .map(|c| c.id.clone());
     if pending_id.is_some() {

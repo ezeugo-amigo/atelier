@@ -1,6 +1,6 @@
-use std::path::Path;
-use chrono::{DateTime, Utc};
 use crate::{AgentKind, LogEvent, SessionId, SessionState};
+use chrono::{DateTime, Utc};
+use std::path::Path;
 
 /// Result of probing an agent for a given container directory.
 pub struct ProbeResult {
@@ -37,11 +37,15 @@ pub trait AgentAdapter: Send + Sync {
 
     /// Return the most recent log lines for the session in `dir`, formatted for display.
     /// Each string is one line. Returns empty if the agent has no log to show.
-    async fn recent_log(&self, _dir: &Path) -> Vec<String> { vec![] }
+    async fn recent_log(&self, _dir: &Path) -> Vec<String> {
+        vec![]
+    }
 
     /// Return structured log events for the session in `dir`, grouped into turns.
     /// Adapters with JSONL session files override this for the timeline log-view design.
-    async fn recent_log_events(&self, _dir: &Path) -> Vec<LogEvent> { vec![] }
+    async fn recent_log_events(&self, _dir: &Path) -> Vec<LogEvent> {
+        vec![]
+    }
 
     /// Send a short message to the agent session running in `dir`.
     /// The default implementation returns `NotSupported`; adapters that support it override this.
@@ -51,17 +55,17 @@ pub trait AgentAdapter: Send + Sync {
         _session_id: &SessionId,
         _msg: &str,
     ) -> Result<(), crate::VigilError> {
-        Err(crate::VigilError::NotSupported("send_message not implemented".into()))
+        Err(crate::VigilError::NotSupported(
+            "send_message not implemented".into(),
+        ))
     }
 
     /// Start a brand-new agent session in `dir` with an initial message, running in the
     /// background (fire-and-forget). Used when there is no existing session to resume.
     /// The default implementation returns `NotSupported`; adapters that support it override this.
-    async fn start_with_message(
-        &self,
-        _dir: &Path,
-        _msg: &str,
-    ) -> Result<(), crate::VigilError> {
-        Err(crate::VigilError::NotSupported("start_with_message not implemented".into()))
+    async fn start_with_message(&self, _dir: &Path, _msg: &str) -> Result<(), crate::VigilError> {
+        Err(crate::VigilError::NotSupported(
+            "start_with_message not implemented".into(),
+        ))
     }
 }

@@ -75,8 +75,15 @@ impl Registry {
         self.save()
     }
 
-    pub fn update_agent(&mut self, id: &str, agent: vigil_core::AgentKind) -> Result<(), WorktreeError> {
-        let entry = self.file.worktrees.iter_mut()
+    pub fn update_agent(
+        &mut self,
+        id: &str,
+        agent: vigil_core::AgentKind,
+    ) -> Result<(), WorktreeError> {
+        let entry = self
+            .file
+            .worktrees
+            .iter_mut()
             .find(|e| e.id == id)
             .ok_or_else(|| WorktreeError::NotFound(id.to_string()))?;
         entry.agent = agent;

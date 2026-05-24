@@ -1,6 +1,6 @@
-use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub String);
@@ -35,10 +35,14 @@ pub enum SessionState {
     /// No agent session has ever run (or been found) in this container.
     NoSession,
     Running,
-    AwaitingInput { reason: Option<String> },
+    AwaitingInput {
+        reason: Option<String>,
+    },
     Idle,
     Done,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     Unknown,
 }
 

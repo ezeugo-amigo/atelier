@@ -104,7 +104,9 @@ fn mid_stream(log: &SessionLog) -> bool {
 pub fn classify(log: &SessionLog, fs: &FsSignals) -> SessionState {
     // 1. Strongest signal: awaiting patterns in recent log lines
     if let Some(reason) = detect_awaiting_signal(log) {
-        return SessionState::AwaitingInput { reason: Some(reason) };
+        return SessionState::AwaitingInput {
+            reason: Some(reason),
+        };
     }
 
     // 2. Prompt suggestion subagent active or finished = main response is complete → Done.
@@ -152,8 +154,8 @@ pub fn classify(log: &SessionLog, fs: &FsSignals) -> SessionState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::SystemTime;
     use chrono::Utc;
+    use std::time::SystemTime;
     use vigil_core::{LogLevel, LogLine};
 
     fn make_log(messages: &[&str]) -> SessionLog {

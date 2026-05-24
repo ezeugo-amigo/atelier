@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use vigil_core::{SessionId, VigilError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,9 +65,7 @@ pub fn find_session_for_dir<'a>(
         .max_by_key(|(_, h)| h.last_timestamp())
 }
 
-pub async fn load_history(
-    path: &Path,
-) -> Result<HashMap<SessionId, SessionHistory>, VigilError> {
+pub async fn load_history(path: &Path) -> Result<HashMap<SessionId, SessionHistory>, VigilError> {
     let content = tokio::fs::read_to_string(path).await?;
     let mut map: HashMap<SessionId, SessionHistory> = HashMap::new();
 
@@ -87,7 +85,10 @@ pub async fn load_history(
             Some(id) if !id.is_empty() => SessionId(id.clone()),
             _ => continue,
         };
-        map.entry(session_id).or_insert_with(|| SessionHistory { entries: Vec::new() })
+        map.entry(session_id)
+            .or_insert_with(|| SessionHistory {
+                entries: Vec::new(),
+            })
             .entries
             .push(entry);
     }

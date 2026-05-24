@@ -1,4 +1,4 @@
-use vigil_adapter_claude::log_parser::{parse_log_line, parse_lines};
+use vigil_adapter_claude::log_parser::{parse_lines, parse_log_line};
 use vigil_core::LogLevel;
 
 #[test]
@@ -30,15 +30,16 @@ fn skip_continuation_lines() {
 fn parse_permission_suggestions_line() {
     let line = "2026-05-17T18:16:11.220Z [DEBUG] Permission suggestions for Bash: [";
     let parsed = parse_log_line(line).unwrap();
-    assert!(parsed.message.starts_with("Permission suggestions for Bash:"));
+    assert!(parsed
+        .message
+        .starts_with("Permission suggestions for Bash:"));
 }
 
 #[test]
 fn parse_real_fixture_file() {
-    let fixture = std::fs::read_to_string(
-        "tests/fixtures/awaiting_permission/session-awaiting.txt",
-    )
-    .expect("fixture file should exist");
+    let fixture =
+        std::fs::read_to_string("tests/fixtures/awaiting_permission/session-awaiting.txt")
+            .expect("fixture file should exist");
 
     let lines = parse_lines(&fixture, 200);
     // Should have parsed some lines (skipping JSON continuation lines)
@@ -53,10 +54,9 @@ fn parse_real_fixture_file() {
 
 #[test]
 fn parse_awaiting_notify_fixture() {
-    let fixture = std::fs::read_to_string(
-        "tests/fixtures/awaiting_notify/session-awaiting-notify.txt",
-    )
-    .expect("fixture file should exist");
+    let fixture =
+        std::fs::read_to_string("tests/fixtures/awaiting_notify/session-awaiting-notify.txt")
+            .expect("fixture file should exist");
 
     let lines = parse_lines(&fixture, 200);
     assert!(!lines.is_empty());

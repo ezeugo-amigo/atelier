@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use vigil_core::{AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError};
+use vigil_core::{
+    AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError,
+};
 
 use crate::{classifier, history, log_parser, process, session_parser};
 
@@ -15,9 +17,8 @@ pub struct ClaudeCodeAdapter {
 
 impl ClaudeCodeAdapter {
     pub fn new() -> Result<Self, VigilError> {
-        let base = directories::BaseDirs::new().ok_or_else(|| {
-            VigilError::ProcessProbe("cannot determine home directory".into())
-        })?;
+        let base = directories::BaseDirs::new()
+            .ok_or_else(|| VigilError::ProcessProbe("cannot determine home directory".into()))?;
         let claude_dir = base.home_dir().join(".claude");
         Ok(Self {
             debug_dir: claude_dir.join("debug"),
@@ -27,10 +28,12 @@ impl ClaudeCodeAdapter {
     }
 
     pub fn with_paths(debug_dir: PathBuf, history_path: PathBuf) -> Self {
-        let projects_dir = debug_dir.parent()
-            .unwrap_or(&debug_dir)
-            .join("projects");
-        Self { debug_dir, projects_dir, history_path }
+        let projects_dir = debug_dir.parent().unwrap_or(&debug_dir).join("projects");
+        Self {
+            debug_dir,
+            projects_dir,
+            history_path,
+        }
     }
 
     fn session_path(&self, id: &SessionId) -> PathBuf {
@@ -108,9 +111,7 @@ async fn parse_jsonl_session_for_dir(path: PathBuf, dir: &Path) -> Option<JsonlS
         {
             last_ts = Some(last_ts.map_or(ts, |prev| prev.max(ts)));
         }
-        if val["type"].as_str() == Some("user")
-            && val["message"]["role"].as_str() == Some("user")
-        {
+        if val["type"].as_str() == Some("user") && val["message"]["role"].as_str() == Some("user") {
             if let Some(text) = extract_user_text(&val["message"]["content"]) {
                 last_user_message = Some(text);
             }
@@ -138,7 +139,9 @@ async fn find_jsonl_session_for_dir(projects_dir: &Path, dir: &Path) -> Option<J
         if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
             continue;
         }
-        let Some(session) = parse_jsonl_session_for_dir(path, dir).await else { continue };
+        let Some(session) = parse_jsonl_session_for_dir(path, dir).await else {
+            continue;
+        };
         let replace = best
             .as_ref()
             .is_none_or(|current: &JsonlSession| session.last_ts > current.last_ts);
@@ -152,22 +155,26 @@ async fn find_jsonl_session_for_dir(projects_dir: &Path, dir: &Path) -> Option<J
 
 #[async_trait::async_trait]
 impl AgentAdapter for ClaudeCodeAdapter {
-    fn kind(&self) -> AgentKind { AgentKind::ClaudeCode }
+    fn kind(&self) -> AgentKind {
+        AgentKind::ClaudeCode
+    }
 
     /// Probe the container at `dir`: find the most recent Claude session for that directory,
     /// read its debug log, and classify the state.
     async fn probe(&self, dir: &Path) -> ProbeResult {
         let history_map = if self.history_path.exists() {
-            history::load_history(&self.history_path).await.unwrap_or_default()
+            history::load_history(&self.history_path)
+                .await
+                .unwrap_or_default()
         } else {
             Default::default()
         };
 
-        let (session_id, last_user_message) = match history::find_session_for_dir(&history_map, dir) {
-            Some((session_id, hist)) => (
-                session_id.clone(),
-                hist.last_display().map(str::to_string),
-            ),
+        let (session_id, last_user_message) = match history::find_session_for_dir(&history_map, dir)
+        {
+            Some((session_id, hist)) => {
+                (session_id.clone(), hist.last_display().map(str::to_string))
+            }
             None => match find_jsonl_session_for_dir(&self.projects_dir, dir).await {
                 Some(session) => (session.id, session.last_user_message),
                 None => return ProbeResult::no_session(),
@@ -204,12 +211,15 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     async fn recent_log_events(&self, dir: &Path) -> Vec<LogEvent> {
         let history_map = if self.history_path.exists() {
-            history::load_history(&self.history_path).await.unwrap_or_default()
+            history::load_history(&self.history_path)
+                .await
+                .unwrap_or_default()
         } else {
             Default::default()
         };
         let jsonl_path = match history::find_session_for_dir(&history_map, dir) {
-            Some((session_id, _)) => match find_session_jsonl(&self.projects_dir, session_id).await {
+            Some((session_id, _)) => match find_session_jsonl(&self.projects_dir, session_id).await
+            {
                 Some(path) => path,
                 None => return vec![],
             },
@@ -227,7 +237,9 @@ impl AgentAdapter for ClaudeCodeAdapter {
 
     async fn recent_log(&self, dir: &Path) -> Vec<String> {
         let history_map = if self.history_path.exists() {
-            history::load_history(&self.history_path).await.unwrap_or_default()
+            history::load_history(&self.history_path)
+                .await
+                .unwrap_or_default()
         } else {
             Default::default()
         };
@@ -243,21 +255,24 @@ impl AgentAdapter for ClaudeCodeAdapter {
             Ok(l) => l,
             Err(_) => return vec![],
         };
-        log.tail.iter().map(|l| {
-            let ts = l.timestamp.format("%H:%M:%S").to_string();
-            let level = match l.level {
-                vigil_core::LogLevel::Debug => "DBG",
-                vigil_core::LogLevel::Info  => "INF",
-                vigil_core::LogLevel::Warn  => "WRN",
-                vigil_core::LogLevel::Error => "ERR",
-            };
-            let comp = l.component.as_deref().unwrap_or("");
-            if comp.is_empty() {
-                format!("{ts} {level}  {}", l.message)
-            } else {
-                format!("{ts} {level}  [{comp}] {}", l.message)
-            }
-        }).collect()
+        log.tail
+            .iter()
+            .map(|l| {
+                let ts = l.timestamp.format("%H:%M:%S").to_string();
+                let level = match l.level {
+                    vigil_core::LogLevel::Debug => "DBG",
+                    vigil_core::LogLevel::Info => "INF",
+                    vigil_core::LogLevel::Warn => "WRN",
+                    vigil_core::LogLevel::Error => "ERR",
+                };
+                let comp = l.component.as_deref().unwrap_or("");
+                if comp.is_empty() {
+                    format!("{ts} {level}  {}", l.message)
+                } else {
+                    format!("{ts} {level}  [{comp}] {}", l.message)
+                }
+            })
+            .collect()
     }
 
     fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
@@ -278,15 +293,12 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
-    async fn start_with_message(
-        &self,
-        dir: &Path,
-        msg: &str,
-    ) -> Result<(), VigilError> {
+    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
         tokio::process::Command::new("claude")
             .arg("--dangerously-skip-permissions")
             .arg("--debug")
-            .arg("--print").arg(msg)
+            .arg("--print")
+            .arg(msg)
             .env_remove("CLAUDECODE")
             .current_dir(dir)
             .stdin(std::process::Stdio::null())
@@ -310,8 +322,10 @@ impl AgentAdapter for ClaudeCodeAdapter {
         tokio::process::Command::new("claude")
             .arg("--dangerously-skip-permissions")
             .arg("--debug")
-            .arg("--resume").arg(&session_id.0)
-            .arg("--print").arg(msg)
+            .arg("--resume")
+            .arg(&session_id.0)
+            .arg("--print")
+            .arg(msg)
             .env_remove("CLAUDECODE")
             .current_dir(dir)
             .stdin(std::process::Stdio::null())
