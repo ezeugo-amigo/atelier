@@ -472,7 +472,7 @@ fn draw_new_worktree_overlay(
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
-            Span::styled("Tab", Style::default().fg(DIM)),
+            Span::styled("Tab/S-Tab", Style::default().fg(DIM)),
             Span::raw(" cycle agent  "),
             Span::styled("Enter", Style::default().fg(DIM)),
             Span::raw(" create  "),
