@@ -293,6 +293,15 @@ impl App {
         }
     }
 
+    fn cycle_agent_back(&mut self) {
+        if let Overlay::NewWorktree {
+            ref mut agent_idx, ..
+        } = self.overlay
+        {
+            *agent_idx = agent_idx.checked_sub(1).unwrap_or(AGENTS.len() - 1);
+        }
+    }
+
     fn wt_name_push(&mut self, c: char) {
         if let Overlay::NewWorktree {
             ref mut name_buf, ..
@@ -450,6 +459,9 @@ async fn event_loop(
                         }
                         KeyCode::Tab => {
                             app.cycle_agent();
+                        }
+                        KeyCode::BackTab => {
+                            app.cycle_agent_back();
                         }
                         KeyCode::Backspace => {
                             app.wt_name_backspace();
