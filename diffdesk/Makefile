@@ -25,6 +25,7 @@ install: build
 		printf '%s\n' 'ROOT="$(ROOT)"'; \
 		printf '%s\n' 'CLI="$$ROOT/target/release/diffdesk"'; \
 		printf '%s\n' 'APP_BUNDLE="$$ROOT/target/release/bundle/macos/Diffdesk.app"'; \
+		printf '%s\n' 'APP_EXECUTABLE="$$ROOT/target/release/bundle/macos/Diffdesk.app/Contents/MacOS/diffdesk-app"'; \
 		printf '%s\n' 'APP_BINARY="$$ROOT/target/release/diffdesk-app"'; \
 		printf '%s\n' ''; \
 		printf '%s\n' 'if [ ! -x "$$CLI" ] || [ ! -d "$$APP_BUNDLE" ]; then'; \
@@ -36,8 +37,8 @@ install: build
 		printf '%s\n' '  (cd "$$ROOT" && cargo build -p diffdesk-cli --release && corepack pnpm tauri build --bundles app)'; \
 		printf '%s\n' 'fi'; \
 		printf '%s\n' ''; \
-		printf '%s\n' 'if [ -d "$$APP_BUNDLE" ]; then'; \
-		printf '%s\n' '  export DIFFDESK_APP="/usr/bin/open -n $$APP_BUNDLE --args"'; \
+		printf '%s\n' 'if [ -x "$$APP_EXECUTABLE" ]; then'; \
+		printf '%s\n' '  export DIFFDESK_APP="$$APP_EXECUTABLE"'; \
 		printf '%s\n' 'else'; \
 		printf '%s\n' '  export DIFFDESK_APP="$$APP_BINARY"'; \
 		printf '%s\n' 'fi'; \
