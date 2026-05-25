@@ -75,8 +75,7 @@ pub fn parse_session_jsonl(content: &str) -> Vec<LogEvent> {
                             }
                         }
                         "tool_use" => {
-                            let name =
-                                block["name"].as_str().unwrap_or("unknown").to_string();
+                            let name = block["name"].as_str().unwrap_or("unknown").to_string();
                             *pending_tools.entry(name).or_insert(0) += 1;
                         }
                         // Skip "thinking" and other block types.

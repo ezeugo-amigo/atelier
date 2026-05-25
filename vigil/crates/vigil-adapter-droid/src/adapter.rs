@@ -2,7 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
-use vigil_core::{AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError};
+use vigil_core::{
+    AgentAdapter, AgentKind, FsSignals, LogEvent, ProbeResult, SessionId, VigilError,
+};
 
 use crate::{classifier, session_parser};
 
@@ -13,9 +15,8 @@ pub struct DroidAdapter {
 
 impl DroidAdapter {
     pub fn new() -> Result<Self, VigilError> {
-        let base = directories::BaseDirs::new().ok_or_else(|| {
-            VigilError::ProcessProbe("cannot determine home directory".into())
-        })?;
+        let base = directories::BaseDirs::new()
+            .ok_or_else(|| VigilError::ProcessProbe("cannot determine home directory".into()))?;
         let factory_dir = base.home_dir().join(".factory");
         Ok(Self {
             sessions_dir: factory_dir.join("sessions"),
