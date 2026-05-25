@@ -33,6 +33,8 @@ pub enum WorktreeError {
     NotARepo,
     #[error("name collision: could not generate unique name after {0} attempts")]
     NameCollision(usize),
+    #[error("post-create hook failed: {0}")]
+    HookFailed(String),
 }
 
 pub struct Registry {
