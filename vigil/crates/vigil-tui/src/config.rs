@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -6,12 +7,17 @@ use serde::{Deserialize, Serialize};
 struct ConfigFile {
     /// Directories to search for git repositories (supports `~` expansion).
     search_paths: Vec<String>,
+    /// Shell commands to run after creating a worktree, keyed by repo name or full repo path.
+    /// Each command is run via `sh -c` with `$WORKTREE` set to the new worktree's absolute path.
+    #[serde(default)]
+    worktree_hooks: HashMap<String, Vec<String>>,
 }
 
 impl Default for ConfigFile {
     fn default() -> Self {
         Self {
             search_paths: vec!["~/code".into(), "~/projects".into()],
+            worktree_hooks: HashMap::new(),
         }
     }
 }

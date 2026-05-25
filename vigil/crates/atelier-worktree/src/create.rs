@@ -1,9 +1,68 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use vigil_core::AgentKind;
 
 use crate::names::generate_name;
 use crate::registry::{Registry, WorktreeEntry, WorktreeError};
+
+#[derive(serde::Deserialize, Default)]
+struct HooksConfig {
+    #[serde(default)]
+    worktree_hooks: HashMap<String, Vec<String>>,
+}
+
+fn load_hooks_for_repo(repo_root: &Path) -> Vec<String> {
+    let config_path = directories::BaseDirs::new()
+        .map(|b| b.home_dir().join(".vigil").join("config.json"))
+        .unwrap_or_else(|| PathBuf::from("~/.vigil/config.json"));
+
+    let text = match std::fs::read_to_string(&config_path) {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+    let cfg: HooksConfig = match serde_json::from_str(&text) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+
+    // Match by full path first, then by repo directory name.
+    let full_key = repo_root.to_string_lossy().to_string();
+    let name_key = repo_root
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    cfg.worktree_hooks
+        .get(&full_key)
+        .or_else(|| cfg.worktree_hooks.get(&name_key))
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn run_post_create_hooks(worktree_path: &Path, hooks: &[String]) -> Result<(), WorktreeError> {
+    for cmd in hooks {
+        let output = Command::new("sh")
+            .args(["-c", cmd])
+            .env("WORKTREE", worktree_path)
+            .output()
+            .map_err(|e| WorktreeError::HookFailed(format!("{cmd:?}: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = match (stdout.is_empty(), stderr.is_empty()) {
+                (true, true) => String::new(),
+                (false, true) => format!("\n{stdout}"),
+                (true, false) => format!("\n{stderr}"),
+                (false, false) => format!("\n{stderr}\n{stdout}"),
+            };
+            return Err(WorktreeError::HookFailed(format!("`{cmd}`{detail}")));
+        }
+    }
+    Ok(())
+}
 
 pub struct CreateOptions {
     /// Worktree name (and branch name). Generated if None.
@@ -69,6 +128,9 @@ pub fn create(
     };
 
     registry.append(entry.clone())?;
+
+    let hooks = load_hooks_for_repo(&entry.repo_root);
+    run_post_create_hooks(&worktree_path, &hooks)?;
 
     if !opts.no_launch {
         if let Some(mut cmd) = launch_cmd {
