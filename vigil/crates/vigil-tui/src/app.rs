@@ -27,11 +27,9 @@ struct RepoScanCache {
     repos: Vec<PathBuf>,
 }
 
-const AGENTS: [AgentKind; 4] = [
+pub const AGENTS: [AgentKind; 2] = [
     AgentKind::ClaudeCode,
-    AgentKind::Codex,
     AgentKind::Pi,
-    AgentKind::OpenCode,
 ];
 
 fn vigil_worktrees_prefix() -> String {
@@ -181,12 +179,8 @@ impl App {
         let Some(c) = self.selected() else { return };
         let id = c.id.clone();
         let current = c.agent;
-        let next = match current {
-            AgentKind::ClaudeCode => AgentKind::Codex,
-            AgentKind::Codex => AgentKind::Pi,
-            AgentKind::Pi => AgentKind::OpenCode,
-            AgentKind::OpenCode => AgentKind::ClaudeCode,
-        };
+        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
+        let next = AGENTS[(idx + 1) % AGENTS.len()];
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }
