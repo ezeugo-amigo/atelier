@@ -8,7 +8,7 @@ use ratatui::{
 };
 use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
 
-use crate::app::{App, Overlay, AGENTS};
+use crate::app::{input_presentation, App, Overlay, AGENTS};
 
 const RED: Color = Color::Rgb(217, 119, 87);
 const GOLD: Color = Color::Rgb(224, 184, 112);
@@ -48,22 +48,23 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     match &app.overlay {
         Overlay::None => {}
         Overlay::SendMessage {
-            buf,
+            input,
             container_id,
             return_to_log,
         } => {
             let note = send_target_note(app, container_id.as_deref());
+            let presentation = input_presentation(input);
             if *return_to_log {
                 draw_log_response_overlay(
                     f,
                     area,
                     app,
                     container_id.as_deref(),
-                    buf,
+                    &presentation,
                     note.as_deref(),
                 );
             } else {
-                draw_send_message_overlay(f, area, buf, note.as_deref());
+                draw_send_message_overlay(f, area, &presentation, note.as_deref());
             }
         }
         Overlay::NewWorktree {
@@ -1012,7 +1013,6 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
         height: height.min(r.height),
     }
 }
-
 
 fn pr_dot(status: Option<&PrStatus>) -> (&'static str, Style) {
     match status {

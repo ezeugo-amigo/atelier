@@ -7,7 +7,10 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use atelier_worktree::{CreateOptions, Registry, RemoveOptions, WorktreeEntry};
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    event::{
+        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind,
+        KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -27,11 +30,7 @@ struct RepoScanCache {
     repos: Vec<PathBuf>,
 }
 
-pub const AGENTS: [AgentKind; 3] = [
-    AgentKind::ClaudeCode,
-    AgentKind::Pi,
-    AgentKind::Droid,
-];
+pub const AGENTS: [AgentKind; 3] = [AgentKind::ClaudeCode, AgentKind::Pi, AgentKind::Droid];
 
 fn vigil_worktrees_prefix() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -53,6 +52,11 @@ fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
             .unwrap_or("?")
             .to_string()
     }
+}
+
+pub enum MessageInputChunk {
+    Text(String),
+    Paste(String),
 }
 
 pub enum Overlay {
@@ -78,7 +82,7 @@ pub enum Overlay {
         scroll: usize,
     },
     SendMessage {
-        buf: String,
+        input: Vec<MessageInputChunk>,
         /// Container receiving the message. Captured when the composer opens so
         /// it also works from LogView without relying on selection changes.
         container_id: Option<String>,
@@ -371,14 +375,18 @@ struct RefreshResult {
 pub async fn run(adapters: AdapterMap) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let result = event_loop(&mut terminal, adapters).await;
 
     let _ = disable_raw_mode();
-    let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
+    let _ = execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    );
     let _ = terminal.show_cursor();
 
     result
@@ -395,286 +403,308 @@ async fn event_loop(
         terminal.draw(|f| crate::render::draw(f, &mut app))?;
 
         if event::poll(POLL)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
+            match event::read()? {
+                Event::Paste(paste) => {
+                    if let Overlay::SendMessage { ref mut input, .. } = app.overlay {
+                        input_push_paste(input, paste);
+                    }
                 }
+                Event::Key(key) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
 
-                if app.overlay_is_none() {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => break,
-                        KeyCode::Down | KeyCode::Char('j') => app.next(),
-                        KeyCode::Up | KeyCode::Char('k') => app.prev(),
-                        KeyCode::Char('a') => app.cycle_selected_agent(),
-                        KeyCode::Char('i') => {
-                            if let Some(c) = app.selected() {
+                    if app.overlay_is_none() {
+                        match key.code {
+                            KeyCode::Char('q') | KeyCode::Esc => break,
+                            KeyCode::Down | KeyCode::Char('j') => app.next(),
+                            KeyCode::Up | KeyCode::Char('k') => app.prev(),
+                            KeyCode::Char('a') => app.cycle_selected_agent(),
+                            KeyCode::Char('i') => {
+                                if let Some(c) = app.selected() {
+                                    app.overlay = Overlay::SendMessage {
+                                        input: Vec::new(),
+                                        container_id: Some(c.id.clone()),
+                                        return_to_log: false,
+                                    };
+                                }
+                            }
+                            KeyCode::Char('l') => app.open_log_view(),
+                            KeyCode::Char('d') => app.open_dismiss_confirm(),
+                            KeyCode::Char('u') => app.undo_dismiss(),
+                            KeyCode::Char('W') => app.open_new_worktree(),
+                            KeyCode::Char('A') => {
+                                if app.registry.is_some() {
+                                    let (tx, rx) = tokio::sync::oneshot::channel();
+                                    app.scan_rx = Some(rx);
+                                    app.open_project_picker();
+                                    tokio::spawn(async move {
+                                        tx.send(scan_git_repos().await).ok();
+                                    });
+                                }
+                            }
+                            KeyCode::Char('R') => app.open_remove_confirm(),
+                            KeyCode::Enter => {
+                                if let Some(c) = app.selected() {
+                                    let session_id = c.session_id.clone();
+                                    let path = c.worktree_path.clone();
+                                    let agent = c.agent;
+                                    attach_or_launch(
+                                        terminal,
+                                        &adapters,
+                                        session_id.as_ref(),
+                                        &path,
+                                        agent,
+                                    )?;
+                                    terminal.clear()?;
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if matches!(app.overlay, Overlay::NewWorktree { .. }) {
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Tab => {
+                                app.cycle_agent();
+                            }
+                            KeyCode::BackTab => {
+                                app.cycle_agent_back();
+                            }
+                            KeyCode::Backspace => {
+                                app.wt_name_backspace();
+                            }
+                            KeyCode::Enter => {
+                                if let Some(path) = app.confirm_new_worktree() {
+                                    // Stay in vigil — set pending_select_path so the new
+                                    // worktree is auto-selected once the probe delivers it.
+                                    app.pending_select_path = Some(path);
+                                    // Force registry reload so the fast-path picks up the entry.
+                                    app.registry = Registry::load().ok();
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                app.wt_name_push(c);
+                            }
+                            _ => {}
+                        }
+                    } else if matches!(app.overlay, Overlay::LogView { .. }) {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Char('i') => {
+                                let container_id =
+                                    if let Overlay::LogView { container_id, .. } = &app.overlay {
+                                        Some(container_id.clone())
+                                    } else {
+                                        None
+                                    };
                                 app.overlay = Overlay::SendMessage {
-                                    buf: String::new(),
-                                    container_id: Some(c.id.clone()),
-                                    return_to_log: false,
+                                    input: Vec::new(),
+                                    container_id,
+                                    return_to_log: true,
                                 };
                             }
-                        }
-                        KeyCode::Char('l') => app.open_log_view(),
-                        KeyCode::Char('d') => app.open_dismiss_confirm(),
-                        KeyCode::Char('u') => app.undo_dismiss(),
-                        KeyCode::Char('W') => app.open_new_worktree(),
-                        KeyCode::Char('A') => {
-                            if app.registry.is_some() {
-                                let (tx, rx) = tokio::sync::oneshot::channel();
-                                app.scan_rx = Some(rx);
-                                app.open_project_picker();
-                                tokio::spawn(async move {
-                                    tx.send(scan_git_repos().await).ok();
-                                });
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                    *scroll = scroll.saturating_add(3);
+                                }
                             }
-                        }
-                        KeyCode::Char('R') => app.open_remove_confirm(),
-                        KeyCode::Enter => {
-                            if let Some(c) = app.selected() {
-                                let session_id = c.session_id.clone();
-                                let path = c.worktree_path.clone();
-                                let agent = c.agent;
-                                attach_or_launch(
-                                    terminal,
-                                    &adapters,
-                                    session_id.as_ref(),
-                                    &path,
-                                    agent,
-                                )?;
-                                terminal.clear()?;
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
+                                    *scroll = scroll.saturating_sub(3);
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::NewWorktree { .. }) {
-                    match key.code {
-                        KeyCode::Esc => {
-                            app.overlay = Overlay::None;
-                        }
-                        KeyCode::Tab => {
-                            app.cycle_agent();
-                        }
-                        KeyCode::BackTab => {
-                            app.cycle_agent_back();
-                        }
-                        KeyCode::Backspace => {
-                            app.wt_name_backspace();
-                        }
-                        KeyCode::Enter => {
-                            if let Some(path) = app.confirm_new_worktree() {
-                                // Stay in vigil — set pending_select_path so the new
-                                // worktree is auto-selected once the probe delivers it.
-                                app.pending_select_path = Some(path);
-                                // Force registry reload so the fast-path picks up the entry.
-                                app.registry = Registry::load().ok();
+                    } else if matches!(app.overlay, Overlay::DismissConfirm { .. }) {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                app.overlay = Overlay::None;
                             }
+                            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                app.confirm_dismiss();
+                            }
+                            _ => {}
                         }
-                        KeyCode::Char(c) => {
-                            app.wt_name_push(c);
+                    } else if matches!(app.overlay, Overlay::RemoveConfirm { .. }) {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                app.confirm_remove();
+                            }
+                            _ => {}
                         }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::LogView { .. }) {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
-                            app.overlay = Overlay::None;
-                        }
-                        KeyCode::Char('i') => {
-                            let container_id =
-                                if let Overlay::LogView { container_id, .. } = &app.overlay {
-                                    Some(container_id.clone())
+                    } else if matches!(app.overlay, Overlay::ProjectPicker { .. }) {
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.overlay = Overlay::None;
+                                app.scan_rx = None;
+                            }
+                            KeyCode::Backspace => {
+                                if let Overlay::ProjectPicker {
+                                    ref mut query,
+                                    ref mut selected_idx,
+                                    ..
+                                } = app.overlay
+                                {
+                                    query.pop();
+                                    *selected_idx = 0;
+                                }
+                            }
+                            KeyCode::Down | KeyCode::Tab => {
+                                let count = picker_filtered_count(&app.overlay);
+                                if let Overlay::ProjectPicker {
+                                    ref mut selected_idx,
+                                    ..
+                                } = app.overlay
+                                {
+                                    *selected_idx =
+                                        (*selected_idx + 1).min(count.saturating_sub(1));
+                                }
+                            }
+                            KeyCode::Up => {
+                                if let Overlay::ProjectPicker {
+                                    ref mut selected_idx,
+                                    ..
+                                } = app.overlay
+                                {
+                                    *selected_idx = selected_idx.saturating_sub(1);
+                                }
+                            }
+                            KeyCode::Enter => {
+                                // Extract selected repo, then transition to NewWorktree
+                                let selected = if let Overlay::ProjectPicker {
+                                    ref all_repos,
+                                    ref query,
+                                    selected_idx,
+                                    ..
+                                } = app.overlay
+                                {
+                                    let q = query.to_lowercase();
+                                    let filtered: Vec<&PathBuf> = all_repos
+                                        .iter()
+                                        .filter(|p| {
+                                            p.display().to_string().to_lowercase().contains(&q)
+                                        })
+                                        .collect();
+                                    filtered.get(selected_idx).map(|p| (*p).clone())
                                 } else {
                                     None
                                 };
-                            app.overlay = Overlay::SendMessage {
-                                buf: String::new(),
-                                container_id,
-                                return_to_log: true,
-                            };
-                        }
-                        KeyCode::Char('k') | KeyCode::Up => {
-                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
-                                *scroll = scroll.saturating_add(3);
-                            }
-                        }
-                        KeyCode::Char('j') | KeyCode::Down => {
-                            if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
-                                *scroll = scroll.saturating_sub(3);
-                            }
-                        }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::DismissConfirm { .. }) {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                            app.overlay = Overlay::None;
-                        }
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            app.confirm_dismiss();
-                        }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::RemoveConfirm { .. }) {
-                    match key.code {
-                        KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
-                            app.overlay = Overlay::None;
-                        }
-                        KeyCode::Char('y') | KeyCode::Char('Y') => {
-                            app.confirm_remove();
-                        }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::ProjectPicker { .. }) {
-                    match key.code {
-                        KeyCode::Esc => {
-                            app.overlay = Overlay::None;
-                            app.scan_rx = None;
-                        }
-                        KeyCode::Backspace => {
-                            if let Overlay::ProjectPicker {
-                                ref mut query,
-                                ref mut selected_idx,
-                                ..
-                            } = app.overlay
-                            {
-                                query.pop();
-                                *selected_idx = 0;
-                            }
-                        }
-                        KeyCode::Down | KeyCode::Tab => {
-                            let count = picker_filtered_count(&app.overlay);
-                            if let Overlay::ProjectPicker {
-                                ref mut selected_idx,
-                                ..
-                            } = app.overlay
-                            {
-                                *selected_idx = (*selected_idx + 1).min(count.saturating_sub(1));
-                            }
-                        }
-                        KeyCode::Up => {
-                            if let Overlay::ProjectPicker {
-                                ref mut selected_idx,
-                                ..
-                            } = app.overlay
-                            {
-                                *selected_idx = selected_idx.saturating_sub(1);
-                            }
-                        }
-                        KeyCode::Enter => {
-                            // Extract selected repo, then transition to NewWorktree
-                            let selected = if let Overlay::ProjectPicker {
-                                ref all_repos,
-                                ref query,
-                                selected_idx,
-                                ..
-                            } = app.overlay
-                            {
-                                let q = query.to_lowercase();
-                                let filtered: Vec<&PathBuf> = all_repos
-                                    .iter()
-                                    .filter(|p| p.display().to_string().to_lowercase().contains(&q))
-                                    .collect();
-                                filtered.get(selected_idx).map(|p| (*p).clone())
-                            } else {
-                                None
-                            };
-                            if let Some(repo_root) = selected {
-                                app.scan_rx = None;
-                                app.overlay = Overlay::NewWorktree {
-                                    name_buf: String::new(),
-                                    agent_idx: 0,
-                                    repo_root: Some(repo_root),
-                                };
-                            }
-                        }
-                        KeyCode::Char(c) => {
-                            if let Overlay::ProjectPicker {
-                                ref mut query,
-                                ref mut selected_idx,
-                                ..
-                            } = app.overlay
-                            {
-                                query.push(c);
-                                *selected_idx = 0;
-                            }
-                        }
-                        _ => {}
-                    }
-                } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
-                    match key.code {
-                        KeyCode::Esc => {
-                            close_send_message(&mut app);
-                        }
-                        KeyCode::Backspace => {
-                            if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
-                                buf.pop();
-                            }
-                        }
-                        KeyCode::Enter => {
-                            let is_newline = key.modifiers.contains(KeyModifiers::CONTROL)
-                                || key.modifiers.contains(KeyModifiers::ALT);
-                            if is_newline {
-                                if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
-                                    buf.push('\n');
-                                }
-                            } else {
-                                let (msg, container_id, return_to_log) =
-                                    if let Overlay::SendMessage {
-                                        buf,
-                                        container_id,
-                                        return_to_log,
-                                    } = &app.overlay
-                                    {
-                                        (buf.clone(), container_id.clone(), *return_to_log)
-                                    } else {
-                                        unreachable!()
+                                if let Some(repo_root) = selected {
+                                    app.scan_rx = None;
+                                    app.overlay = Overlay::NewWorktree {
+                                        name_buf: String::new(),
+                                        agent_idx: 0,
+                                        repo_root: Some(repo_root),
                                     };
-                                let target = container_id
-                                    .as_ref()
-                                    .and_then(|id| app.containers.iter().find(|c| &c.id == id))
-                                    .or_else(|| app.selected());
-                                let dir = target.map(|c| c.worktree_path.clone());
-                                let sid = target.and_then(|c| c.session_id.clone());
-                                let agent = target.map(|c| c.agent);
-                                app.overlay = if return_to_log {
-                                    container_id
-                                        .as_ref()
-                                        .map(|id| log_view_overlay_from_cache(&app, id))
-                                        .unwrap_or(Overlay::None)
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                if let Overlay::ProjectPicker {
+                                    ref mut query,
+                                    ref mut selected_idx,
+                                    ..
+                                } = app.overlay
+                                {
+                                    query.push(c);
+                                    *selected_idx = 0;
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if matches!(app.overlay, Overlay::SendMessage { .. }) {
+                        match key.code {
+                            KeyCode::Esc => {
+                                close_send_message(&mut app);
+                            }
+                            KeyCode::Backspace => {
+                                if let Overlay::SendMessage { ref mut input, .. } = app.overlay {
+                                    input_backspace(input);
+                                }
+                            }
+                            KeyCode::Enter => {
+                                let is_newline = key.modifiers.contains(KeyModifiers::CONTROL)
+                                    || key.modifiers.contains(KeyModifiers::ALT);
+                                if is_newline {
+                                    if let Overlay::SendMessage { ref mut input, .. } = app.overlay
+                                    {
+                                        input_push_char(input, '\n');
+                                    }
                                 } else {
-                                    Overlay::None
-                                };
-                                if let Some(dir) = dir {
-                                    if let Some(agent) = agent {
-                                        if let Some(adapter) = adapters.get(&agent) {
-                                            if let Some(sid) = sid {
-                                                adapter.send_message(&dir, &sid, &msg).await.ok();
-                                            } else {
-                                                // No session yet — start a fresh one with this message.
-                                                adapter.start_with_message(&dir, &msg).await.ok();
+                                    let (msg, container_id, return_to_log) =
+                                        if let Overlay::SendMessage {
+                                            input,
+                                            container_id,
+                                            return_to_log,
+                                        } = &app.overlay
+                                        {
+                                            (
+                                                input_text(input),
+                                                container_id.clone(),
+                                                *return_to_log,
+                                            )
+                                        } else {
+                                            unreachable!()
+                                        };
+                                    let target = container_id
+                                        .as_ref()
+                                        .and_then(|id| app.containers.iter().find(|c| &c.id == id))
+                                        .or_else(|| app.selected());
+                                    let dir = target.map(|c| c.worktree_path.clone());
+                                    let sid = target.and_then(|c| c.session_id.clone());
+                                    let agent = target.map(|c| c.agent);
+                                    app.overlay = if return_to_log {
+                                        container_id
+                                            .as_ref()
+                                            .map(|id| log_view_overlay_from_cache(&app, id))
+                                            .unwrap_or(Overlay::None)
+                                    } else {
+                                        Overlay::None
+                                    };
+                                    if let Some(dir) = dir {
+                                        if let Some(agent) = agent {
+                                            if let Some(adapter) = adapters.get(&agent) {
+                                                if let Some(sid) = sid {
+                                                    adapter
+                                                        .send_message(&dir, &sid, &msg)
+                                                        .await
+                                                        .ok();
+                                                } else {
+                                                    // No session yet — start a fresh one with this message.
+                                                    adapter
+                                                        .start_with_message(&dir, &msg)
+                                                        .await
+                                                        .ok();
+                                                }
                                             }
                                         }
                                     }
-                                }
-                                // Persist the sent message so refresh() can apply it every tick.
-                                // history.jsonl is not updated by --print mode, so the probe would
-                                // otherwise revert the display to the previous message.
-                                if !msg.is_empty() {
-                                    if let Some(id) = container_id {
-                                        app.last_sent.insert(id, msg);
+                                    // Persist the sent message so refresh() can apply it every tick.
+                                    // history.jsonl is not updated by --print mode, so the probe would
+                                    // otherwise revert the display to the previous message.
+                                    if !msg.is_empty() {
+                                        if let Some(id) = container_id {
+                                            app.last_sent.insert(id, msg);
+                                        }
                                     }
                                 }
                             }
-                        }
-                        KeyCode::Char(c) => {
-                            if let Overlay::SendMessage { ref mut buf, .. } = app.overlay {
-                                buf.push(c);
+                            KeyCode::Char(c) => {
+                                if let Overlay::SendMessage { ref mut input, .. } = app.overlay {
+                                    input_push_char(input, c);
+                                }
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
+                _ => {}
             }
         }
 
@@ -684,6 +714,59 @@ async fn event_loop(
     }
 
     Ok(())
+}
+
+fn input_push_char(input: &mut Vec<MessageInputChunk>, c: char) {
+    match input.last_mut() {
+        Some(MessageInputChunk::Text(text)) => text.push(c),
+        _ => input.push(MessageInputChunk::Text(c.to_string())),
+    }
+}
+
+fn input_push_paste(input: &mut Vec<MessageInputChunk>, text: String) {
+    if !text.is_empty() {
+        input.push(MessageInputChunk::Paste(text));
+    }
+}
+
+fn input_backspace(input: &mut Vec<MessageInputChunk>) {
+    match input.last_mut() {
+        Some(MessageInputChunk::Text(text)) => {
+            text.pop();
+            if text.is_empty() {
+                input.pop();
+            }
+        }
+        Some(MessageInputChunk::Paste(_)) => {
+            input.pop();
+        }
+        None => {}
+    }
+}
+
+pub fn input_text(input: &[MessageInputChunk]) -> String {
+    let mut text = String::new();
+    for chunk in input {
+        match chunk {
+            MessageInputChunk::Text(part) | MessageInputChunk::Paste(part) => text.push_str(part),
+        }
+    }
+    text
+}
+
+pub fn input_presentation(input: &[MessageInputChunk]) -> String {
+    let mut text = String::new();
+    for chunk in input {
+        match chunk {
+            MessageInputChunk::Text(part) => text.push_str(part),
+            MessageInputChunk::Paste(part) => {
+                let lines = part.lines().count().max(1);
+                let suffix = if lines == 1 { "" } else { "s" };
+                text.push_str(&format!("[pasted {lines} line{suffix}]"));
+            }
+        }
+    }
+    text
 }
 
 fn close_send_message(app: &mut App) {
@@ -1094,7 +1177,11 @@ fn attach_or_launch(
     agent: AgentKind,
 ) -> Result<()> {
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
 
     if let Some(adapter) = adapters.get(&agent) {
@@ -1107,7 +1194,11 @@ fn attach_or_launch(
     }
 
     enable_raw_mode()?;
-    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableBracketedPaste
+    )?;
 
     Ok(())
 }

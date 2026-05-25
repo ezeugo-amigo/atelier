@@ -57,7 +57,9 @@ fn parse_agent(s: &str) -> Result<AgentKind> {
         "pi" => Ok(AgentKind::Pi),
         "opencode" => Ok(AgentKind::OpenCode),
         "droid" => Ok(AgentKind::Droid),
-        other => anyhow::bail!("unknown agent '{other}'. Valid: claude, codex, pi, opencode, droid"),
+        other => {
+            anyhow::bail!("unknown agent '{other}'. Valid: claude, codex, pi, opencode, droid")
+        }
     }
 }
 
