@@ -21,6 +21,7 @@ vigil-adapter-claude    = { path = "../vigil-adapter-claude" }
 vigil-adapter-codex     = { path = "../vigil-adapter-codex" }
 vigil-adapter-pi        = { path = "../vigil-adapter-pi" }
 vigil-adapter-opencode  = { path = "../vigil-adapter-opencode" }
+vigil-adapter-droid     = { path = "../vigil-adapter-droid" }
 vigil-tui               = { path = "../vigil-tui" }
 atelier-worktree     = { path = "../atelier-worktree" }
 tokio                = { workspace = true }

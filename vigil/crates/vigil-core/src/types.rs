@@ -17,6 +17,7 @@ pub enum AgentKind {
     Codex,
     Pi,
     OpenCode,
+    Droid,
 }
 
 impl AgentKind {
@@ -26,6 +27,7 @@ impl AgentKind {
             AgentKind::Codex => "Codex",
             AgentKind::Pi => "Pi",
             AgentKind::OpenCode => "OpenCode",
+            AgentKind::Droid => "Droid",
         }
     }
 
@@ -36,6 +38,7 @@ impl AgentKind {
             AgentKind::Codex => false,
             AgentKind::Pi => true,
             AgentKind::OpenCode => false,
+            AgentKind::Droid => true,
         }
     }
 }
