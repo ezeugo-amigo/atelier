@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use vigil_adapter_claude::ClaudeCodeAdapter;
 use vigil_adapter_codex::CodexAdapter;
+use vigil_adapter_droid::DroidAdapter;
 use vigil_adapter_opencode::OpenCodeAdapter;
 use vigil_adapter_pi::PiAdapter;
 use vigil_core::{AgentAdapter, AgentKind};
@@ -15,5 +16,6 @@ async fn main() -> Result<()> {
     adapters.insert(AgentKind::Codex, Arc::new(CodexAdapter));
     adapters.insert(AgentKind::Pi, Arc::new(PiAdapter));
     adapters.insert(AgentKind::OpenCode, Arc::new(OpenCodeAdapter));
+    adapters.insert(AgentKind::Droid, Arc::new(DroidAdapter::new()?));
     vigil_tui::run(adapters).await
 }

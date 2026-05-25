@@ -1173,6 +1173,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vigil-adapter-droid"
+version = "0.0.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "directories",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "vigil-core",
+]
+
+[[package]]
 name = "vigil-adapter-opencode"
 version = "0.0.0"
 dependencies = [
@@ -1205,6 +1220,7 @@ dependencies = [
  "tracing-subscriber",
  "vigil-adapter-claude",
  "vigil-adapter-codex",
+ "vigil-adapter-droid",
  "vigil-adapter-opencode",
  "vigil-adapter-pi",
  "vigil-core",

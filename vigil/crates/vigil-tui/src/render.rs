@@ -1010,6 +1010,7 @@ fn agent_label(agent: AgentKind) -> (&'static str, Style) {
         AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
         AgentKind::Pi => ("π", Style::default().fg(BLUE)),
         AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
+        AgentKind::Droid => ("⬡", Style::default().fg(PURPLE)),
     }
 }
 
