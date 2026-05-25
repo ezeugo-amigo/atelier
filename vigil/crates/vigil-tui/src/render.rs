@@ -8,7 +8,7 @@ use ratatui::{
 };
 use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
 
-use crate::app::{App, Overlay};
+use crate::app::{App, Overlay, AGENTS};
 
 const RED: Color = Color::Rgb(217, 119, 87);
 const GOLD: Color = Color::Rgb(224, 184, 112);
@@ -19,7 +19,6 @@ const BLUE: Color = Color::Rgb(100, 149, 237);
 const DIM: Color = Color::DarkGray;
 const MUTED: Color = Color::Rgb(120, 112, 104);
 
-const AGENT_LABELS: [&str; 4] = ["Claude", "Codex", "Pi", "OpenCode"];
 const APP_MAX_WIDTH: u16 = 144;
 const APP_MIN_WIDTH: u16 = 88;
 const APP_HORIZONTAL_PADDING: u16 = 4;
@@ -434,10 +433,10 @@ fn draw_new_worktree_overlay(
         })
         .unwrap_or_else(|| "(inferred from cwd)".into());
 
-    let agent_spans: Vec<Span> = AGENT_LABELS
+    let agent_spans: Vec<Span> = AGENTS
         .iter()
         .enumerate()
-        .flat_map(|(i, label)| {
+        .flat_map(|(i, agent)| {
             let (bullet, style) = if i == agent_idx {
                 (
                     "◉ ",
@@ -448,7 +447,7 @@ fn draw_new_worktree_overlay(
             };
             [
                 Span::styled(bullet, style),
-                Span::styled(format!("{label}  "), style),
+                Span::styled(format!("{}  ", agent.display_name()), style),
             ]
         })
         .collect();

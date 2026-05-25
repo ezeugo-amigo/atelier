@@ -28,6 +28,16 @@ impl AgentKind {
             AgentKind::OpenCode => "OpenCode",
         }
     }
+
+    /// Whether this agent is fully implemented and should be shown in the picker.
+    pub fn available(&self) -> bool {
+        match self {
+            AgentKind::ClaudeCode => true,
+            AgentKind::Codex => false,
+            AgentKind::Pi => true,
+            AgentKind::OpenCode => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
