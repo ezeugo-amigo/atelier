@@ -30,7 +30,7 @@ struct RepoScanCache {
     repos: Vec<PathBuf>,
 }
 
-pub const AGENTS: [AgentKind; 2] = [AgentKind::ClaudeCode, AgentKind::Pi];
+pub const AGENTS: [AgentKind; 3] = [AgentKind::ClaudeCode, AgentKind::Pi, AgentKind::Droid];
 
 fn vigil_worktrees_prefix() -> String {
     let home = std::env::var("HOME").unwrap_or_default();

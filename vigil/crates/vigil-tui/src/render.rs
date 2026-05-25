@@ -250,6 +250,15 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             } else {
                 Cell::from(" ")
             };
+            let agent_label = |agent: AgentKind| -> (&'static str, Style) {
+                match agent {
+                    AgentKind::ClaudeCode => ("◆", Style::default().fg(RED)),
+                    AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
+                    AgentKind::Pi => ("π", Style::default().fg(BLUE)),
+                    AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
+                    AgentKind::Droid => ("⬡", Style::default().fg(PURPLE)),
+                }
+            };
             let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
 
@@ -1002,15 +1011,6 @@ fn centered_rect(percent_w: u16, height: u16, r: Rect) -> Rect {
         y: r.y + (r.height.saturating_sub(height)) / 2,
         width: popup_width.min(r.width),
         height: height.min(r.height),
-    }
-}
-
-fn agent_label(agent: AgentKind) -> (&'static str, Style) {
-    match agent {
-        AgentKind::ClaudeCode => ("◆", Style::default().fg(RED)),
-        AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
-        AgentKind::Pi => ("π", Style::default().fg(BLUE)),
-        AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
     }
 }
 

@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vigil Mobile — Spec</title>
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --surface2: #1c1c1c;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --muted: #666;
+      --accent: #c084fc;
+      --red: #f87171;
+      --gold: #fbbf24;
+      --green: #4ade80;
+      --blue: #60a5fa;
+      --indigo: #818cf8;
+      --font-mono: "Berkeley Mono", "JetBrains Mono", "Fira Code", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 32px 96px;
+    }
+
+    /* ── Typography ── */
+    h1 { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 6px; }
+    h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; margin: 48px 0 16px; color: var(--text); }
+    h3 { font-size: 1rem; font-weight: 600; margin: 28px 0 10px; color: var(--accent); }
+    p  { color: #bbb; margin-bottom: 14px; }
+    strong { color: var(--text); }
+    em { color: var(--muted); font-style: normal; font-size: 0.875rem; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 40px 0;
+    }
+
+    /* ── Header ── */
+    .doc-header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 28px;
+      margin-bottom: 40px;
+    }
+    .doc-meta {
+      display: flex;
+      gap: 20px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .doc-meta span {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-family: var(--font-mono);
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-family: var(--font-mono);
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      vertical-align: middle;
+      margin-left: 8px;
+    }
+    .tag.draft { border-color: var(--gold); color: var(--gold); }
+    .tag.rfc   { border-color: var(--blue); color: var(--blue); }
+
+    /* ── TOC ── */
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 18px 22px;
+      margin-bottom: 48px;
+    }
+    nav.toc p {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    nav.toc ol {
+      padding-left: 18px;
+    }
+    nav.toc li {
+      margin: 4px 0;
+      font-size: 0.875rem;
+    }
+    nav.toc a { color: #bbb; }
+    nav.toc a:hover { color: var(--accent); }
+
+    /* ── Callout boxes ── */
+    .callout {
+      background: var(--surface);
+      border-left: 3px solid var(--border);
+      border-radius: 0 6px 6px 0;
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-size: 0.9rem;
+      color: #bbb;
+    }
+    .callout.insight { border-color: var(--accent); }
+    .callout.warning { border-color: var(--gold); }
+    .callout.info    { border-color: var(--blue); }
+
+    /* ── Two-column layout for mockup + description ── */
+    .split {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 32px;
+      align-items: start;
+      margin: 28px 0;
+    }
+
+    /* ── Phone frame ── */
+    .phone-frame {
+      width: 220px;
+      border: 2px solid #333;
+      border-radius: 28px;
+      padding: 12px 8px;
+      background: #111;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .phone-frame::before {
+      content: "";
+      display: block;
+      width: 60px;
+      height: 5px;
+      background: #333;
+      border-radius: 3px;
+      margin: 0 auto 12px;
+    }
+    .phone-screen {
+      background: #0d0d0d;
+      border-radius: 18px;
+      overflow: hidden;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      line-height: 1.4;
+    }
+
+    /* ── Status bar inside phone ── */
+    .ph-statusbar {
+      background: #111;
+      padding: 5px 10px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      color: #555;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    /* ── Phone sections ── */
+    .ph-header {
+      padding: 8px 10px 6px;
+      border-bottom: 1px solid #1e1e1e;
+    }
+    .ph-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .ph-subtitle {
+      font-size: 8px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .ph-row {
+      padding: 7px 10px;
+      border-bottom: 1px solid #161616;
+      display: flex;
+      align-items: flex-start;
+      gap: 7px;
+    }
+    .ph-row:last-child { border-bottom: none; }
+    .ph-row.selected { background: #1a1a1a; }
+    .ph-row.awaiting { border-left: 2px solid var(--red); }
+    .ph-row.running  { border-left: 2px solid var(--gold); }
+    .ph-row.idle     { border-left: 2px solid #2a2a2a; }
+    .ph-row.done     { border-left: 2px solid #222; }
+
+    .ph-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .ph-dot.red    { background: var(--red); }
+    .ph-dot.gold   { background: var(--gold); }
+    .ph-dot.green  { background: var(--green); }
+    .ph-dot.gray   { background: #333; }
+    .ph-dot.pulse  { animation: pulse 1.4s infinite; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .ph-row-content { flex: 1; min-width: 0; }
+    .ph-row-title {
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ph-row-msg {
+      font-size: 8px;
+      color: #555;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+    .ph-row-badge {
+      font-size: 7px;
+      padding: 1px 4px;
+      border-radius: 2px;
+      margin-top: 3px;
+      flex-shrink: 0;
+    }
+    .ph-row-badge.awaiting { background: #2d1515; color: var(--red); }
+    .ph-row-badge.running  { background: #2d2415; color: var(--gold); }
+
+    .ph-section-label {
+      font-size: 7px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #333;
+      padding: 5px 10px 3px;
+      background: #0d0d0d;
+    }
+
+    .ph-tabs {
+      display: flex;
+      border-top: 1px solid #1e1e1e;
+      background: #111;
+    }
+    .ph-tab {
+      flex: 1;
+      text-align: center;
+      padding: 6px 0 5px;
+      font-size: 7px;
+      color: #333;
+    }
+    .ph-tab.active { color: var(--accent); }
+
+    .ph-composer {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 8px;
+      border-top: 1px solid #1e1e1e;
+      background: #111;
+    }
+    .ph-input {
+      flex: 1;
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      border-radius: 8px;
+      padding: 3px 7px;
+      font-size: 8px;
+      color: #888;
+      font-family: var(--font-mono);
+    }
+    .ph-send-btn {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8px;
+      color: #000;
+    }
+
+    .ph-log-line {
+      padding: 2px 10px;
+      font-size: 8px;
+    }
+    .ph-log-line.user { color: var(--blue); }
+    .ph-log-line.assistant { color: #bbb; }
+    .ph-log-line.tool { color: var(--green); }
+    .ph-log-line.error { color: var(--red); }
+    .ph-log-line.dim { color: #333; }
+
+    .ph-notif {
+      background: #1c1c1c;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      padding: 8px 10px;
+      margin: 6px;
+    }
+    .ph-notif-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 4px;
+    }
+    .ph-notif-app { font-size: 7.5px; font-weight: 600; color: var(--muted); }
+    .ph-notif-time { font-size: 7px; color: #333; margin-left: auto; }
+    .ph-notif-title { font-size: 9px; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+    .ph-notif-body { font-size: 8px; color: #666; }
+    .ph-notif-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+      border-top: 1px solid #222;
+      padding-top: 6px;
+    }
+    .ph-notif-btn {
+      flex: 1;
+      text-align: center;
+      font-size: 8px;
+      padding: 3px 0;
+      border-radius: 4px;
+    }
+    .ph-notif-btn.approve { background: #1a2d1a; color: var(--green); }
+    .ph-notif-btn.deny    { background: #2d1515; color: var(--red); }
+    .ph-notif-btn.view    { background: #1c1c2a; color: var(--blue); }
+
+    /* ── Spec table ── */
+    .spec-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      margin: 16px 0;
+    }
+    .spec-table th {
+      text-align: left;
+      padding: 8px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 500;
+    }
+    .spec-table td {
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      color: #bbb;
+      vertical-align: top;
+    }
+    .spec-table tr:nth-child(even) td { background: var(--surface); }
+    .spec-table code {
+      font-family: var(--font-mono);
+      font-size: 0.8em;
+      color: var(--accent);
+      background: #1a1a2a;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+
+    /* ── Arch diagram ── */
+    .arch-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: #bbb;
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.5;
+      margin: 16px 0;
+    }
+
+    /* ── P1/P2/P3 badges ── */
+    .priority {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-right: 6px;
+      font-weight: 600;
+    }
+    .p1 { background: #2d1515; color: var(--red); }
+    .p2 { background: #2d2415; color: var(--gold); }
+    .p3 { background: #151f2d; color: var(--blue); }
+
+    /* ── Timeline ── */
+    .timeline {
+      position: relative;
+      padding-left: 22px;
+      margin: 16px 0;
+    }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 6px;
+      bottom: 6px;
+      width: 1px;
+      background: var(--border);
+    }
+    .tl-item {
+      position: relative;
+      margin-bottom: 20px;
+    }
+    .tl-item::before {
+      content: "";
+      position: absolute;
+      left: -19px;
+      top: 6px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+    .tl-item.m1::before { background: var(--accent); }
+    .tl-item.m2::before { background: var(--blue); }
+    .tl-item.m3::before { background: var(--green); }
+    .tl-phase {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      margin-bottom: 4px;
+    }
+    .tl-title { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+    .tl-desc { font-size: 0.875rem; color: #888; }
+
+    /* ── Open questions ── */
+    .oq-item {
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      font-size: 0.875rem;
+    }
+    .oq-item p { margin: 0; color: #bbb; }
+    .oq-item strong { color: var(--text); }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      body { padding: 24px 16px 64px; }
+      .split { grid-template-columns: 1fr; }
+      .phone-frame { margin: 0 auto; }
+      h1 { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="doc-header">
+  <h1>Vigil Mobile <span class="tag draft">DRAFT</span><span class="tag rfc">RFC</span></h1>
+  <p style="color:#888; margin-top: 8px; margin-bottom: 0;">
+    A companion mobile experience for fleet-wide agent monitoring.
+    Spec for discussion — not yet committed to roadmap.
+  </p>
+  <div class="doc-meta">
+    <span>status: draft</span>
+    <span>date: 2026-05-25</span>
+    <span>author: vigil</span>
+  </div>
+</div>
+
+<nav class="toc">
+  <p>Contents</p>
+  <ol>
+    <li><a href="#problem">Problem Statement</a></li>
+    <li><a href="#user-story">User Story</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#screens">Screens & Flows</a></li>
+    <li><a href="#notifications">Notifications</a></li>
+    <li><a href="#features">Feature Inventory</a></li>
+    <li><a href="#non-goals">Non-Goals</a></li>
+    <li><a href="#roadmap">Phased Roadmap</a></li>
+    <li><a href="#open-questions">Open Questions</a></li>
+  </ol>
+</nav>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="problem">1. Problem Statement</h2>
+
+<p>
+  Vigil solves the attention-routing problem for a fleet of AI agents running
+  in parallel. Today it solves it <strong>only when you're at your terminal</strong>.
+  The moment you step away — lunch, a meeting, a commute — you're back to the
+  pre-vigil world: agents sit blocked on permissions, you miss the window, the
+  session goes cold.
+</p>
+
+<p>
+  The information vigil surfaces (who's waiting, what did they ask, should I
+  approve?) is exactly the kind of low-latency, asynchronous signal that a
+  phone is built for. A TUI is the right primary interface; a mobile companion
+  is the right <em>always-with-you</em> interface.
+</p>
+
+<div class="callout insight">
+  <strong>Core insight:</strong> Vigil's value is <em>attention routing</em>.
+  The terminal does it well when you're at a desk. Mobile extends that routing
+  to everywhere else. The phone doesn't replace the TUI — it's the pager that
+  tells you when to run back to the TUI, plus quick actions so you often don't
+  have to.
+</div>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="user-story">2. User Story</h2>
+
+<p>
+  You've kicked off eight Claude sessions across three repositories — a
+  refactor, a spec, and a test suite. You walk away from your laptop to make
+  coffee. Your phone buzzes.
+</p>
+
+<blockquote style="border-left: 3px solid #2a2a2a; padding: 10px 16px; margin: 16px 0; color: #888; font-size: 0.9rem; font-style: italic;">
+  "vigil — vast-babbage / claude-1 needs input: Run shell command? <code style="font-style: normal;">cargo test --workspace</code>"
+</blockquote>
+
+<p>
+  You tap <strong>Approve</strong> from the lock screen. Done. You didn't open
+  a laptop. The session unblocks and continues. Three more agents finish while
+  you're away. You see a summary when you get back.
+</p>
+
+<p>
+  That's the whole pitch.
+</p>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="architecture">3. Architecture</h2>
+
+<h3>The Connectivity Problem</h3>
+<p>
+  Vigil today is local-only: one binary, reads from <code>~/.claude/</code>,
+  writes nothing. Mobile requires a networked path from the phone to the
+  session state on your laptop. There are two honest options:
+</p>
+
+<table class="spec-table">
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>How it works</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>A. Local-network relay</strong></td>
+      <td><code>vigil serve</code> exposes an HTTP+WebSocket API on LAN. Phone connects via local IP or mDNS (<code>vigil.local</code>).</td>
+      <td>No cloud dependency. Data never leaves local network. Zero auth complexity.</td>
+      <td>Doesn't work away from home/office. No push notifications without a relay.</td>
+    </tr>
+    <tr>
+      <td><strong>B. Tunnel relay (Tailscale / Cloudflare)</strong></td>
+      <td><code>vigil serve</code> tunnels out via Tailscale or a WARP connector. Phone reaches it over VPN or public URL.</td>
+      <td>Works anywhere. Secure by default (Tailscale ACLs). Minimal setup if user already runs Tailscale.</td>
+      <td>Requires Tailscale account. Adds infra complexity. Not zero-setup.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  <strong>Recommendation:</strong> Start with Option A (LAN mode) for v0.
+  It gets 80% of the value (home/office context) with zero backend work.
+  Design the API surface so Tailscale support drops in later as a transport
+  flag: <code>vigil serve --tailscale</code>.
+</div>
+
+<h3>System Diagram</h3>
+
+<div class="arch-box">
+ ┌──────────────── your laptop ───────────────────┐
+ │                                                │
+ │  ~/.claude/projects/*.jsonl                   │
+ │  ~/.pi/agent/sessions/*.jsonl                 │
+ │        │                                       │
+ │        ▼                                       │
+ │  ┌───────────┐    ┌──────────────────────┐    │
+ │  │ vigil-tui │    │   vigil-server       │    │
+ │  │ (existing)│    │  HTTP + WebSocket    │    │
+ │  └───────────┘    │  ─────────────────── │    │
+ │                   │  GET /sessions        │    │
+ │                   │  WS  /events          │    │
+ │                   │  POST /sessions/:id   │    │
+ │                   │       /message        │    │
+ │                   │  POST /sessions/:id   │    │
+ │                   │       /respond        │    │
+ │                   └────────┬─────────────┘    │
+ └────────────────────────────│──────────────────┘
+                              │ HTTP / WebSocket
+                    ──────────┼──────────
+                    LAN  •  Tailscale  •  (future: relay)
+                    ──────────┼──────────
+                              │
+                   ┌──────────▼──────────┐
+                   │   vigil iOS / Android│
+                   │   (React Native PWA) │
+                   │                      │
+                   │  session list        │
+                   │  log viewer          │
+                   │  message composer    │
+                   │  push notifications  │
+                   └──────────────────────┘
+</div>
+
+<h3>New Component: <code>vigil-server</code></h3>
+<p>
+  A new crate that wraps the existing <code>SessionRegistry</code> and exposes
+  it over HTTP + WebSocket. The adapter pipeline is already decoupled from the
+  TUI — <code>vigil-server</code> slots in as a second consumer of the same
+  event stream, no changes to core logic.
+</p>
+
+<table class="spec-table">
+  <thead><tr><th>Endpoint</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /sessions</code></td><td>Snapshot of all containers with state, last message, repo, agent kind</td></tr>
+    <tr><td><code>WS /events</code></td><td>Real-time stream of state-change events. Same event types as the TUI channel.</td></tr>
+    <tr><td><code>GET /sessions/:id/log</code></td><td>Paginated recent log for a container. Cursor-based.</td></tr>
+    <tr><td><code>POST /sessions/:id/message</code></td><td>Send a freeform message to the session stdin (same path as TUI send)</td></tr>
+    <tr><td><code>POST /sessions/:id/respond</code></td><td>Shortcut: respond to the current awaiting prompt. Body: <code>{"action": "approve"|"deny"}</code></td></tr>
+    <tr><td><code>GET /health</code></td><td>Liveness check with version + uptime</td></tr>
+  </tbody>
+</table>
+
+<h3>Mobile App: PWA vs Native</h3>
+<p>
+  Two realistic options for the client:
+</p>
+
+<table class="spec-table">
+  <thead><tr><th></th><th>Progressive Web App (PWA)</th><th>React Native</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Push notifications</strong></td>
+      <td>Web Push API — works on Android, limited on iOS (requires iOS 16.4+, home screen install)</td>
+      <td>Native APNs / FCM — full support</td>
+    </tr>
+    <tr>
+      <td><strong>Distribution</strong></td>
+      <td>No app store. Self-hosted or served directly from <code>vigil serve</code>.</td>
+      <td>App store or TestFlight. Higher friction.</td>
+    </tr>
+    <tr>
+      <td><strong>Dev effort</strong></td>
+      <td>Low — one codebase, no native toolchain</td>
+      <td>Medium — native bridge, two build pipelines</td>
+    </tr>
+    <tr>
+      <td><strong>Offline support</strong></td>
+      <td>Service worker caching — good enough for shell + last snapshot</td>
+      <td>Full SQLite local store if needed</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout info">
+  <strong>Recommendation:</strong> PWA first. Vigil's audience (developers)
+  is comfortable adding a web app to their home screen. The lack of native push
+  on older iOS is a real constraint but acceptable for v0. If push becomes a
+  hard requirement, ship a minimal Expo / React Native wrapper that embeds the
+  same web UI.
+</div>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="screens">4. Screens & Flows</h2>
+
+<h3>4.1 Session List (Home)</h3>
+
+<div class="split">
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <div class="ph-statusbar">
+        <span>9:41</span>
+        <span>●●● 5G</span>
+      </div>
+      <div class="ph-header">
+        <div class="ph-title">vigil</div>
+        <div class="ph-subtitle">8 sessions · 2 awaiting · 3 running</div>
+      </div>
+
+      <div class="ph-section-label">awaiting input</div>
+
+      <div class="ph-row awaiting">
+        <div class="ph-dot red pulse"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">vast-babbage / claude-1</div>
+          <div class="ph-row-msg">Run shell: cargo test --workspace</div>
+        </div>
+        <div class="ph-row-badge awaiting">input</div>
+      </div>
+
+      <div class="ph-row awaiting">
+        <div class="ph-dot red pulse"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">vigil-main / pi-3</div>
+          <div class="ph-row-msg">Create file: src/server.rs?</div>
+        </div>
+        <div class="ph-row-badge awaiting">input</div>
+      </div>
+
+      <div class="ph-section-label">running</div>
+
+      <div class="ph-row running">
+        <div class="ph-dot gold pulse"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">atelier / claude-2</div>
+          <div class="ph-row-msg">Editing vigil-server/src/main.rs…</div>
+        </div>
+        <div class="ph-row-badge running">active</div>
+      </div>
+
+      <div class="ph-row running">
+        <div class="ph-dot gold"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">atelier / claude-4</div>
+          <div class="ph-row-msg">Running clippy…</div>
+        </div>
+        <div class="ph-row-badge running">active</div>
+      </div>
+
+      <div class="ph-section-label">idle / done</div>
+
+      <div class="ph-row idle">
+        <div class="ph-dot gray"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">vigil-main / claude-3</div>
+          <div class="ph-row-msg">Wrote 4 tests. Awaiting review.</div>
+        </div>
+      </div>
+
+      <div class="ph-row done">
+        <div class="ph-dot gray"></div>
+        <div class="ph-row-content">
+          <div class="ph-row-title">vast-babbage / pi-1</div>
+          <div class="ph-row-msg">Done.</div>
+        </div>
+      </div>
+
+      <div class="ph-tabs">
+        <div class="ph-tab active">Sessions</div>
+        <div class="ph-tab">Activity</div>
+        <div class="ph-tab">Settings</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3 style="margin-top: 0;">Design notes</h3>
+    <p>Sessions grouped by urgency, not by repo — the most critical information surfaces first. Within each group, sorted by recency.</p>
+
+    <p><strong>State indicators</strong> mirror the TUI color vocabulary: red for awaiting, gold for running, gray for idle/done. Pulsing dots on awaiting.</p>
+
+    <p><strong>Pull-to-refresh</strong> triggers a full snapshot re-fetch. The WebSocket keeps the list live; pull-to-refresh is a fallback.</p>
+
+    <p><strong>Swipe actions:</strong></p>
+    <ul style="color: #888; font-size: 0.875rem; padding-left: 20px;">
+      <li>Swipe right on awaiting row → quick approve</li>
+      <li>Swipe left on any row → archive/dismiss</li>
+    </ul>
+
+    <p><strong>Long press</strong> opens a context menu: view log, send message, archive.</p>
+  </div>
+</div>
+
+<h3>4.2 Log View</h3>
+
+<div class="split">
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <div class="ph-statusbar">
+        <span>9:41</span>
+        <span>●●● 5G</span>
+      </div>
+      <div class="ph-header">
+        <div class="ph-title">vast-babbage / claude-1</div>
+        <div class="ph-subtitle" style="color: var(--red);">⬤ awaiting input</div>
+      </div>
+
+      <div class="ph-log-line dim">─── turn 12 ───────────────</div>
+      <div class="ph-log-line user">▸ you: run the tests and fix any failures</div>
+      <div class="ph-log-line assistant">▸ claude: I'll run cargo test first to see what's failing.</div>
+      <div class="ph-log-line tool">  ▸ tool: read_file src/lib.rs → ok</div>
+      <div class="ph-log-line tool">  ▸ tool: read_file src/adapter.rs → ok</div>
+      <div class="ph-log-line assistant">▸ claude: Found 2 failing tests. Fixing now.</div>
+      <div class="ph-log-line tool">  ▸ tool: edit_file src/adapter.rs → ok</div>
+      <div class="ph-log-line dim">─── turn 13 ───────────────</div>
+      <div class="ph-log-line assistant">▸ claude: Ready to run tests.</div>
+      <div class="ph-log-line" style="color: var(--red); padding: 4px 10px; background: #1a0a0a;">
+        ● permission: run_shell<br>
+        &nbsp;&nbsp;cargo test --workspace
+      </div>
+
+      <div class="ph-composer">
+        <div class="ph-input">reply or approve…</div>
+        <div style="font-size: 8px; color: var(--green); padding: 3px 6px; background: #1a2d1a; border-radius: 4px;">✓ approve</div>
+        <div style="font-size: 8px; color: var(--red); padding: 3px 6px; background: #2d1515; border-radius: 4px;">✗ deny</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3 style="margin-top: 0;">Design notes</h3>
+    <p>The log view is read-heavy. Mobile constraints (no mouse, small screen) mean we sacrifice some density for readability: larger line height, fewer turns visible at once.</p>
+
+    <p><strong>Sticky permission banner</strong> at the bottom when state is <code>AwaitingInput</code>. Shows the permission type and command inline with approve/deny CTAs.</p>
+
+    <p><strong>Scroll to bottom</strong> on open; user can scroll up to read history.</p>
+
+    <p><strong>Composer</strong> switches to a full-height text input when tapped, with a send button. Supports multiline. <code>Return</code> = newline, send button = submit.</p>
+
+    <p>Turn numbers double as jump targets — tap a turn number to copy the turn link.</p>
+  </div>
+</div>
+
+<h3>4.3 Quick-Reply Notification Action</h3>
+
+<div class="split">
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <div class="ph-statusbar">
+        <span>9:41</span>
+        <span>●●● 5G</span>
+      </div>
+      <div style="padding: 10px 6px;">
+        <div class="ph-notif">
+          <div class="ph-notif-header">
+            <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--accent); flex-shrink: 0;"></div>
+            <div class="ph-notif-app">vigil</div>
+            <div class="ph-notif-time">now</div>
+          </div>
+          <div class="ph-notif-title">vast-babbage / claude-1 needs input</div>
+          <div class="ph-notif-body">permission: run_shell — cargo test --workspace</div>
+          <div class="ph-notif-actions">
+            <div class="ph-notif-btn approve">Approve</div>
+            <div class="ph-notif-btn deny">Deny</div>
+            <div class="ph-notif-btn view">View</div>
+          </div>
+        </div>
+
+        <div class="ph-notif" style="opacity: 0.5; margin-top: 6px;">
+          <div class="ph-notif-header">
+            <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--accent); flex-shrink: 0;"></div>
+            <div class="ph-notif-app">vigil</div>
+            <div class="ph-notif-time">2m ago</div>
+          </div>
+          <div class="ph-notif-title">atelier / claude-4 done</div>
+          <div class="ph-notif-body">Finished. 3 files changed.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3 style="margin-top: 0;">Notification design</h3>
+    <p>The permission notification is the highest-value interaction. It must work from the lock screen, with zero app opens required for a simple approve.</p>
+
+    <p><strong>Three actions on every AwaitingInput notification:</strong></p>
+    <ul style="color: #888; font-size: 0.875rem; padding-left: 20px; margin-bottom: 14px;">
+      <li><strong style="color: var(--green);">Approve</strong> — sends the affirmative response and dismisses</li>
+      <li><strong style="color: var(--red);">Deny</strong> — sends the negative response and dismisses</li>
+      <li><strong style="color: var(--blue);">View</strong> — opens vigil to the log view for that session</li>
+    </ul>
+
+    <p><strong>Non-awaiting events</strong> (done, error) deliver a simple informational notification with a single "View" action.</p>
+
+    <p><strong>Notification grouping:</strong> one notification per session, updated in-place. Not a new notification per event — that would be overwhelming on a busy fleet.</p>
+
+    <p><strong>Quiet hours:</strong> user can configure a time window during which only <code>Error</code> events bypass DND.</p>
+  </div>
+</div>
+
+<h3>4.4 Settings</h3>
+<p>
+  Minimal. Three sections:
+</p>
+<ol style="color: #888; font-size: 0.875rem; padding-left: 24px; line-height: 2;">
+  <li><strong style="color: var(--text);">Connection</strong> — host address, port, connection status indicator, QR-code pairing flow</li>
+  <li><strong style="color: var(--text);">Notifications</strong> — which states trigger push (awaiting, done, error), quiet hours, per-repo filters</li>
+  <li><strong style="color: var(--text);">Display</strong> — dark/light (default: match system), log density (compact/comfortable)</li>
+</ol>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="notifications">5. Notifications Deep Dive</h2>
+
+<h3>Delivery path</h3>
+<p>
+  Push notifications require a push service. On iOS, that's APNs. The challenge:
+  vigil-server is on your laptop, not in the cloud. Bridging that gap honestly:
+</p>
+
+<table class="spec-table">
+  <thead><tr><th>Option</th><th>Mechanism</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>WebSocket background keep-alive</strong></td>
+      <td>PWA holds a persistent WS connection. Background sync API delivers events when app is backgrounded.</td>
+      <td>Least reliable on iOS (background suspension). Good enough on Android with Web Push.</td>
+    </tr>
+    <tr>
+      <td><strong>Web Push API</strong></td>
+      <td>vigil-server sends push payloads to browser's push service (FCM for Chrome/Android). <strong>No third-party relay needed.</strong></td>
+      <td>Works on Android Chrome natively. iOS Safari support via Web Push (iOS 16.4+). Solid for PWA.</td>
+    </tr>
+    <tr>
+      <td><strong>Vigil relay service</strong></td>
+      <td>Optional hosted relay at <code>relay.vigil.dev</code>. laptop tunnels events to relay; relay pushes to APNs/FCM.</td>
+      <td>Enables native push on all iOS versions and from any network. Requires running a server. Privacy tradeoff (relay sees event metadata but not log content).</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout warning">
+  <strong>Privacy note:</strong> If a relay service is built, it MUST be
+  opt-in and transparent. Relay should only receive: session ID, session
+  state, repo name, and the permission prompt type — never full log content.
+  Users running sensitive workloads should always have a fully local option.
+</div>
+
+<h3>Notification taxonomy</h3>
+<table class="spec-table">
+  <thead><tr><th>Trigger</th><th>Title</th><th>Body</th><th>Actions</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>AwaitingInput</code></td>
+      <td><em>repo / session</em> needs input</td>
+      <td>permission type + command (truncated to ~60 chars)</td>
+      <td>Approve · Deny · View</td>
+    </tr>
+    <tr>
+      <td><code>Done</code></td>
+      <td><em>repo / session</em> finished</td>
+      <td>Last assistant message (truncated)</td>
+      <td>View</td>
+    </tr>
+    <tr>
+      <td><code>Error</code></td>
+      <td><em>repo / session</em> errored</td>
+      <td>Error summary (truncated)</td>
+      <td>View</td>
+    </tr>
+    <tr>
+      <td><code>Running → Idle</code></td>
+      <td>(silent, no notification)</td>
+      <td>—</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="features">6. Feature Inventory</h2>
+
+<table class="spec-table">
+  <thead><tr><th>Feature</th><th>Priority</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Session list with live state updates</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>Core. Without this, nothing else matters.</td>
+    </tr>
+    <tr>
+      <td>Push notification on AwaitingInput</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>The primary value prop of the mobile app.</td>
+    </tr>
+    <tr>
+      <td>Approve / Deny from notification</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>Lock screen actions. Highest-friction UX if missing.</td>
+    </tr>
+    <tr>
+      <td>Log viewer</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>Needed to understand context before approving complex actions.</td>
+    </tr>
+    <tr>
+      <td>Send freeform message</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>"yes", "no", "actually try X instead" — short text only.</td>
+    </tr>
+    <tr>
+      <td>Connection via LAN (HTTP)</td>
+      <td><span class="priority p1">P1</span></td>
+      <td>Required for any of the above to work.</td>
+    </tr>
+    <tr>
+      <td>QR-code pairing flow</td>
+      <td><span class="priority p2">P2</span></td>
+      <td>Reduces setup friction enormously. vigil-server displays QR at startup.</td>
+    </tr>
+    <tr>
+      <td>Notification grouping & quiet hours</td>
+      <td><span class="priority p2">P2</span></td>
+      <td>Without grouping, a busy fleet becomes notification spam.</td>
+    </tr>
+    <tr>
+      <td>Tailscale / VPN remote access</td>
+      <td><span class="priority p2">P2</span></td>
+      <td>Unlocks "away from home" use case without a relay.</td>
+    </tr>
+    <tr>
+      <td>Per-repo / per-agent notification filters</td>
+      <td><span class="priority p2">P2</span></td>
+      <td>"Only notify me for vast-babbage". Useful for focused sessions.</td>
+    </tr>
+    <tr>
+      <td>Activity feed (timeline of all events)</td>
+      <td><span class="priority p2">P2</span></td>
+      <td>See what happened while you were away in chronological order.</td>
+    </tr>
+    <tr>
+      <td>Hosted relay service</td>
+      <td><span class="priority p3">P3</span></td>
+      <td>Required for reliable native push without Tailscale. Big infra commitment.</td>
+    </tr>
+    <tr>
+      <td>Cost / token usage dashboard</td>
+      <td><span class="priority p3">P3</span></td>
+      <td>Complements the desktop vigil feature; useful away from desk.</td>
+    </tr>
+    <tr>
+      <td>Create new worktree / session from mobile</td>
+      <td><span class="priority p3">P3</span></td>
+      <td>Technically possible, but starting an agent from a phone is awkward.</td>
+    </tr>
+    <tr>
+      <td>Watch complications / widgets</td>
+      <td><span class="priority p3">P3</span></td>
+      <td">"N awaiting" glanceable count on Apple Watch or home screen widget.</td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="non-goals">7. Non-Goals</h2>
+
+<ul style="color: #888; font-size: 0.9rem; padding-left: 24px; line-height: 2.2;">
+  <li>Running agent sessions directly on mobile (vigil observes; agents live on laptop/server)</li>
+  <li>A full-featured code editor or file browser</li>
+  <li>Multi-user / team features — this is a personal tool</li>
+  <li>Android-first: design for iOS first, ensure nothing breaks on Android</li>
+  <li>Offline mode beyond the last-fetched snapshot</li>
+  <li>Exposing vigil-server to the public internet without explicit user action</li>
+</ul>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="roadmap">8. Phased Roadmap</h2>
+
+<div class="timeline">
+  <div class="tl-item m1">
+    <div class="tl-phase">Milestone 1 — Foundation</div>
+    <div class="tl-title">vigil-server + web UI shell</div>
+    <div class="tl-desc">
+      New <code>vigil-server</code> crate with REST + WebSocket API. Minimal PWA that connects
+      over LAN and shows a live session list. No notifications yet. QR pairing.
+      Validates the architecture before investing in polish.
+    </div>
+  </div>
+
+  <div class="tl-item m1">
+    <div class="tl-phase">Milestone 2 — Core flows</div>
+    <div class="tl-title">Log view + send message + notifications</div>
+    <div class="tl-desc">
+      Log viewer with turn-based rendering. Composer for freeform messages.
+      Approve/deny inline for AwaitingInput sessions. Web Push notifications
+      on Android. iOS push via Web Push on home-screen-installed PWA (iOS 16.4+).
+    </div>
+  </div>
+
+  <div class="tl-item m2">
+    <div class="tl-phase">Milestone 3 — Reliability & reach</div>
+    <div class="tl-title">Tailscale support + notification polish</div>
+    <div class="tl-desc">
+      <code>vigil serve --tailscale</code> flag for remote access.
+      Notification grouping, quiet hours, per-repo filters.
+      Activity feed. Swipe actions on session rows.
+    </div>
+  </div>
+
+  <div class="tl-item m3">
+    <div class="tl-phase">Milestone 4 — Nice-to-haves</div>
+    <div class="tl-title">Relay service + widgets + watch</div>
+    <div class="tl-desc">
+      Optional hosted relay for users without Tailscale. iOS home screen widget
+      showing "N awaiting" count. Explore Apple Watch complications.
+      Cost/token dashboard.
+    </div>
+  </div>
+</div>
+
+
+<!-- ─────────────────────────────────────────────── -->
+<h2 id="open-questions">9. Open Questions</h2>
+
+<div class="oq-item">
+  <p><strong>Q1: Security model for vigil-server</strong></p>
+  <p>The API endpoint can send messages to agents. Even on LAN, this is sensitive.
+  Should vigil-server require a token (generated at startup, shown in QR code)?
+  How do we handle multiple devices?</p>
+</div>
+
+<div class="oq-item">
+  <p><strong>Q2: Which push path for iOS?</strong></p>
+  <p>Web Push on iOS requires the PWA to be installed to the home screen. Is that
+  acceptable for v0, or should we ship a thin React Native wrapper from day one
+  to get reliable APNs support?</p>
+</div>
+
+<div class="oq-item">
+  <p><strong>Q3: "Approve" semantics across adapters</strong></p>
+  <p>For Claude, "approve" = sending "y\n" to stdin on a permission prompt. How
+  does this generalise to Pi, Codex, OpenCode? Each adapter needs an
+  <code>respond(action)</code> method alongside <code>attach_command()</code>.</p>
+</div>
+
+<div class="oq-item">
+  <p><strong>Q4: What to show when log is large?</strong></p>
+  <p>Some Claude sessions have hundreds of turns. Loading the full log on mobile
+  is slow and noisy. Should the log view default to the last N turns and require
+  explicit "load more"?</p>
+</div>
+
+<div class="oq-item">
+  <p><strong>Q5: vigil-server lifecycle</strong></p>
+  <p>Should <code>vigil serve</code> be a separate command, or should the existing
+  <code>vigil</code> TUI optionally spin up the server in the background? The latter
+  is more convenient but blurs responsibilities.</p>
+</div>
+
+<hr />
+
+<p style="color: #444; font-size: 0.8rem; font-family: var(--font-mono); text-align: center; margin-top: 40px;">
+  vigil · mobile spec · draft · 2026-05-25
+</p>
+
+</body>
+</html>

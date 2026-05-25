@@ -56,7 +56,8 @@ fn parse_agent(s: &str) -> Result<AgentKind> {
         "codex" => Ok(AgentKind::Codex),
         "pi" => Ok(AgentKind::Pi),
         "opencode" => Ok(AgentKind::OpenCode),
-        other => anyhow::bail!("unknown agent '{other}'. Valid: claude, codex, pi, opencode"),
+        "droid" => Ok(AgentKind::Droid),
+        other => anyhow::bail!("unknown agent '{other}'. Valid: claude, codex, pi, opencode, droid"),
     }
 }
 
@@ -66,6 +67,7 @@ fn agent_bin(kind: AgentKind) -> &'static str {
         AgentKind::Codex => "codex",
         AgentKind::Pi => "pi",
         AgentKind::OpenCode => "opencode",
+        AgentKind::Droid => "droid",
     }
 }
 

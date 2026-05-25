@@ -1,0 +1,1398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>vigil-server · Technical Specification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:ital,wght@0,300;0,400;0,500;0,600;1,300&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --bg:        #040912;
+  --bg2:       #080f1e;
+  --surface:   #0c1525;
+  --surface2:  #101c2e;
+  --border:    #182338;
+  --border2:   #1e2d42;
+  --text:      #c2d4e8;
+  --muted:     #3d5470;
+  --dim:       #243448;
+  --cyan:      #00ccff;
+  --cyan-dim:  #004466;
+  --amber:     #ffaa00;
+  --amber-dim: #3d2800;
+  --green:     #00e676;
+  --green-dim: #003d1f;
+  --red:       #ff4444;
+  --red-dim:   #3d0000;
+  --purple:    #b488ff;
+
+  --font-display: 'Barlow Condensed', sans-serif;
+  --font-body:    'Barlow', sans-serif;
+  --font-code:    'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.65;
+  min-height: 100vh;
+
+  /* blueprint dot grid */
+  background-image:
+    radial-gradient(circle, #182338 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ── LAYOUT ── */
+.page-wrap {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100vh;
+}
+
+/* ── SIDEBAR ── */
+aside {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  padding: 32px 0;
+  flex-shrink: 0;
+}
+
+.sidebar-brand {
+  padding: 0 24px 28px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.sidebar-brand-name {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.sidebar-brand-sub {
+  font-family: var(--font-code);
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 4px;
+  letter-spacing: 0.03em;
+}
+
+.sidebar-section-label {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  padding: 14px 24px 6px;
+}
+
+.sidebar-link {
+  display: block;
+  padding: 5px 24px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-family: var(--font-code);
+  border-left: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.sidebar-link:hover {
+  color: var(--text);
+  border-left-color: var(--border2);
+  background: var(--surface);
+}
+.sidebar-link.active {
+  color: var(--cyan);
+  border-left-color: var(--cyan);
+  background: rgba(0,204,255,0.04);
+}
+
+/* ── MAIN CONTENT ── */
+main {
+  padding: 56px 64px 120px;
+  max-width: 900px;
+}
+
+/* ── DOC HEADER ── */
+.doc-header {
+  margin-bottom: 64px;
+  padding-bottom: 40px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.doc-header::before {
+  content: "TECH SPEC";
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-family: var(--font-display);
+  font-size: 5rem;
+  font-weight: 800;
+  color: var(--border2);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.doc-status-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.doc-badge {
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  padding: 3px 10px;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.doc-badge.approved  { background: var(--green-dim); color: var(--green); border: 1px solid #005530; }
+.doc-badge.milestone { background: var(--cyan-dim);  color: var(--cyan);  border: 1px solid #003355; }
+.doc-badge.date      { background: var(--surface2);  color: var(--muted); border: 1px solid var(--border); }
+
+h1.doc-title {
+  font-family: var(--font-display);
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: #e8f4ff;
+  margin-bottom: 16px;
+}
+
+h1.doc-title span { color: var(--cyan); }
+
+.doc-subtitle {
+  font-size: 1rem;
+  color: var(--muted);
+  max-width: 520px;
+  line-height: 1.6;
+}
+
+/* ── SECTION HEADINGS ── */
+h2.section {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-top: 72px;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+h2.section .sn {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--border2);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+h3.sub {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #d0e4f8;
+  margin-top: 36px;
+  margin-bottom: 12px;
+}
+
+h4.sub2 {
+  font-family: var(--font-code);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--amber);
+  margin-top: 24px;
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+p {
+  color: #8aabbf;
+  margin-bottom: 14px;
+  font-weight: 300;
+}
+
+strong { color: var(--text); font-weight: 500; }
+em { color: var(--muted); font-style: italic; }
+
+/* ── CODE BLOCKS ── */
+pre {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 20px 22px;
+  overflow-x: auto;
+  margin: 16px 0;
+  position: relative;
+}
+
+pre::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  font-family: var(--font-code);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+code {
+  font-family: var(--font-code);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: #b0d4f0;
+}
+
+/* syntax highlight classes */
+code .kw  { color: var(--purple); }
+code .ty  { color: var(--cyan); }
+code .st  { color: var(--green); }
+code .cm  { color: var(--muted); font-style: italic; }
+code .at  { color: var(--amber); }
+code .nm  { color: #e8d5a8; }
+code .op  { color: #7099bb; }
+code .nu  { color: #ff8066; }
+code .lf  { color: #3d5470; }
+code .hl  { background: rgba(0,204,255,0.08); display: block; margin: 0 -22px; padding: 0 22px; }
+
+/* inline code */
+p code, li code, td code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-size: 0.8em;
+  color: var(--cyan);
+}
+
+/* ── CALLOUTS ── */
+.callout {
+  border-left: 3px solid;
+  padding: 14px 18px;
+  margin: 20px 0;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.88rem;
+}
+.callout p { margin: 0; font-size: 0.88rem; }
+.callout.info   { border-color: var(--cyan);  background: rgba(0,204,255,0.05); }
+.callout.warn   { border-color: var(--amber); background: rgba(255,170,0,0.05); }
+.callout.action { border-color: var(--green); background: rgba(0,230,118,0.05); }
+.callout-label {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.info   .callout-label { color: var(--cyan); }
+.warn   .callout-label { color: var(--amber); }
+.action .callout-label { color: var(--green); }
+
+/* ── TABLES ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  margin: 16px 0;
+}
+
+th {
+  text-align: left;
+  padding: 9px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+td {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  color: #8aabbf;
+  vertical-align: top;
+  font-weight: 300;
+}
+
+tr:nth-child(even) td { background: rgba(8,15,30,0.5); }
+
+/* ── STEP LIST ── */
+.steps { list-style: none; padding: 0; margin: 16px 0; }
+.steps li {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 14px;
+  align-items: flex-start;
+}
+.step-num {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  font-weight: 600;
+}
+.step-body { color: #8aabbf; font-weight: 300; font-size: 0.9rem; }
+.step-body strong { color: var(--text); }
+
+/* ── MILESTONE CARDS ── */
+.milestones {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.ms-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ms-card::before {
+  content: attr(data-n);
+  position: absolute;
+  right: -4px;
+  top: -10px;
+  font-family: var(--font-display);
+  font-size: 5rem;
+  font-weight: 800;
+  color: var(--border);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ms-card.m1 { border-top: 2px solid var(--cyan); }
+.ms-card.m2 { border-top: 2px solid var(--amber); }
+.ms-card.m3 { border-top: 2px solid var(--green); }
+.ms-card.m4 { border-top: 2px solid var(--purple); }
+
+.ms-label {
+  font-family: var(--font-code);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.m1 .ms-label { color: var(--cyan); }
+.m2 .ms-label { color: var(--amber); }
+.m3 .ms-label { color: var(--green); }
+.m4 .ms-label { color: var(--purple); }
+
+.ms-title {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #d8ecff;
+  margin-bottom: 10px;
+  letter-spacing: 0.01em;
+}
+
+.ms-tasks {
+  list-style: none;
+  padding: 0;
+}
+
+.ms-tasks li {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 3px 0;
+  font-weight: 300;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+
+.ms-tasks li::before {
+  content: "—";
+  color: var(--border2);
+  flex-shrink: 0;
+  font-family: var(--font-code);
+}
+
+/* ── PRIORITY BADGE ── */
+.p { display: inline-block; font-family: var(--font-code); font-size: 0.68rem; padding: 1px 6px; border-radius: 2px; font-weight: 600; margin-right: 4px; }
+.p1 { background: var(--red-dim);   color: var(--red);   border: 1px solid #550000; }
+.p2 { background: var(--amber-dim); color: var(--amber); border: 1px solid #553300; }
+.p3 { background: var(--surface);   color: var(--muted); border: 1px solid var(--border); }
+
+/* ── FILE TREE ── */
+.filetree {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 20px 22px;
+  font-family: var(--font-code);
+  font-size: 0.8rem;
+  line-height: 1.8;
+  color: #8aabbf;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+
+.filetree .new   { color: var(--green); }
+.filetree .chg   { color: var(--amber); }
+.filetree .dir   { color: var(--cyan); font-weight: 600; }
+.filetree .cm    { color: var(--muted); }
+
+/* ── API ROUTE BLOCK ── */
+.route-block {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.route-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.method {
+  font-family: var(--font-code);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 2px;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+.GET    { background: #0d2e44; color: var(--cyan);  border: 1px solid #1a4d66; }
+.POST   { background: #1a2d0a; color: var(--green); border: 1px solid #2d5010; }
+.WS     { background: #2a1a44; color: var(--purple);border: 1px solid #4a2a66; }
+
+.route-path {
+  font-family: var(--font-code);
+  font-size: 0.82rem;
+  color: #d0e8ff;
+  letter-spacing: 0.01em;
+}
+
+.route-desc {
+  padding: 12px 16px;
+  font-size: 0.83rem;
+  color: #6a90a8;
+  font-weight: 300;
+}
+
+.route-desc pre {
+  margin: 10px 0 0;
+  background: var(--bg);
+  padding: 12px 14px;
+  border-color: var(--border);
+}
+
+.route-desc pre::before { content: none; }
+
+/* ── HR ── */
+hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 48px 0;
+}
+
+/* ── LISTS ── */
+ul, ol {
+  padding-left: 20px;
+  margin: 12px 0;
+}
+
+li {
+  color: #8aabbf;
+  margin: 5px 0;
+  font-weight: 300;
+  font-size: 0.9rem;
+}
+
+li strong { color: var(--text); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .page-wrap { grid-template-columns: 1fr; }
+  aside { display: none; }
+  main { padding: 32px 20px 80px; }
+  .milestones { grid-template-columns: 1fr; }
+  h1.doc-title { font-size: 2rem; }
+  .doc-header::before { display: none; }
+}
+
+/* ── SCROLL ACCENT ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+<!-- ──────────────── SIDEBAR ──────────────── -->
+<aside>
+  <div class="sidebar-brand">
+    <div class="sidebar-brand-name">vigil-server</div>
+    <div class="sidebar-brand-sub">technical specification · v0.1</div>
+  </div>
+
+  <div class="sidebar-section-label">Overview</div>
+  <a href="#overview" class="sidebar-link">What we're building</a>
+  <a href="#architecture" class="sidebar-link">Architecture</a>
+
+  <div class="sidebar-section-label">Backend</div>
+  <a href="#new-crate" class="sidebar-link">New crate: vigil-server</a>
+  <a href="#state" class="sidebar-link">Shared state</a>
+  <a href="#poller" class="sidebar-link">Probe loop</a>
+  <a href="#api" class="sidebar-link">REST API</a>
+  <a href="#websocket" class="sidebar-link">WebSocket events</a>
+  <a href="#respond" class="sidebar-link">Respond / send message</a>
+
+  <div class="sidebar-section-label">Connectivity</div>
+  <a href="#tailscale" class="sidebar-link">Tailscale</a>
+  <a href="#auth" class="sidebar-link">Auth & security</a>
+  <a href="#qr" class="sidebar-link">QR pairing</a>
+
+  <div class="sidebar-section-label">Client</div>
+  <a href="#pwa" class="sidebar-link">PWA architecture</a>
+  <a href="#push" class="sidebar-link">Push notifications</a>
+
+  <div class="sidebar-section-label">Execution</div>
+  <a href="#cargo" class="sidebar-link">Cargo changes</a>
+  <a href="#cli" class="sidebar-link">CLI integration</a>
+  <a href="#milestones" class="sidebar-link">Milestones</a>
+</aside>
+
+<!-- ──────────────── MAIN ──────────────── -->
+<main>
+
+<!-- header -->
+<div class="doc-header">
+  <div class="doc-status-row">
+    <span class="doc-badge approved">approved</span>
+    <span class="doc-badge milestone">milestone 1–4</span>
+    <span class="doc-badge date">2026-05-25</span>
+  </div>
+  <h1 class="doc-title">vigil <span>mobile</span><br>tech spec</h1>
+  <p class="doc-subtitle">
+    Implementation plan for <code>vigil-server</code> — a new Rust crate that exposes vigil's
+    session registry over HTTP + WebSocket, enabling a mobile PWA to monitor
+    and respond to agent sessions from anywhere via Tailscale.
+  </p>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="overview"><span class="sn">01</span> What We're Building</h2>
+
+<p>Three new pieces, each landing separately:</p>
+
+<ol class="steps">
+  <li><span class="step-num">1</span><div class="step-body"><strong>vigil-server crate</strong> — axum HTTP server that wraps the existing adapter pipeline and session registry. Runs as a subcommand: <code>vigil serve</code>.</div></li>
+  <li><span class="step-num">2</span><div class="step-body"><strong>PWA client</strong> — static HTML/CSS/JS served directly from <code>vigil-server</code>. No separate build step. Install to home screen on iOS/Android.</div></li>
+  <li><span class="step-num">3</span><div class="step-body"><strong>Tailscale connectivity</strong> — <code>vigil serve --tailscale</code> binds to the Tailscale interface IP, making the server reachable from any device on your tailnet, including your phone on LTE.</div></li>
+</ol>
+
+<p>The TUI (<code>vigil</code>) and the server (<code>vigil serve</code>) are independent processes reading the same files. Neither blocks the other. You can run both simultaneously.</p>
+
+<div class="callout info">
+  <div class="callout-label">Key constraint</div>
+  <p>vigil-server must be <strong>read-only by default</strong> on the file system — same invariant as the TUI. The only write operations are: spawning agent processes for <code>send_message</code> / <code>respond</code>, and writing the VAPID key + push subscription files to <code>~/.vigil/</code>.</p>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="architecture"><span class="sn">02</span> Architecture</h2>
+
+<pre data-lang="ascii"><code>
+  your laptop                                   your phone (LTE / Wi-Fi)
+  ──────────────────────────────────            ──────────────────────────
+  ~/.claude/projects/*.jsonl                    vigil PWA (home screen)
+  ~/.pi/agent/sessions/*.jsonl                      │
+           │                                        │  HTTPS / WS
+           ▼                                        │  (Tailscale VPN)
+  ┌────────────────────┐                           │
+  │  vigil serve       │◄──────────────────────────┘
+  │                    │
+  │  ┌──────────────┐  │   ┌──────────────────┐
+  │  │ probe loop   │──┼──►│ broadcast::Sender │──► WebSocket clients
+  │  │ (tokio task) │  │   └──────────────────┘
+  │  └──────┬───────┘  │
+  │         │probe()   │   ┌──────────────────┐
+  │  ┌──────▼───────┐  │   │ axum Router      │
+  │  │  AdapterMap  │  │   │  GET /api/sess.. │
+  │  │  (Arc, Sync) │  │   │  WS  /events     │
+  │  └──────────────┘  │   │  POST /api/sess..|
+  │                    │   │       /respond   │
+  │  (same adapters    │   └──────────────────┘
+  │   as vigil TUI)    │
+  └────────────────────┘
+</code></pre>
+
+<p>The probe loop runs every <strong>2 seconds</strong> (vs TUI's 1s — less aggressive since mobile doesn't need instant feedback). It calls each adapter's <code>probe()</code> in parallel, diffs the result against the previous snapshot, and broadcasts change events on a <code>tokio::sync::broadcast</code> channel. WebSocket connections subscribe to that channel.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="new-crate"><span class="sn">03</span> New Crate: vigil-server</h2>
+
+<h3 class="sub">File Layout</h3>
+
+<div class="filetree">
+<span class="dir">vigil/</span>
+├── Cargo.toml                          <span class="chg cm">← add "crates/vigil-server" to members</span>
+└── <span class="dir">crates/</span>
+    └── <span class="dir new">vigil-server/</span>               <span class="new cm">← new</span>
+        ├── Cargo.toml
+        └── <span class="dir new">src/</span>
+            ├── <span class="new">main.rs</span>             <span class="new cm">← entry: vigil serve [options]</span>
+            ├── <span class="new">state.rs</span>            <span class="new cm">← AppState (adapters, tx, snapshot)</span>
+            ├── <span class="new">poller.rs</span>           <span class="new cm">← background probe loop</span>
+            ├── <span class="new">dto.rs</span>              <span class="new cm">← ContainerDto, LogDto, EventDto</span>
+            ├── <span class="new">auth.rs</span>             <span class="new cm">← bearer token middleware</span>
+            ├── <span class="new">qr.rs</span>               <span class="new cm">← QR code printer for terminal</span>
+            ├── <span class="new">push.rs</span>             <span class="new cm">← VAPID key gen + Web Push sender</span>
+            └── <span class="dir new">routes/</span>
+                ├── <span class="new">sessions.rs</span>     <span class="new cm">← GET /api/sessions, GET /api/sessions/:id/log</span>
+                ├── <span class="new">events.rs</span>       <span class="new cm">← WS /events</span>
+                ├── <span class="new">respond.rs</span>      <span class="new cm">← POST /api/sessions/:id/respond</span>
+                ├── <span class="new">message.rs</span>      <span class="new cm">← POST /api/sessions/:id/message</span>
+                ├── <span class="new">push.rs</span>         <span class="new cm">← POST /api/push/subscribe</span>
+                └── <span class="new">health.rs</span>       <span class="new cm">← GET /api/health</span>
+</div>
+
+<p>Additionally, two existing files get minor changes:</p>
+
+<div class="filetree">
+<span class="dir">crates/vigil-cli/src/</span>
+└── main.rs                             <span class="chg cm">← add `serve` subcommand → calls vigil_server::serve()</span>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="state"><span class="sn">04</span> Shared State</h2>
+
+<h3 class="sub">AppState</h3>
+
+<pre data-lang="rust"><code><span class="kw">use</span> std::sync::Arc;
+<span class="kw">use</span> tokio::sync::{broadcast, RwLock};
+<span class="kw">use</span> vigil_core::{AgentAdapter, AgentKind, Container};
+
+<span class="at">#[derive(Clone)]</span>
+<span class="kw">pub struct</span> <span class="ty">AppState</span> {
+    <span class="kw">pub</span> adapters: Arc&lt;HashMap&lt;<span class="ty">AgentKind</span>, Arc&lt;<span class="kw">dyn</span> <span class="ty">AgentAdapter</span>&gt;&gt;&gt;,
+    <span class="kw">pub</span> snapshot: Arc&lt;<span class="ty">RwLock</span>&lt;Vec&lt;<span class="ty">Container</span>&gt;&gt;&gt;,  <span class="cm">// latest probe results</span>
+    <span class="kw">pub</span> tx: broadcast::Sender&lt;<span class="ty">EventDto</span>&gt;,         <span class="cm">// fan-out to WS clients</span>
+    <span class="kw">pub</span> token: Arc&lt;String&gt;,                       <span class="cm">// bearer token for auth</span>
+    <span class="kw">pub</span> start_time: std::time::Instant,
+}
+
+<span class="kw">impl</span> <span class="ty">AppState</span> {
+    <span class="kw">pub fn</span> <span class="nm">new</span>(adapters: HashMap&lt;<span class="ty">AgentKind</span>, Arc&lt;<span class="kw">dyn</span> <span class="ty">AgentAdapter</span>&gt;&gt;, token: String) -&gt; Self {
+        <span class="kw">let</span> (tx, _) = broadcast::channel(<span class="nu">256</span>);
+        Self {
+            adapters: Arc::new(adapters),
+            snapshot: Arc::new(<span class="ty">RwLock</span>::new(vec![])),
+            tx,
+            token: Arc::new(token),
+            start_time: std::time::Instant::now(),
+        }
+    }
+}</code></pre>
+
+<h3 class="sub">DTOs (wire types)</h3>
+
+<p>We define separate DTO types rather than serializing <code>Container</code> directly — this decouples the API from internal type churn.</p>
+
+<pre data-lang="rust"><code><span class="at">#[derive(Debug, Clone, Serialize, Deserialize)]</span>
+<span class="kw">pub struct</span> <span class="ty">ContainerDto</span> {
+    <span class="kw">pub</span> id: String,
+    <span class="kw">pub</span> repo: String,                <span class="cm">// repo_root.file_name() for display</span>
+    <span class="kw">pub</span> branch: String,
+    <span class="kw">pub</span> agent: String,               <span class="cm">// "claude" | "pi"</span>
+    <span class="kw">pub</span> state: String,               <span class="cm">// "AwaitingInput" | "Running" | "Idle" | "Done" | "Error"</span>
+    <span class="kw">pub</span> state_reason: Option&lt;String&gt;, <span class="cm">// e.g. permission prompt text</span>
+    <span class="kw">pub</span> last_message: Option&lt;String&gt;, <span class="cm">// truncated to 120 chars</span>
+    <span class="kw">pub</span> last_activity: Option&lt;String&gt;, <span class="cm">// ISO 8601</span>
+}
+
+<span class="at">#[derive(Debug, Clone, Serialize, Deserialize)]</span>
+<span class="kw">pub struct</span> <span class="ty">LogDto</span> {
+    <span class="kw">pub</span> events: Vec&lt;<span class="ty">LogEventDto</span>&gt;,   <span class="cm">// structured turns</span>
+    <span class="kw">pub</span> lines: Vec&lt;String&gt;,          <span class="cm">// raw fallback lines</span>
+    <span class="kw">pub</span> total_turns: usize,
+}
+
+<span class="at">#[derive(Debug, Clone, Serialize, Deserialize)]</span>
+<span class="at">#[serde(tag = "type", rename_all = "snake_case")]</span>
+<span class="kw">pub enum</span> <span class="ty">EventDto</span> {
+    Snapshot   { containers: Vec&lt;<span class="ty">ContainerDto</span>&gt; },
+    Updated    { container: <span class="ty">ContainerDto</span> },
+    Removed    { id: String },
+}</code></pre>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="poller"><span class="sn">05</span> Probe Loop</h2>
+
+<pre data-lang="rust"><code><span class="kw">pub async fn</span> <span class="nm">run_probe_loop</span>(state: <span class="ty">AppState</span>) {
+    <span class="kw">let mut</span> interval = tokio::time::interval(Duration::from_secs(<span class="nu">2</span>));
+    interval.set_missed_tick_behavior(<span class="ty">MissedTickBehavior</span>::Skip);
+
+    <span class="kw">loop</span> {
+        interval.tick().await;
+
+        <span class="kw">let</span> registry = <span class="ty">Registry</span>::load().unwrap_or_default();
+        <span class="kw">let</span> entries = registry.entries().to_vec();
+
+        <span class="cm">// Probe all entries in parallel</span>
+        <span class="kw">let</span> results: Vec&lt;_&gt; = entries.iter().map(|e| {
+            <span class="kw">let</span> adapters = state.adapters.clone();
+            <span class="kw">let</span> entry = e.clone();
+            tokio::spawn(<span class="kw">async move</span> {
+                <span class="kw">let</span> adapter = adapters.get(&amp;entry.agent)?;
+                <span class="kw">let</span> result = adapter.probe(&amp;entry.worktree_path).await;
+                Some((entry, result))
+            })
+        }).collect();
+
+        <span class="kw">let</span> containers = join_all(results).await
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|(entry, probe)| <span class="nm">container_from_probe</span>(entry, probe))
+            .collect::&lt;Vec&lt;_&gt;&gt;();
+
+        <span class="cm">// Diff against snapshot, broadcast only what changed</span>
+        <span class="kw">let mut</span> snap = state.snapshot.write().await;
+        <span class="nm">diff_and_broadcast</span>(&amp;snap, &amp;containers, &amp;state.tx);
+        *snap = containers;
+    }
+}</code></pre>
+
+<div class="callout warn">
+  <div class="callout-label">Important</div>
+  <p>The probe loop reads from <code>Registry::load()</code> on every tick — this picks up new worktrees added by <code>atelier wt new</code> while the server is running, with a 2-second lag. No need to watch the registry file separately.</p>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="api"><span class="sn">06</span> REST API</h2>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method GET">GET</span>
+    <span class="route-path">/api/sessions</span>
+  </div>
+  <div class="route-desc">
+    Returns the current snapshot of all containers. Reads from <code>AppState.snapshot</code> (RwLock, no probe triggered).
+    <pre><code>[
+  {
+    "id": "vast-babbage",
+    "repo": "vigil",
+    "branch": "vast-babbage",
+    "agent": "claude",
+    "state": "AwaitingInput",
+    "state_reason": "run_shell: cargo test --workspace",
+    "last_message": "Ready to run tests. Should I proceed?",
+    "last_activity": "2026-05-25T09:41:02Z"
+  },
+  ...
+]</code></pre>
+  </div>
+</div>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method GET">GET</span>
+    <span class="route-path">/api/sessions/:id/log</span>
+  </div>
+  <div class="route-desc">
+    Fetches structured log events for one container. Calls <code>adapter.recent_log_events()</code> + <code>adapter.recent_log()</code>. Query param <code>?limit=40</code> (default 40 turns).
+    <pre><code>{
+  "events": [
+    { "type": "user_message", "text": "run the tests and fix failures", "time": "09:38" },
+    { "type": "agent_message", "text": "I'll run cargo test first…", "label": "claude" },
+    { "type": "tool_group", "tools": [["Read", 2], ["Bash", 1]] },
+    { "type": "agent_message", "text": "Found 2 failures. Fixing now.", "label": "claude" }
+  ],
+  "lines": [],
+  "total_turns": 12
+}</code></pre>
+  </div>
+</div>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method GET">GET</span>
+    <span class="route-path">/api/health</span>
+  </div>
+  <div class="route-desc">
+    Liveness + version. Used by the PWA to confirm connectivity.
+    <pre><code>{ "version": "0.1.0", "uptime_secs": 142, "session_count": 8 }</code></pre>
+  </div>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="websocket"><span class="sn">07</span> WebSocket Events</h2>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method WS">WS</span>
+    <span class="route-path">/events</span>
+  </div>
+  <div class="route-desc">
+    Client connects. Server immediately sends a <code>snapshot</code> event, then streams <code>updated</code> or <code>removed</code> events as state changes.
+    <pre><code><span class="cm">// On connect: full snapshot</span>
+{ "type": "snapshot", "containers": [...] }
+
+<span class="cm">// When a container's state changes</span>
+{ "type": "updated", "container": { "id": "vast-babbage", "state": "AwaitingInput", ... } }
+
+<span class="cm">// When a worktree is removed from registry</span>
+{ "type": "removed", "id": "vast-babbage" }</code></pre>
+  </div>
+</div>
+
+<h3 class="sub">PWA WebSocket client sketch</h3>
+
+<pre data-lang="javascript"><code><span class="kw">function</span> <span class="nm">connectEvents</span>(onUpdate) {
+  <span class="kw">const</span> ws = <span class="kw">new</span> WebSocket(<span class="st">`wss://${HOST}/events`</span>);
+
+  ws.onmessage = (e) =&gt; {
+    <span class="kw">const</span> ev = JSON.parse(e.data);
+    <span class="kw">if</span> (ev.type === <span class="st">'snapshot'</span>)  store.set(ev.containers);
+    <span class="kw">if</span> (ev.type === <span class="st">'updated'</span>)   store.upsert(ev.container);
+    <span class="kw">if</span> (ev.type === <span class="st">'removed'</span>)   store.remove(ev.id);
+    onUpdate();
+  };
+
+  ws.onclose = () =&gt; setTimeout(() =&gt; <span class="nm">connectEvents</span>(onUpdate), <span class="nu">3000</span>);
+  <span class="kw">return</span> ws;
+}</code></pre>
+
+<p>The PWA reconnects automatically on close. When the phone's network changes (e.g. Wi-Fi → LTE → Tailscale reconnects), the client re-establishes within 3 seconds.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="respond"><span class="sn">08</span> Respond & Send Message</h2>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method POST">POST</span>
+    <span class="route-path">/api/sessions/:id/respond</span>
+  </div>
+  <div class="route-desc">
+    Approve or deny the current permission prompt. Body: <code>{"action": "approve"}</code> or <code>{"action": "deny"}</code>.
+    Maps to <code>adapter.send_message(dir, session_id, "y\n")</code> or <code>"n\n"</code>.
+    Returns <code>204 No Content</code> on success.
+    <br/><br/>
+    <strong>Adapter mapping:</strong>
+    <table>
+      <thead><tr><th>Agent</th><th>approve</th><th>deny</th></tr></thead>
+      <tbody>
+        <tr><td><code>claude</code></td><td><code>send_message("y\n")</code></td><td><code>send_message("n\n")</code></td></tr>
+        <tr><td><code>pi</code></td><td><code>send_message("yes\n")</code></td><td><code>send_message("no\n")</code></td></tr>
+      </tbody>
+    </table>
+    Each adapter's <code>send_message</code> already exists and fires <code>--print</code> mode. No changes to the adapters needed.
+  </div>
+</div>
+
+<div class="route-block">
+  <div class="route-header">
+    <span class="method POST">POST</span>
+    <span class="route-path">/api/sessions/:id/message</span>
+  </div>
+  <div class="route-desc">
+    Send a freeform message. Body: <code>{"text": "actually try the simpler approach first"}</code>.
+    Calls <code>adapter.send_message(dir, session_id, text)</code>. Returns <code>204</code>.
+  </div>
+</div>
+
+<div class="callout warn">
+  <div class="callout-label">Session ID lookup</div>
+  <p>Routes use the registry <strong>container ID</strong> (branch name, e.g. <code>vast-babbage</code>) as the URL param, not the agent session ID. The route handler looks up the container from the snapshot, retrieves its <code>session_id</code>, and passes it to the adapter. Return <code>404</code> if not found, <code>409</code> if <code>session_id</code> is <code>None</code>.</p>
+</div>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="tailscale"><span class="sn">09</span> Tailscale</h2>
+
+<p>
+  No special Tailscale SDK required. Tailscale works at the network layer: once installed and running on your Mac, it creates a virtual network interface (<code>utun</code>) with a stable IP address (e.g. <code>100.x.y.z</code>). Vigil-server just needs to bind to that interface.
+</p>
+
+<h3 class="sub">How --tailscale works</h3>
+
+<ol class="steps">
+  <li><span class="step-num">1</span><div class="step-body">At startup, if <code>--tailscale</code> is set, run <code>tailscale ip --4</code> via <code>std::process::Command</code> to get the machine's Tailscale IPv4.</div></li>
+  <li><span class="step-num">2</span><div class="step-body">Bind axum's listener to <code>{tailscale_ip}:{port}</code> instead of <code>0.0.0.0:{port}</code>.</div></li>
+  <li><span class="step-num">3</span><div class="step-body">Print the Tailscale URL (<code>http://my-machine.tailnet.ts.net:7777</code>) to stdout and render it as a QR code in the terminal.</div></li>
+</ol>
+
+<pre data-lang="rust"><code><span class="kw">async fn</span> <span class="nm">resolve_bind_addr</span>(opts: &amp;<span class="ty">ServeOpts</span>) -&gt; SocketAddr {
+    <span class="kw">if</span> opts.tailscale {
+        <span class="kw">let</span> out = Command::new(<span class="st">"tailscale"</span>)
+            .args([<span class="st">"ip"</span>, <span class="st">"--4"</span>])
+            .output().await
+            .expect(<span class="st">"tailscale not found — is it installed and running?"</span>);
+        <span class="kw">let</span> ip: Ipv4Addr = String::from_utf8_lossy(&amp;out.stdout)
+            .trim().parse()
+            .expect(<span class="st">"could not parse tailscale IP"</span>);
+        SocketAddr::from((ip, opts.port))
+    } <span class="kw">else</span> {
+        SocketAddr::from(([<span class="nu">127</span>, <span class="nu">0</span>, <span class="nu">0</span>, <span class="nu">1</span>], opts.port))  <span class="cm">// localhost only by default</span>
+    }
+}</code></pre>
+
+<div class="callout info">
+  <div class="callout-label">Security note</div>
+  <p>Without <code>--tailscale</code>, vigil-server binds to <code>127.0.0.1</code> only (localhost). You must explicitly opt in to network exposure. The bearer token (see §10) ensures even on Tailscale, only devices with the token can talk to the server.</p>
+</div>
+
+<h3 class="sub">Hostname (nice-to-have)</h3>
+
+<p>Tailscale assigns stable DNS names like <code>my-macbook.tail12345.ts.net</code>. Run <code>tailscale status --json</code> to get the local device's DNS name and display it alongside the IP in the startup banner. This is the URL the user will bookmark on their phone.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="auth"><span class="sn">10</span> Auth & Security</h2>
+
+<p>Simple bearer token. Generated once at first startup, stored in <code>~/.vigil/server-token</code>, printed in the terminal and encoded in the QR code.</p>
+
+<pre data-lang="rust"><code><span class="kw">fn</span> <span class="nm">load_or_create_token</span>() -&gt; String {
+    <span class="kw">let</span> path = vigil_dir().join(<span class="st">"server-token"</span>);
+    <span class="kw">if</span> path.exists() {
+        fs::read_to_string(&amp;path).unwrap().trim().to_string()
+    } <span class="kw">else</span> {
+        <span class="kw">let</span> token = uuid::Uuid::new_v4().to_string();  <span class="cm">// 36-char UUID</span>
+        fs::write(&amp;path, &amp;token).unwrap();
+        token
+    }
+}</code></pre>
+
+<h3 class="sub">axum middleware</h3>
+
+<pre data-lang="rust"><code><span class="kw">async fn</span> <span class="nm">require_token</span>(
+    State(state): State&lt;<span class="ty">AppState</span>&gt;,
+    req: Request,
+    next: Next,
+) -&gt; Response {
+    <span class="kw">let</span> auth = req.headers()
+        .get(<span class="st">"Authorization"</span>)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix(<span class="st">"Bearer "</span>));
+
+    <span class="kw">match</span> auth {
+        Some(t) <span class="kw">if</span> t == state.token.as_str() =&gt; next.run(req).await,
+        _ =&gt; StatusCode::UNAUTHORIZED.into_response(),
+    }
+}</code></pre>
+
+<p>All routes under <code>/api/</code> require the token. The <code>/events</code> WebSocket also requires it (sent as a query param: <code>?token=...</code> since browsers can't set headers on WebSocket upgrades). The static PWA files (<code>/</code>, <code>/app.js</code>, etc.) are served without auth.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="qr"><span class="sn">11</span> QR Pairing</h2>
+
+<p>When <code>vigil serve</code> starts successfully, print a startup banner with the QR code encoding the connection URL <em>including</em> the token:</p>
+
+<pre><code>  vigil · serving
+
+  URL    http://100.101.102.103:7777
+  Token  3f8a2b1c-...
+
+  Scan to connect:
+
+  ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+  █ ▄▄▄▄▄ █▄█▄█ ▄▄▄▄▄ █
+  █ █   █ █  ▀█ █   █ █
+  ...
+  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</code></pre>
+
+<p>The QR encodes: <code>http://100.x.y.z:7777/?token=3f8a2b1c-...</code>. When the user opens this URL on mobile, the PWA stores the host and token in <code>localStorage</code> and connects automatically.</p>
+
+<h4 class="sub2">Crate for QR rendering</h4>
+
+<pre data-lang="toml"><code>qrcode = <span class="st">"0.14"</span>  <span class="cm"># renders to Unicode block chars, no image needed</span></code></pre>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="pwa"><span class="sn">12</span> PWA Architecture</h2>
+
+<p>
+  The PWA is a handful of static files embedded in the vigil-server binary using
+  <code>rust-embed</code>. No build step, no npm, no bundler.
+  Total target: &lt;50KB of JS, unminified.
+</p>
+
+<div class="filetree">
+<span class="dir">crates/vigil-server/</span>
+└── <span class="dir new">pwa/</span>
+    ├── <span class="new">index.html</span>       <span class="new cm">← app shell (installable PWA)</span>
+    ├── <span class="new">app.js</span>           <span class="new cm">← store + render + WS client (~40KB)</span>
+    ├── <span class="new">sw.js</span>            <span class="new cm">← service worker (offline shell + push)</span>
+    ├── <span class="new">manifest.json</span>    <span class="new cm">← PWA manifest (icons, name, display: standalone)</span>
+    └── <span class="new">icon-192.png</span>     <span class="new cm">← vigil icon for home screen</span>
+</div>
+
+<h3 class="sub">Embedding</h3>
+
+<pre data-lang="rust"><code><span class="at">#[derive(RustEmbed)]</span>
+<span class="at">#[folder = "pwa/"]</span>
+<span class="kw">struct</span> <span class="ty">PwaAssets</span>;
+
+<span class="cm">// In router:</span>
+<span class="kw">let</span> app = Router::new()
+    .nest(<span class="st">"/api"</span>, api_routes(state.clone()))
+    .route(<span class="st">"/events"</span>, get(ws_handler))
+    .fallback(|uri: Uri| <span class="kw">async move</span> { serve_pwa(uri) });
+</code></pre>
+
+<h3 class="sub">App.js architecture (vanilla JS)</h3>
+
+<pre data-lang="javascript"><code><span class="cm">// Three modules, no framework:</span>
+
+<span class="cm">// 1. Store — source of truth (Map of id → container)</span>
+<span class="kw">const</span> store = {
+  containers: <span class="kw">new</span> Map(),
+  listeners: [],
+  set(list)   { list.forEach(c => <span class="kw">this</span>.containers.set(c.id, c)); <span class="kw">this</span>.emit(); },
+  upsert(c)   { <span class="kw">this</span>.containers.set(c.id, c); <span class="kw">this</span>.emit(); },
+  remove(id)  { <span class="kw">this</span>.containers.delete(id); <span class="kw">this</span>.emit(); },
+  emit()      { <span class="kw">this</span>.listeners.forEach(fn => fn()); },
+};
+
+<span class="cm">// 2. Router — which view to show</span>
+<span class="kw">const</span> router = {
+  view: <span class="st">'list'</span>,        <span class="cm">// 'list' | 'log' | 'settings'</span>
+  selectedId: <span class="kw">null</span>,
+  navigate(view, id) { <span class="kw">this</span>.view = view; <span class="kw">this</span>.selectedId = id; render(); },
+};
+
+<span class="cm">// 3. Render — pure function, called by store.emit()</span>
+<span class="kw">function</span> <span class="nm">render</span>() {
+  document.getElementById(<span class="st">'app'</span>).innerHTML =
+    router.view === <span class="st">'list'</span>     ? <span class="nm">renderList</span>()  :
+    router.view === <span class="st">'log'</span>      ? <span class="nm">renderLog</span>()   :
+    router.view === <span class="st">'settings'</span> ? <span class="nm">renderSettings</span>() : <span class="st">''</span>;
+}</code></pre>
+
+<h3 class="sub">iOS home screen install flow</h3>
+
+<p>The first time a user opens vigil in mobile Safari, show a one-time banner:</p>
+
+<pre data-lang="html"><code>&lt;<span class="kw">div</span> id=<span class="st">"install-hint"</span>&gt;
+  Tap <span class="st">⬆</span> Share → Add to Home Screen for push notifications
+&lt;/<span class="kw">div</span>&gt;</code></pre>
+
+<p>Only shown on iOS Safari when <code>window.navigator.standalone === false</code> and <code>localStorage.getItem('install-dismissed')</code> is null.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="push"><span class="sn">13</span> Push Notifications</h2>
+
+<h3 class="sub">Web Push (VAPID)</h3>
+
+<p>Web Push doesn't require a third-party relay. The browser has a built-in push service (FCM for Chrome/Android, APNs-backed Web Push for iOS 16.4+). vigil-server sends pushes directly to the browser's push endpoint using the VAPID protocol.</p>
+
+<ol class="steps">
+  <li><span class="step-num">1</span><div class="step-body"><strong>VAPID key generation</strong> — on first startup, generate an EC P-256 key pair. Save as <code>~/.vigil/vapid-private.pem</code> + <code>~/.vigil/vapid-public.b64</code>. Serve the public key at <code>GET /api/push/vapid-public-key</code>.</div></li>
+  <li><span class="step-num">2</span><div class="step-body"><strong>Subscription registration</strong> — PWA calls <code>pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidPublicKey })</code>. Sends the resulting <code>PushSubscription</code> JSON to <code>POST /api/push/subscribe</code>. Server saves to <code>~/.vigil/push-subscriptions.json</code>.</div></li>
+  <li><span class="step-num">3</span><div class="step-body"><strong>Sending pushes</strong> — in the probe loop's <code>diff_and_broadcast()</code>, when a container transitions to <code>AwaitingInput</code>, <code>Done</code>, or <code>Error</code>, call <code>push::send_notification(subscriptions, payload)</code>. Uses the <code>web-push</code> crate or raw VAPID signing.</div></li>
+</ol>
+
+<h4 class="sub2">Notification payload</h4>
+
+<pre data-lang="json"><code>{
+  "title": "vast-babbage needs input",
+  "body": "run_shell: cargo test --workspace",
+  "data": {
+    "container_id": "vast-babbage",
+    "state": "AwaitingInput",
+    "action_url": "/sessions/vast-babbage"
+  },
+  "actions": [
+    { "action": "approve", "title": "Approve" },
+    { "action": "deny",    "title": "Deny" }
+  ]
+}</code></pre>
+
+<h4 class="sub2">Service worker push handler</h4>
+
+<pre data-lang="javascript"><code>self.addEventListener(<span class="st">'push'</span>, e =&gt; {
+  <span class="kw">const</span> data = e.data.json();
+  e.waitUntil(
+    self.registration.showNotification(data.title, {
+      body:    data.body,
+      data:    data.data,
+      actions: data.actions,
+      icon:    <span class="st">'/icon-192.png'</span>,
+      badge:   <span class="st">'/icon-192.png'</span>,
+      tag:     data.data.container_id,  <span class="cm">// replaces previous notif for same session</span>
+      renotify: <span class="kw">true</span>,
+    })
+  );
+});
+
+self.addEventListener(<span class="st">'notificationclick'</span>, e =&gt; {
+  e.notification.close();
+  <span class="kw">const</span> { action, notification } = e;
+  <span class="kw">const</span> { container_id } = notification.data;
+  <span class="kw">const</span> base = <span class="st">`${self.location.origin}`</span>;
+
+  <span class="kw">if</span> (action === <span class="st">'approve'</span> || action === <span class="st">'deny'</span>) {
+    <span class="cm">// Fire-and-forget from service worker</span>
+    fetch(<span class="st">`${base}/api/sessions/${container_id}/respond`</span>, {
+      method: <span class="st">'POST'</span>,
+      headers: { <span class="st">'Authorization'</span>: <span class="st">`Bearer ${TOKEN}`</span>, <span class="st">'Content-Type'</span>: <span class="st">'application/json'</span> },
+      body: JSON.stringify({ action }),
+    });
+  } <span class="kw">else</span> {
+    clients.openWindow(<span class="st">`${base}/sessions/${container_id}`</span>);
+  }
+});</code></pre>
+
+<div class="callout info">
+  <div class="callout-label">Token in service worker</div>
+  <p>The bearer token needs to be available in the service worker for approve/deny actions that fire without the app open. Store it in the service worker's <code>self.token</code> via a <code>message</code> event from the PWA during registration, and in <code>IndexedDB</code> for persistence across SW restarts.</p>
+</div>
+
+<h4 class="sub2">Crate</h4>
+
+<pre data-lang="toml"><code>web_push = <span class="st">"0.10"</span>    <span class="cm"># VAPID signing + RFC 8292 payload encryption</span></code></pre>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="cargo"><span class="sn">14</span> Cargo Changes</h2>
+
+<h3 class="sub">Workspace Cargo.toml</h3>
+
+<pre data-lang="toml"><code>[workspace]
+members = [
+  <span class="cm"># ... existing members ...</span>
+  <span class="st">"crates/vigil-server"</span>,   <span class="new cm"># ← add this</span>
+]</code></pre>
+
+<h3 class="sub">crates/vigil-server/Cargo.toml</h3>
+
+<pre data-lang="toml"><code>[package]
+name    = <span class="st">"vigil-server"</span>
+version = <span class="st">"0.1.0"</span>
+edition = <span class="st">"2021"</span>
+
+[dependencies]
+<span class="cm"># workspace crates</span>
+vigil-core            = { path = <span class="st">"../vigil-core"</span> }
+vigil-adapter-claude  = { path = <span class="st">"../vigil-adapter-claude"</span> }
+vigil-adapter-pi      = { path = <span class="st">"../vigil-adapter-pi"</span> }
+atelier-worktree      = { path = <span class="st">"../atelier-worktree"</span> }
+
+<span class="cm"># http</span>
+axum              = { version = <span class="st">"0.7"</span>, features = [<span class="st">"ws"</span>, <span class="st">"macros"</span>] }
+tower-http        = { version = <span class="st">"0.5"</span>, features = [<span class="st">"cors"</span>] }
+
+<span class="cm"># async</span>
+tokio             = { version = <span class="st">"1"</span>, features = [<span class="st">"rt-multi-thread"</span>, <span class="st">"macros"</span>, <span class="st">"fs"</span>, <span class="st">"process"</span>, <span class="st">"time"</span>, <span class="st">"sync"</span>] }
+futures           = <span class="st">"0.3"</span>
+
+<span class="cm"># serialization</span>
+serde             = { version = <span class="st">"1"</span>, features = [<span class="st">"derive"</span>] }
+serde_json        = <span class="st">"1"</span>
+
+<span class="cm"># auth & security</span>
+uuid              = { version = <span class="st">"1"</span>, features = [<span class="st">"v4"</span>] }
+web_push          = <span class="st">"0.10"</span>       <span class="cm"># VAPID + Web Push</span>
+
+<span class="cm"># pwa embedding</span>
+rust-embed        = { version = <span class="st">"8"</span>, features = [<span class="st">"axum"</span>] }
+
+<span class="cm"># qr code</span>
+qrcode            = <span class="st">"0.14"</span>
+
+<span class="cm"># error handling & logging</span>
+anyhow            = <span class="st">"1"</span>
+thiserror         = <span class="st">"2"</span>
+tracing           = <span class="st">"0.1"</span>
+tracing-subscriber = <span class="st">"0.3"</span>
+clap              = { version = <span class="st">"4"</span>, features = [<span class="st">"derive"</span>] }
+chrono            = { version = <span class="st">"0.4"</span>, features = [<span class="st">"serde"</span>] }
+directories       = <span class="st">"5"</span></code></pre>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="cli"><span class="sn">15</span> CLI Integration</h2>
+
+<p><code>vigil-cli/src/main.rs</code> grows a <code>serve</code> subcommand. The adapter instantiation is shared between both commands.</p>
+
+<pre data-lang="rust"><code><span class="at">#[derive(Subcommand)]</span>
+<span class="kw">enum</span> <span class="ty">Cmd</span> {
+    <span class="cm">/// Monitor agent sessions in the terminal (default)</span>
+    <span class="ty">Tui</span>,
+    <span class="cm">/// Serve the vigil HTTP API + mobile PWA</span>
+    <span class="ty">Serve</span> {
+        <span class="at">#[arg(long, default_value = "7777")]</span>
+        port: u16,
+        <span class="cm">/// Bind to Tailscale interface (accessible over tailnet)</span>
+        <span class="at">#[arg(long)]</span>
+        tailscale: bool,
+    },
+}
+
+<span class="at">#[tokio::main]</span>
+<span class="kw">async fn</span> <span class="nm">main</span>() -&gt; Result&lt;()&gt; {
+    <span class="kw">let</span> cli = <span class="ty">Cli</span>::parse();
+    <span class="kw">let</span> adapters = <span class="nm">build_adapters</span>()?;   <span class="cm">// shared setup</span>
+
+    <span class="kw">match</span> cli.cmd.unwrap_or(<span class="ty">Cmd</span>::Tui) {
+        <span class="ty">Cmd</span>::Tui         =&gt; vigil_tui::run(adapters).await,
+        <span class="ty">Cmd</span>::Serve { port, tailscale } =&gt;
+            vigil_server::serve(<span class="ty">ServeOpts</span> { port, tailscale }, adapters).await,
+    }
+}</code></pre>
+
+<p>The default command remains <code>vigil</code> → TUI. The server is <code>vigil serve</code>. Both can run simultaneously from separate terminals.</p>
+
+
+<!-- ════════════════════════════════════════ -->
+<h2 class="section" id="milestones"><span class="sn">16</span> Milestones</h2>
+
+<div class="milestones">
+  <div class="ms-card m1" data-n="1">
+    <div class="ms-label">Milestone 1 · Foundation</div>
+    <div class="ms-title">vigil serve works on LAN</div>
+    <ul class="ms-tasks">
+      <li>Create <code>vigil-server</code> crate skeleton</li>
+      <li>AppState + probe loop (2s interval)</li>
+      <li><code>GET /api/sessions</code> returning snapshot</li>
+      <li>Bearer token auth middleware</li>
+      <li>Add <code>vigil serve</code> subcommand to CLI</li>
+      <li>Basic PWA shell (session list, WS client)</li>
+      <li>Startup banner with URL + token</li>
+    </ul>
+  </div>
+
+  <div class="ms-card m2" data-n="2">
+    <div class="ms-label">Milestone 2 · Core interactions</div>
+    <div class="ms-title">Approve, deny, read logs</div>
+    <ul class="ms-tasks">
+      <li><code>GET /api/sessions/:id/log</code></li>
+      <li><code>POST /api/sessions/:id/respond</code></li>
+      <li><code>POST /api/sessions/:id/message</code></li>
+      <li>Log view screen in PWA</li>
+      <li>Composer UI on mobile</li>
+      <li>Swipe actions on session rows</li>
+    </ul>
+  </div>
+
+  <div class="ms-card m3" data-n="3">
+    <div class="ms-label">Milestone 3 · Push & Tailscale</div>
+    <div class="ms-title">Works away from desk</div>
+    <ul class="ms-tasks">
+      <li><code>--tailscale</code> bind flag + IP resolution</li>
+      <li>QR code in startup banner</li>
+      <li>VAPID key gen + storage</li>
+      <li><code>POST /api/push/subscribe</code></li>
+      <li>Push on AwaitingInput / Done / Error</li>
+      <li>Service worker push + action handler</li>
+      <li>Lock-screen approve/deny</li>
+    </ul>
+  </div>
+
+  <div class="ms-card m4" data-n="4">
+    <div class="ms-label">Milestone 4 · Polish</div>
+    <div class="ms-title">Notifications & UX</div>
+    <ul class="ms-tasks">
+      <li>Notification grouping by session (tag dedup)</li>
+      <li>Quiet hours config</li>
+      <li>Per-repo notification filters</li>
+      <li>Activity feed (event log)</li>
+      <li>Home screen widget count (Shortcuts)</li>
+      <li>Token rotation / multi-device support</li>
+    </ul>
+  </div>
+</div>
+
+<h3 class="sub">Priority summary</h3>
+
+<table>
+  <thead><tr><th>Feature</th><th>Priority</th><th>Milestone</th></tr></thead>
+  <tbody>
+    <tr><td>vigil-server crate + REST API</td><td><span class="p p1">P1</span></td><td>M1</td></tr>
+    <tr><td>WebSocket live updates</td><td><span class="p p1">P1</span></td><td>M1</td></tr>
+    <tr><td>Bearer token auth</td><td><span class="p p1">P1</span></td><td>M1</td></tr>
+    <tr><td>Basic PWA (session list)</td><td><span class="p p1">P1</span></td><td>M1</td></tr>
+    <tr><td>Log view + approve/deny</td><td><span class="p p1">P1</span></td><td>M2</td></tr>
+    <tr><td>Freeform message send</td><td><span class="p p1">P1</span></td><td>M2</td></tr>
+    <tr><td>Tailscale binding</td><td><span class="p p1">P1</span></td><td>M3</td></tr>
+    <tr><td>QR pairing flow</td><td><span class="p p2">P2</span></td><td>M3</td></tr>
+    <tr><td>Web Push notifications</td><td><span class="p p2">P2</span></td><td>M3</td></tr>
+    <tr><td>Lock-screen actions</td><td><span class="p p2">P2</span></td><td>M3</td></tr>
+    <tr><td>Notification grouping / filters</td><td><span class="p p2">P2</span></td><td>M4</td></tr>
+    <tr><td>Quiet hours</td><td><span class="p p3">P3</span></td><td>M4</td></tr>
+    <tr><td>Home screen widget</td><td><span class="p p3">P3</span></td><td>M4</td></tr>
+  </tbody>
+</table>
+
+<hr />
+
+<p style="color: var(--dim); font-family: var(--font-code); font-size: 0.72rem; text-align: center;">
+  vigil-server · tech spec · draft · 2026-05-25
+</p>
+
+</main>
+</div>
+
+</body>
+</html>

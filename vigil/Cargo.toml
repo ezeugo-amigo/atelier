@@ -8,6 +8,7 @@ members = [
     "crates/vigil-adapter-codex",
     "crates/vigil-adapter-pi",
     "crates/vigil-adapter-opencode",
+    "crates/vigil-adapter-droid",
     "crates/atelier-worktree",
     "crates/atelier-cli",
 ]
