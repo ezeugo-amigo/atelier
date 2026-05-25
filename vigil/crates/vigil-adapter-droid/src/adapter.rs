@@ -24,13 +24,13 @@ impl DroidAdapter {
     }
 }
 
-/// Convert a path to droid's project directory name: replace `/` and `.` with `-`.
-/// e.g. `/Users/foo/bar.baz` → `-Users-foo-bar-baz`
+/// Convert a path to droid's project directory name: replace `/` with `-`.
+/// e.g. `/Users/foo/.bar` → `-Users-foo-.bar`
 fn droid_project_dir_name(dir: &Path) -> String {
     dir.display()
         .to_string()
         .chars()
-        .map(|c| if c == '/' || c == '.' { '-' } else { c })
+        .map(|c| if c == '/' { '-' } else { c })
         .collect()
 }
 
