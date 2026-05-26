@@ -19,6 +19,11 @@ const BLUE: Color = Color::Rgb(100, 149, 237);
 const DIM: Color = Color::DarkGray;
 const MUTED: Color = Color::Rgb(120, 112, 104);
 
+const READ_COLOR: Color = Color::Rgb(74, 107, 138);
+const BASH_COLOR: Color = Color::Rgb(122, 90, 138);
+const EDIT_COLOR: Color = Color::Rgb(107, 138, 74);
+const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
+
 const APP_MAX_WIDTH: u16 = 144;
 const APP_MIN_WIDTH: u16 = 88;
 const APP_HORIZONTAL_PADDING: u16 = 4;
@@ -28,16 +33,48 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     let inner = app_content_rect(area);
 
-    let [header, table, footer] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .areas(inner);
+    let show_preview = app.selected().is_some() && inner.height >= 24;
+    let preview_height = if show_preview {
+        (inner.height / 3).clamp(8, 14)
+    } else {
+        0
+    };
 
-    draw_header(f, header, app);
-    draw_table(f, table, app);
-    draw_footer(f, footer, app);
+    let header_area;
+    let table_area;
+    let preview_area;
+    let footer_area;
+    if show_preview {
+        let [h, t, p, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(preview_height),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = Some(p);
+        footer_area = f_;
+    } else {
+        let [h, t, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = None;
+        footer_area = f_;
+    }
+
+    draw_header(f, header_area, app);
+    draw_table(f, table_area, app);
+    if let Some(p) = preview_area {
+        draw_chat_preview(f, p, app);
+    }
+    draw_footer(f, footer_area, app);
 
     // Blank the interior before rendering any modal overlay so background content doesn't bleed through
     // SendMessage is inline (footer), not a modal, so skip the Clear for it.
@@ -539,11 +576,6 @@ fn draw_log_view_panel(
     lines: &[String],
     scroll: usize,
 ) {
-    const READ_COLOR: Color = Color::Rgb(74, 107, 138);
-    const BASH_COLOR: Color = Color::Rgb(122, 90, 138);
-    const EDIT_COLOR: Color = Color::Rgb(107, 138, 74);
-    const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
-
     f.render_widget(Clear, popup);
 
     let title = format!(" {} — log ", container_id);
@@ -593,123 +625,7 @@ fn draw_log_view_panel(
 
     if !events.is_empty() {
         // ── Timeline view (structured JSONL sessions: Pi and future adapters) ──
-        let render_width = content.width as usize;
-        let mut display: Vec<Line> = Vec::new();
-
-        for event in events {
-            match event {
-                LogEvent::UserMessage { text, time } => {
-                    let time_str = time.as_deref().unwrap_or("");
-                    let prefix = "  YOU  ";
-                    let indent = " ".repeat(prefix.len());
-                    let text_width = render_width.saturating_sub(prefix.len());
-                    let mut first = true;
-                    for raw_line in text.lines() {
-                        let raw_line = if raw_line.is_empty() { " " } else { raw_line };
-                        for chunk in wrap_str(raw_line, text_width) {
-                            if first {
-                                display.push(Line::from(vec![
-                                    Span::styled(
-                                        prefix,
-                                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                                    ),
-                                    Span::styled(
-                                        format!("{chunk}  "),
-                                        Style::default().fg(Color::White),
-                                    ),
-                                    Span::styled(
-                                        time_str.to_string(),
-                                        Style::default().fg(EMPTY_COLOR),
-                                    ),
-                                ]));
-                                first = false;
-                            } else {
-                                display.push(Line::from(vec![
-                                    Span::raw(indent.clone()),
-                                    Span::styled(chunk, Style::default().fg(Color::White)),
-                                ]));
-                            }
-                        }
-                    }
-                }
-                LogEvent::ToolGroup { tools } if !tools.is_empty() => {
-                    let bar_max = 12u32;
-                    let total_count: u32 = tools.iter().map(|(_, n)| *n).sum();
-                    let mut bar_spans: Vec<Span> =
-                        vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
-                    let mut used = 0u32;
-                    for (kind, count) in tools {
-                        let blocks = ((count * bar_max + total_count / 2) / total_count)
-                            .max(1)
-                            .min(4);
-                        used += blocks;
-                        let color = match kind {
-                            ToolKind::Read => READ_COLOR,
-                            ToolKind::Bash => BASH_COLOR,
-                            ToolKind::Edit => EDIT_COLOR,
-                            ToolKind::Other(_) => DIM,
-                        };
-                        bar_spans.push(Span::styled(
-                            "\u{2588}".repeat(blocks as usize),
-                            Style::default().fg(color),
-                        ));
-                    }
-                    if used < bar_max {
-                        bar_spans.push(Span::styled(
-                            "\u{2591}".repeat((bar_max - used) as usize),
-                            Style::default().fg(EMPTY_COLOR),
-                        ));
-                    }
-                    bar_spans.push(Span::raw("  "));
-                    for (kind, count) in tools {
-                        let color = match kind {
-                            ToolKind::Read => READ_COLOR,
-                            ToolKind::Bash => BASH_COLOR,
-                            ToolKind::Edit => EDIT_COLOR,
-                            ToolKind::Other(_) => DIM,
-                        };
-                        bar_spans.push(Span::styled(
-                            format!("{}×{}  ", kind.label(), count),
-                            Style::default().fg(color),
-                        ));
-                    }
-                    display.push(Line::from(bar_spans));
-                }
-                LogEvent::AgentMessage { text, time, label } => {
-                    let time_str = time.as_deref().unwrap_or("");
-                    let prefix_str = format!("{:>5}  ", label.chars().take(5).collect::<String>());
-                    let prefix_len = prefix_str.len();
-                    let indent = " ".repeat(prefix_len);
-                    let text_width = render_width.saturating_sub(prefix_len);
-                    let mut first = true;
-                    for raw_line in text.lines() {
-                        let raw_line = if raw_line.is_empty() { " " } else { raw_line };
-                        for chunk in wrap_str(raw_line, text_width) {
-                            let spans = render_inline(&chunk, GREEN, EMPTY_COLOR);
-                            if first {
-                                let mut line_spans = vec![Span::styled(
-                                    prefix_str.clone(),
-                                    Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
-                                )];
-                                line_spans.extend(spans);
-                                line_spans.push(Span::styled(
-                                    format!("  {time_str}"),
-                                    Style::default().fg(EMPTY_COLOR),
-                                ));
-                                display.push(Line::from(line_spans));
-                                first = false;
-                            } else {
-                                let mut line_spans = vec![Span::raw(indent.clone())];
-                                line_spans.extend(spans);
-                                display.push(Line::from(line_spans));
-                            }
-                        }
-                    }
-                    display.push(Line::from(""));
-                }
-                _ => {}
-            }
-        }
+        let display = build_event_lines(events, content.width as usize);
 
         let max_lines = content.height as usize;
         let max_scroll = display.len().saturating_sub(max_lines);
@@ -749,6 +665,175 @@ fn draw_log_view_panel(
             Paragraph::new("  no log data available").style(Style::default().fg(DIM)),
             content,
         );
+    }
+}
+
+fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'static>> {
+    let mut display: Vec<Line> = Vec::new();
+    for event in events {
+        match event {
+            LogEvent::UserMessage { text, time } => {
+                let time_str = time.as_deref().unwrap_or("");
+                let prefix = "  YOU  ";
+                let indent = " ".repeat(prefix.len());
+                let text_width = render_width.saturating_sub(prefix.len());
+                let mut first = true;
+                for raw_line in text.lines() {
+                    let raw_line = if raw_line.is_empty() { " " } else { raw_line };
+                    for chunk in wrap_str(raw_line, text_width) {
+                        if first {
+                            display.push(Line::from(vec![
+                                Span::styled(
+                                    prefix,
+                                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                                ),
+                                Span::styled(
+                                    format!("{chunk}  "),
+                                    Style::default().fg(Color::White),
+                                ),
+                                Span::styled(
+                                    time_str.to_string(),
+                                    Style::default().fg(EMPTY_COLOR),
+                                ),
+                            ]));
+                            first = false;
+                        } else {
+                            display.push(Line::from(vec![
+                                Span::raw(indent.clone()),
+                                Span::styled(chunk, Style::default().fg(Color::White)),
+                            ]));
+                        }
+                    }
+                }
+            }
+            LogEvent::ToolGroup { tools } if !tools.is_empty() => {
+                let bar_max = 12u32;
+                let total_count: u32 = tools.iter().map(|(_, n)| *n).sum();
+                let mut bar_spans: Vec<Span> =
+                    vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
+                let mut used = 0u32;
+                for (kind, count) in tools {
+                    let blocks = ((count * bar_max + total_count / 2) / total_count)
+                        .max(1)
+                        .min(4);
+                    used += blocks;
+                    let color = match kind {
+                        ToolKind::Read => READ_COLOR,
+                        ToolKind::Bash => BASH_COLOR,
+                        ToolKind::Edit => EDIT_COLOR,
+                        ToolKind::Other(_) => DIM,
+                    };
+                    bar_spans.push(Span::styled(
+                        "\u{2588}".repeat(blocks as usize),
+                        Style::default().fg(color),
+                    ));
+                }
+                if used < bar_max {
+                    bar_spans.push(Span::styled(
+                        "\u{2591}".repeat((bar_max - used) as usize),
+                        Style::default().fg(EMPTY_COLOR),
+                    ));
+                }
+                bar_spans.push(Span::raw("  "));
+                for (kind, count) in tools {
+                    let color = match kind {
+                        ToolKind::Read => READ_COLOR,
+                        ToolKind::Bash => BASH_COLOR,
+                        ToolKind::Edit => EDIT_COLOR,
+                        ToolKind::Other(_) => DIM,
+                    };
+                    bar_spans.push(Span::styled(
+                        format!("{}×{}  ", kind.label(), count),
+                        Style::default().fg(color),
+                    ));
+                }
+                display.push(Line::from(bar_spans));
+            }
+            LogEvent::AgentMessage { text, time, label } => {
+                let time_str = time.as_deref().unwrap_or("");
+                let prefix_str = format!("{:>5}  ", label.chars().take(5).collect::<String>());
+                let prefix_len = prefix_str.len();
+                let indent = " ".repeat(prefix_len);
+                let text_width = render_width.saturating_sub(prefix_len);
+                let mut first = true;
+                for raw_line in text.lines() {
+                    let raw_line = if raw_line.is_empty() { " " } else { raw_line };
+                    for chunk in wrap_str(raw_line, text_width) {
+                        let spans = render_inline(&chunk, GREEN, EMPTY_COLOR);
+                        if first {
+                            let mut line_spans = vec![Span::styled(
+                                prefix_str.clone(),
+                                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+                            )];
+                            line_spans.extend(spans);
+                            line_spans.push(Span::styled(
+                                format!("  {time_str}"),
+                                Style::default().fg(EMPTY_COLOR),
+                            ));
+                            display.push(Line::from(line_spans));
+                            first = false;
+                        } else {
+                            let mut line_spans = vec![Span::raw(indent.clone())];
+                            line_spans.extend(spans);
+                            display.push(Line::from(line_spans));
+                        }
+                    }
+                }
+                display.push(Line::from(""));
+            }
+            _ => {}
+        }
+    }
+    display
+}
+
+fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
+    let Some(c) = app.selected() else { return };
+
+    let title = format!(" {} — chat preview ", c.id);
+    let block = Block::default()
+        .title(Span::styled(title, Style::default().fg(MUTED)))
+        .borders(Borders::TOP)
+        .border_style(Style::default().fg(DIM));
+    let inner = block.inner(area).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    f.render_widget(block, area);
+
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let data = app.cached_log_data(&c.id);
+    match data {
+        Some((events, _)) if !events.is_empty() => {
+            let display = build_event_lines(events, inner.width as usize);
+            let max_lines = inner.height as usize;
+            let start = display.len().saturating_sub(max_lines);
+            let visible: Vec<Line> = display.into_iter().skip(start).take(max_lines).collect();
+            f.render_widget(Paragraph::new(visible), inner);
+        }
+        Some((_, lines)) if !lines.is_empty() => {
+            let max_lines = inner.height as usize;
+            let start = lines.len().saturating_sub(max_lines);
+            let display: Vec<Line> = lines
+                .iter()
+                .skip(start)
+                .take(max_lines)
+                .map(|s| Line::from(Span::styled(s.clone(), Style::default().fg(DIM))))
+                .collect();
+            f.render_widget(Paragraph::new(display), inner);
+        }
+        _ => {
+            f.render_widget(
+                Paragraph::new(Span::styled(
+                    "no chat data yet",
+                    Style::default().fg(DIM),
+                )),
+                inner,
+            );
+        }
     }
 }
 
