@@ -63,7 +63,7 @@ pub enum Overlay {
     None,
     NewWorktree {
         name_buf: String,
-        agent_idx: usize,
+        agent: AgentKind,
         repo_root: Option<PathBuf>,
     },
     DismissConfirm {
@@ -99,7 +99,7 @@ pub enum Overlay {
     },
     /// Pick the default agent for new containers; persisted to config.
     DefaultAgent {
-        agent_idx: usize,
+        agent: AgentKind,
     },
 }
 
@@ -152,11 +152,14 @@ impl App {
         }
     }
 
-    fn default_agent_idx(&self) -> usize {
-        AGENTS
-            .iter()
-            .position(|a| *a == self.default_agent)
-            .unwrap_or(0)
+    fn next_agent(current: AgentKind) -> AgentKind {
+        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
+        AGENTS[(idx + 1) % AGENTS.len()]
+    }
+
+    fn prev_agent(current: AgentKind) -> AgentKind {
+        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
+        AGENTS[idx.checked_sub(1).unwrap_or(AGENTS.len() - 1)]
     }
 
     pub fn selected(&self) -> Option<&Container> {
@@ -274,7 +277,7 @@ impl App {
         let repo_root = self.selected().map(|c| c.repo_root.clone());
         self.overlay = Overlay::NewWorktree {
             name_buf: String::new(),
-            agent_idx: self.default_agent_idx(),
+            agent: self.default_agent,
             repo_root,
         };
     }
@@ -298,44 +301,38 @@ impl App {
     }
 
     fn cycle_agent(&mut self) {
-        if let Overlay::NewWorktree {
-            ref mut agent_idx, ..
-        } = self.overlay
-        {
-            *agent_idx = (*agent_idx + 1) % AGENTS.len();
+        if let Overlay::NewWorktree { ref mut agent, .. } = self.overlay {
+            *agent = Self::next_agent(*agent);
         }
     }
 
     fn cycle_agent_back(&mut self) {
-        if let Overlay::NewWorktree {
-            ref mut agent_idx, ..
-        } = self.overlay
-        {
-            *agent_idx = agent_idx.checked_sub(1).unwrap_or(AGENTS.len() - 1);
+        if let Overlay::NewWorktree { ref mut agent, .. } = self.overlay {
+            *agent = Self::prev_agent(*agent);
         }
     }
 
     fn open_default_agent_picker(&mut self) {
         self.overlay = Overlay::DefaultAgent {
-            agent_idx: self.default_agent_idx(),
+            agent: self.default_agent,
         };
     }
 
     fn cycle_default_agent(&mut self) {
-        if let Overlay::DefaultAgent { ref mut agent_idx } = self.overlay {
-            *agent_idx = (*agent_idx + 1) % AGENTS.len();
+        if let Overlay::DefaultAgent { ref mut agent } = self.overlay {
+            *agent = Self::next_agent(*agent);
         }
     }
 
     fn cycle_default_agent_back(&mut self) {
-        if let Overlay::DefaultAgent { ref mut agent_idx } = self.overlay {
-            *agent_idx = agent_idx.checked_sub(1).unwrap_or(AGENTS.len() - 1);
+        if let Overlay::DefaultAgent { ref mut agent } = self.overlay {
+            *agent = Self::prev_agent(*agent);
         }
     }
 
     fn confirm_default_agent(&mut self) {
-        if let Overlay::DefaultAgent { agent_idx } = &self.overlay {
-            let agent = AGENTS[*agent_idx];
+        if let Overlay::DefaultAgent { agent } = &self.overlay {
+            let agent = *agent;
             if crate::config::Config::set_default_agent(agent).is_ok() {
                 self.default_agent = agent;
             }
@@ -366,7 +363,7 @@ impl App {
         let (name, agent_kind, repo_root) = match &self.overlay {
             Overlay::NewWorktree {
                 name_buf,
-                agent_idx,
+                agent,
                 repo_root,
             } => {
                 let name = if name_buf.is_empty() {
@@ -374,7 +371,7 @@ impl App {
                 } else {
                     Some(name_buf.clone())
                 };
-                (name, AGENTS[*agent_idx], repo_root.clone())
+                (name, *agent, repo_root.clone())
             }
             _ => return None,
         };
@@ -662,7 +659,7 @@ async fn event_loop(
                                     app.scan_rx = None;
                                     app.overlay = Overlay::NewWorktree {
                                         name_buf: String::new(),
-                                        agent_idx: app.default_agent_idx(),
+                                        agent: app.default_agent,
                                         repo_root: Some(repo_root),
                                     };
                                 }

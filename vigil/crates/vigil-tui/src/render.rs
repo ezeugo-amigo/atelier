@@ -69,10 +69,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         }
         Overlay::NewWorktree {
             name_buf,
-            agent_idx,
+            agent,
             repo_root,
         } => {
-            draw_new_worktree_overlay(f, area, name_buf, *agent_idx, repo_root.as_deref());
+            draw_new_worktree_overlay(f, area, name_buf, *agent, repo_root.as_deref());
         }
         Overlay::DismissConfirm { container_id } => {
             draw_dismiss_confirm_overlay(f, area, container_id);
@@ -97,8 +97,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         } => {
             draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
         }
-        Overlay::DefaultAgent { agent_idx } => {
-            draw_default_agent_overlay(f, area, *agent_idx);
+        Overlay::DefaultAgent { agent } => {
+            draw_default_agent_overlay(f, area, *agent);
         }
     }
 }
@@ -420,11 +420,31 @@ fn draw_send_message_box(f: &mut Frame, popup: Rect, title: &str, buf: &str, not
     );
 }
 
+fn agent_picker_spans(current: AgentKind) -> Vec<Span<'static>> {
+    AGENTS
+        .iter()
+        .flat_map(|agent| {
+            let (bullet, style) = if *agent == current {
+                (
+                    "◉ ",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("○ ", Style::default().fg(DIM))
+            };
+            [
+                Span::styled(bullet, style),
+                Span::styled(format!("{}  ", agent.display_name()), style),
+            ]
+        })
+        .collect()
+}
+
 fn draw_new_worktree_overlay(
     f: &mut Frame,
     area: Rect,
     name_buf: &str,
-    agent_idx: usize,
+    current: AgentKind,
     repo_root: Option<&std::path::Path>,
 ) {
     let popup = centered_rect(65, 11, area);
@@ -449,24 +469,7 @@ fn draw_new_worktree_overlay(
         })
         .unwrap_or_else(|| "(inferred from cwd)".into());
 
-    let agent_spans: Vec<Span> = AGENTS
-        .iter()
-        .enumerate()
-        .flat_map(|(i, agent)| {
-            let (bullet, style) = if i == agent_idx {
-                (
-                    "◉ ",
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                )
-            } else {
-                ("○ ", Style::default().fg(DIM))
-            };
-            [
-                Span::styled(bullet, style),
-                Span::styled(format!("{}  ", agent.display_name()), style),
-            ]
-        })
-        .collect();
+    let agent_spans = agent_picker_spans(current);
 
     let lines: Vec<Line> = vec![
         Line::from(""),
@@ -499,7 +502,7 @@ fn draw_new_worktree_overlay(
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_default_agent_overlay(f: &mut Frame, area: Rect, agent_idx: usize) {
+fn draw_default_agent_overlay(f: &mut Frame, area: Rect, current: AgentKind) {
     let popup = centered_rect(60, 9, area);
     f.render_widget(Clear, popup);
 
@@ -510,24 +513,7 @@ fn draw_default_agent_overlay(f: &mut Frame, area: Rect, agent_idx: usize) {
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
-    let agent_spans: Vec<Span> = AGENTS
-        .iter()
-        .enumerate()
-        .flat_map(|(i, agent)| {
-            let (bullet, style) = if i == agent_idx {
-                (
-                    "◉ ",
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                )
-            } else {
-                ("○ ", Style::default().fg(DIM))
-            };
-            [
-                Span::styled(bullet, style),
-                Span::styled(format!("{}  ", agent.display_name()), style),
-            ]
-        })
-        .collect();
+    let agent_spans = agent_picker_spans(current);
 
     let lines: Vec<Line> = vec![
         Line::from(""),
