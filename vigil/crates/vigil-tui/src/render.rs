@@ -97,6 +97,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         } => {
             draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
         }
+        Overlay::DefaultAgent { agent_idx } => {
+            draw_default_agent_overlay(f, area, *agent_idx);
+        }
     }
 }
 
@@ -338,7 +341,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(" attach/launch  "),
         Span::styled("i", Style::default().fg(DIM)),
         Span::raw(" send  "),
-        Span::styled("a", Style::default().fg(DIM)),
+        Span::styled("Tab", Style::default().fg(DIM)),
         Span::raw(" agent  "),
         Span::styled("l", Style::default().fg(DIM)),
         Span::raw(" log  "),
@@ -349,7 +352,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     ];
 
     if has_registry {
-        spans.push(Span::styled("W", Style::default().fg(DIM)));
+        spans.push(Span::styled("n", Style::default().fg(DIM)));
         spans.push(Span::raw(" new  "));
         spans.push(Span::styled("A", Style::default().fg(DIM)));
         spans.push(Span::raw(" open  "));
@@ -358,6 +361,9 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         spans.push(Span::styled("R", Style::default().fg(DIM)));
         spans.push(Span::raw(" remove  "));
     }
+
+    spans.push(Span::styled("S", Style::default().fg(DIM)));
+    spans.push(Span::raw(" default  "));
 
     spans.push(Span::styled("q", Style::default().fg(DIM)));
     spans.push(Span::raw(" quit"));
@@ -485,6 +491,63 @@ fn draw_new_worktree_overlay(
             Span::raw(" cycle agent  "),
             Span::styled("Enter", Style::default().fg(DIM)),
             Span::raw(" create  "),
+            Span::styled("Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_default_agent_overlay(f: &mut Frame, area: Rect, agent_idx: usize) {
+    let popup = centered_rect(60, 9, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" Default Agent ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let agent_spans: Vec<Span> = AGENTS
+        .iter()
+        .enumerate()
+        .flat_map(|(i, agent)| {
+            let (bullet, style) = if i == agent_idx {
+                (
+                    "◉ ",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ("○ ", Style::default().fg(DIM))
+            };
+            [
+                Span::styled(bullet, style),
+                Span::styled(format!("{}  ", agent.display_name()), style),
+            ]
+        })
+        .collect();
+
+    let lines: Vec<Line> = vec![
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "  Default agent for new containers",
+            Style::default().fg(DIM),
+        )]),
+        Line::from(""),
+        Line::from({
+            let mut spans = vec![Span::raw("  ")];
+            spans.extend(agent_spans);
+            spans
+        }),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Tab/S-Tab", Style::default().fg(DIM)),
+            Span::raw(" cycle  "),
+            Span::styled("Enter", Style::default().fg(DIM)),
+            Span::raw(" save  "),
             Span::styled("Esc", Style::default().fg(DIM)),
             Span::raw(" cancel"),
         ]),

@@ -97,6 +97,10 @@ pub enum Overlay {
         selected_idx: usize,
         scanning: bool,
     },
+    /// Pick the default agent for new containers; persisted to config.
+    DefaultAgent {
+        agent_idx: usize,
+    },
 }
 
 pub struct App {
@@ -122,6 +126,8 @@ pub struct App {
     /// After creating a new worktree, hold its path here so the next refresh
     /// can auto-select it once the background probe delivers the container.
     pending_select_path: Option<PathBuf>,
+    /// Default agent kind for new containers, sourced from `~/.vigil/config.json`.
+    default_agent: AgentKind,
 }
 
 impl App {
@@ -142,7 +148,15 @@ impl App {
             refresh_rx: None,
             last_sent: HashMap::new(),
             pending_select_path: None,
+            default_agent: crate::config::Config::load().default_agent(),
         }
+    }
+
+    fn default_agent_idx(&self) -> usize {
+        AGENTS
+            .iter()
+            .position(|a| *a == self.default_agent)
+            .unwrap_or(0)
     }
 
     pub fn selected(&self) -> Option<&Container> {
@@ -260,7 +274,7 @@ impl App {
         let repo_root = self.selected().map(|c| c.repo_root.clone());
         self.overlay = Overlay::NewWorktree {
             name_buf: String::new(),
-            agent_idx: 0,
+            agent_idx: self.default_agent_idx(),
             repo_root,
         };
     }
@@ -299,6 +313,34 @@ impl App {
         {
             *agent_idx = agent_idx.checked_sub(1).unwrap_or(AGENTS.len() - 1);
         }
+    }
+
+    fn open_default_agent_picker(&mut self) {
+        self.overlay = Overlay::DefaultAgent {
+            agent_idx: self.default_agent_idx(),
+        };
+    }
+
+    fn cycle_default_agent(&mut self) {
+        if let Overlay::DefaultAgent { ref mut agent_idx } = self.overlay {
+            *agent_idx = (*agent_idx + 1) % AGENTS.len();
+        }
+    }
+
+    fn cycle_default_agent_back(&mut self) {
+        if let Overlay::DefaultAgent { ref mut agent_idx } = self.overlay {
+            *agent_idx = agent_idx.checked_sub(1).unwrap_or(AGENTS.len() - 1);
+        }
+    }
+
+    fn confirm_default_agent(&mut self) {
+        if let Overlay::DefaultAgent { agent_idx } = &self.overlay {
+            let agent = AGENTS[*agent_idx];
+            if crate::config::Config::set_default_agent(agent).is_ok() {
+                self.default_agent = agent;
+            }
+        }
+        self.overlay = Overlay::None;
     }
 
     fn wt_name_push(&mut self, c: char) {
@@ -419,7 +461,7 @@ async fn event_loop(
                             KeyCode::Char('q') | KeyCode::Esc => break,
                             KeyCode::Down | KeyCode::Char('j') => app.next(),
                             KeyCode::Up | KeyCode::Char('k') => app.prev(),
-                            KeyCode::Char('a') => app.cycle_selected_agent(),
+                            KeyCode::Tab => app.cycle_selected_agent(),
                             KeyCode::Char('i') => {
                                 if let Some(c) = app.selected() {
                                     app.overlay = Overlay::SendMessage {
@@ -432,7 +474,7 @@ async fn event_loop(
                             KeyCode::Char('l') => app.open_log_view(),
                             KeyCode::Char('d') => app.open_dismiss_confirm(),
                             KeyCode::Char('u') => app.undo_dismiss(),
-                            KeyCode::Char('W') => app.open_new_worktree(),
+                            KeyCode::Char('n') => app.open_new_worktree(),
                             KeyCode::Char('A') => {
                                 if app.registry.is_some() {
                                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -444,6 +486,7 @@ async fn event_loop(
                                 }
                             }
                             KeyCode::Char('R') => app.open_remove_confirm(),
+                            KeyCode::Char('S') => app.open_default_agent_picker(),
                             KeyCode::Enter => {
                                 if let Some(c) = app.selected() {
                                     let session_id = c.session_id.clone();
@@ -539,6 +582,25 @@ async fn event_loop(
                             }
                             _ => {}
                         }
+                    } else if matches!(app.overlay, Overlay::DefaultAgent { .. }) {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('q') => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Tab | KeyCode::Down | KeyCode::Right | KeyCode::Char('j') => {
+                                app.cycle_default_agent();
+                            }
+                            KeyCode::BackTab
+                            | KeyCode::Up
+                            | KeyCode::Left
+                            | KeyCode::Char('k') => {
+                                app.cycle_default_agent_back();
+                            }
+                            KeyCode::Enter => {
+                                app.confirm_default_agent();
+                            }
+                            _ => {}
+                        }
                     } else if matches!(app.overlay, Overlay::ProjectPicker { .. }) {
                         match key.code {
                             KeyCode::Esc => {
@@ -600,7 +662,7 @@ async fn event_loop(
                                     app.scan_rx = None;
                                     app.overlay = Overlay::NewWorktree {
                                         name_buf: String::new(),
-                                        agent_idx: 0,
+                                        agent_idx: app.default_agent_idx(),
                                         repo_root: Some(repo_root),
                                     };
                                 }
