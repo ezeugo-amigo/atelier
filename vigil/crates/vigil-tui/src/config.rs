@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use vigil_core::AgentKind;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ConfigFile {
@@ -11,6 +12,13 @@ struct ConfigFile {
     /// Each command is run via `sh -c` with `$WORKTREE` set to the new worktree's absolute path.
     #[serde(default)]
     worktree_hooks: HashMap<String, Vec<String>>,
+    /// Default agent for new containers. Accepts "claude-code", "pi", or "droid".
+    #[serde(default = "default_agent_string")]
+    default_agent: String,
+}
+
+fn default_agent_string() -> String {
+    "claude-code".into()
 }
 
 impl Default for ConfigFile {
@@ -18,6 +26,7 @@ impl Default for ConfigFile {
         Self {
             search_paths: vec!["~/code".into(), "~/projects".into()],
             worktree_hooks: HashMap::new(),
+            default_agent: default_agent_string(),
         }
     }
 }
@@ -46,6 +55,26 @@ impl Config {
         Self { inner }
     }
 
+    /// Default agent kind for newly created containers.
+    pub fn default_agent(&self) -> AgentKind {
+        parse_agent(&self.inner.default_agent).unwrap_or(AgentKind::ClaudeCode)
+    }
+
+    /// Persist a new default agent to `~/.vigil/config.json`, preserving other fields.
+    pub fn set_default_agent(agent: AgentKind) -> std::io::Result<()> {
+        let path = config_path();
+        let mut inner = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<ConfigFile>(&s).ok())
+            .unwrap_or_default();
+        inner.default_agent = agent_config_string(agent).into();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let json = serde_json::to_string_pretty(&inner).map_err(std::io::Error::other)?;
+        std::fs::write(&path, json)
+    }
+
     /// Returns resolved absolute paths for each configured search directory.
     pub fn search_paths(&self) -> Vec<PathBuf> {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -68,6 +97,27 @@ impl Config {
                 }
             })
             .collect()
+    }
+}
+
+fn agent_config_string(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::ClaudeCode => "claude-code",
+        AgentKind::Codex => "codex",
+        AgentKind::Pi => "pi",
+        AgentKind::OpenCode => "opencode",
+        AgentKind::Droid => "droid",
+    }
+}
+
+fn parse_agent(s: &str) -> Option<AgentKind> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "claude" | "claude-code" | "claudecode" => Some(AgentKind::ClaudeCode),
+        "codex" => Some(AgentKind::Codex),
+        "pi" => Some(AgentKind::Pi),
+        "opencode" => Some(AgentKind::OpenCode),
+        "droid" => Some(AgentKind::Droid),
+        _ => None,
     }
 }
 
