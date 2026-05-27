@@ -386,6 +386,8 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         Span::raw(" dismiss  "),
         Span::styled("u", Style::default().fg(DIM)),
         Span::raw(" undo  "),
+        Span::styled("o", Style::default().fg(DIM)),
+        Span::raw(" terminal  "),
     ];
 
     if has_registry {
