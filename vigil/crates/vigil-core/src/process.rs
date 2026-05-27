@@ -1,5 +1,5 @@
 use crate::VigilError;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Find the PID of a running process named exactly `process_name` whose current
 /// working directory is `dir`. Uses `pgrep -x` for exact name match, then
@@ -49,6 +49,49 @@ pub async fn get_pid_for_process_in_dir(process_name: &str, dir: &Path) -> Optio
         }
     }
     None
+}
+
+/// A process whose current working directory was observed by `cwd_snapshot`.
+#[derive(Debug, Clone)]
+pub struct CwdProcess {
+    pub pid: u32,
+    pub command: String,
+    pub cwd: PathBuf,
+}
+
+/// Single global `lsof -d cwd -F pcn` snapshot of every process's cwd. Callers
+/// filter the result per-container, which is far cheaper than running lsof once
+/// per worktree.
+pub async fn cwd_snapshot() -> Vec<CwdProcess> {
+    let Ok(output) = tokio::process::Command::new("lsof")
+        .args(["-d", "cwd", "-F", "pcn", "-w"])
+        .output()
+        .await
+    else {
+        return vec![];
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut out = Vec::new();
+    let mut pid: Option<u32> = None;
+    let mut cmd: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix('p') {
+            pid = rest.parse().ok();
+            cmd = None;
+        } else if let Some(rest) = line.strip_prefix('c') {
+            cmd = Some(rest.to_string());
+        } else if let Some(rest) = line.strip_prefix('n') {
+            if let (Some(pid), Some(cmd)) = (pid, cmd.clone()) {
+                out.push(CwdProcess {
+                    pid,
+                    command: cmd,
+                    cwd: PathBuf::from(rest),
+                });
+            }
+        }
+    }
+    out
 }
 
 /// Return all PIDs currently holding `path` open, via `lsof -F p`.

@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
     Frame,
 };
-use vigil_core::{AgentKind, LogEvent, PrStatus, SessionState, ToolKind};
+use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
 use crate::app::{input_presentation, App, Overlay, AGENTS};
 
@@ -24,8 +24,8 @@ const BASH_COLOR: Color = Color::Rgb(122, 90, 138);
 const EDIT_COLOR: Color = Color::Rgb(107, 138, 74);
 const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
 
-const APP_MAX_WIDTH: u16 = 144;
-const APP_MIN_WIDTH: u16 = 88;
+const APP_MAX_WIDTH: u16 = 147;
+const APP_MIN_WIDTH: u16 = 91;
 const APP_HORIZONTAL_PADDING: u16 = 4;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
@@ -239,6 +239,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 ),
                 Span::styled(format!(" {}", "─".repeat(dashes)), Style::default().fg(DIM)),
             ])),
+            Cell::from(Span::styled("───", Style::default().fg(DIM))),
             Cell::from(Span::styled("─".repeat(20), Style::default().fg(DIM))),
             Cell::from(Span::styled("───", Style::default().fg(DIM))),
             Cell::from(Span::styled("─".repeat(26), Style::default().fg(DIM))),
@@ -301,12 +302,14 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             };
             let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
+            let (bg_icon, bg_style) = bg_task_dot(&c.background_processes);
 
             rows.push(
                 Row::new(vec![
                     bar,
                     Cell::from(Span::styled(dot, dot_style)),
                     Cell::from(state_str),
+                    Cell::from(Span::styled(bg_icon, bg_style)),
                     Cell::from(c.id.clone()),
                     Cell::from(Span::styled(pr_icon, pr_style)),
                     Cell::from(branch),
@@ -332,6 +335,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Length(1),
         Constraint::Length(2),
         Constraint::Length(20),
+        Constraint::Length(3),
         Constraint::Length(20),
         Constraint::Length(3),
         Constraint::Length(26),
@@ -344,6 +348,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         "",
         "",
         "STATE",
+        "",
         "CONTAINER",
         "",
         "BRANCH",
@@ -362,9 +367,9 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 }
 
 fn last_message_column_width(table_width: u16) -> usize {
-    // Fixed columns: selection bar, state dot, state, container, PR, branch, age, agent.
+    // Fixed columns: selection bar, state dot, state, bg-task, container, PR, branch, age, agent.
     // The last-message column is the remaining Fill(1) column.
-    const FIXED_COLUMNS_WIDTH: u16 = 1 + 2 + 20 + 20 + 3 + 26 + 6 + 10;
+    const FIXED_COLUMNS_WIDTH: u16 = 1 + 2 + 20 + 3 + 20 + 3 + 26 + 6 + 10;
     table_width.saturating_sub(FIXED_COLUMNS_WIDTH).max(1) as usize
 }
 
@@ -1154,6 +1159,14 @@ fn pr_dot(status: Option<&PrStatus>) -> (&'static str, Style) {
         Some(PrStatus::InProgress) => (" ◯ ", Style::default().fg(GOLD)),
         Some(PrStatus::ReadyToMerge) => (" ◉ ", Style::default().fg(GREEN)),
         Some(PrStatus::Merged) => (" ● ", Style::default().fg(PURPLE)),
+    }
+}
+
+fn bg_task_dot(procs: &[BackgroundProcess]) -> (&'static str, Style) {
+    if procs.is_empty() {
+        ("   ", Style::default())
+    } else {
+        (" ⚙ ", Style::default().fg(BLUE))
     }
 }
 

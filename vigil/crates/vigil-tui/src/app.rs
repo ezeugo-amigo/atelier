@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::{self, Stdout};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,10 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
 use serde::{Deserialize, Serialize};
-use vigil_core::{AgentAdapter, AgentKind, Container, LogEvent, PrStatus, ProbeResult, SessionId};
+use vigil_core::{
+    process::cwd_snapshot, AgentAdapter, AgentKind, BackgroundProcess, Container, LogEvent,
+    PrStatus, ProbeResult, SessionId,
+};
 
 use crate::archive::Archive;
 
@@ -1017,10 +1020,13 @@ async fn build_refresh_result(
         pr_cache.insert(id, (status, Instant::now()));
     }
 
+    let cwd_procs = cwd_snapshot().await;
+
     let mut containers = Vec::with_capacity(entries.len());
     for (entry, handle) in entries.iter().zip(handles) {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
         let pr_status = pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
+        let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
         containers.push(Container {
             id: entry.id.clone(),
             worktree_path: entry.worktree_path.clone(),
@@ -1036,6 +1042,7 @@ async fn build_refresh_result(
                 .cloned()
                 .or(probe.last_user_message),
             pr_status,
+            background_processes,
         });
     }
     sort_containers(&mut containers);
@@ -1081,6 +1088,64 @@ fn restore_selection(app: &mut App, selected_id: Option<String>) {
     } else {
         app.table_state.select(Some(new_sel));
     }
+}
+
+/// Commands that are part of the agent/shell harness running inside a worktree,
+/// and therefore not interesting as "background tasks" the user spawned.
+const BG_PROCESS_EXCLUDE: &[&str] = &[
+    "claude",
+    "pi",
+    "droid",
+    "codex",
+    "opencode",
+    "factory",
+    "vigil",
+    "vigil-tui",
+    "vigil-cli",
+    "atelier",
+    "atelier-cli",
+    "bash",
+    "zsh",
+    "fish",
+    "sh",
+    "dash",
+    "ksh",
+    "csh",
+    "tcsh",
+    "tmux",
+    "tmux: server",
+    "screen",
+    "nvim",
+    "vim",
+    "nano",
+    "git",
+    "ssh",
+    "ssh-agent",
+    "less",
+    "more",
+    "man",
+    "lsof",
+    "ps",
+    "sourcekit-lsp",
+];
+
+fn is_bg_process_candidate(command: &str) -> bool {
+    !BG_PROCESS_EXCLUDE.contains(&command)
+}
+
+fn collect_background_processes(
+    snapshot: &[vigil_core::process::CwdProcess],
+    worktree_path: &Path,
+) -> Vec<BackgroundProcess> {
+    snapshot
+        .iter()
+        .filter(|p| p.cwd.starts_with(worktree_path))
+        .filter(|p| is_bg_process_candidate(&p.command))
+        .map(|p| BackgroundProcess {
+            pid: p.pid,
+            command: p.command.clone(),
+        })
+        .collect()
 }
 
 /// Query `gh pr view` to get PR status for a branch. Returns None if gh is unavailable.

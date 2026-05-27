@@ -97,4 +97,15 @@ pub struct Container {
     pub last_user_message: Option<String>,
     /// PR status for this container's branch, if known.
     pub pr_status: Option<PrStatus>,
+    /// Non-agent processes whose working directory lives under `worktree_path`
+    /// (e.g. dev servers spawned by the agent). Empty when nothing is running.
+    #[serde(default)]
+    pub background_processes: Vec<BackgroundProcess>,
+}
+
+/// A user-spawned process living inside a container (e.g. a dev server).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackgroundProcess {
+    pub pid: u32,
+    pub command: String,
 }
