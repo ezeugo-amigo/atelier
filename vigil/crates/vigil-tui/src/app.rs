@@ -482,6 +482,13 @@ async fn event_loop(
                                     });
                                 }
                             }
+                            KeyCode::Char('o') => {
+                                if let Some(c) = app.selected() {
+                                    let path = c.worktree_path.clone();
+                                    open_terminal(terminal, &path)?;
+                                    terminal.clear()?;
+                                }
+                            }
                             KeyCode::Char('R') => app.open_remove_confirm(),
                             KeyCode::Char('S') => app.open_default_agent_picker(),
                             KeyCode::Enter => {
@@ -1225,6 +1232,32 @@ async fn scan_git_repos() -> Vec<PathBuf> {
     repos.sort_by_key(|a| a.display().to_string());
     save_repo_scan_cache(dirs, repos.clone());
     repos
+}
+
+/// Open a shell in `dir`, suspending the TUI until the shell exits.
+fn open_terminal(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    dir: &std::path::Path,
+) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    )?;
+    terminal.show_cursor()?;
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    std::process::Command::new(&shell).current_dir(dir).status().ok();
+
+    enable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        EnterAlternateScreen,
+        EnableBracketedPaste
+    )?;
+
+    Ok(())
 }
 
 /// Attach to an existing session if `session_id` is Some, otherwise launch fresh.
