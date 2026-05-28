@@ -591,6 +591,67 @@ button {
   gap: 10px;
 }
 
+.file.is-viewed .file__head {
+  background: var(--green-100, var(--warm-50));
+}
+
+.file.is-collapsed .file__head {
+  border-bottom: none;
+}
+
+.file__head-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.file__head-toggle > svg {
+  flex-shrink: 0;
+  color: var(--content-support);
+}
+
+.file.is-viewed .file__path-name {
+  text-decoration: line-through;
+  text-decoration-color: var(--content-support);
+}
+
+.file__viewed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--content-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.file__viewed input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--green-600);
+}
+
+.file-row.is-viewed .file-row__name {
+  text-decoration: line-through;
+  text-decoration-color: var(--content-support);
+}
+
+.file-row.is-viewed .file-row__status {
+  background: var(--green-100);
+  color: var(--green-600);
+}
+
 .type-page-title {
   color: var(--content-title);
   font-family: var(--font-display);
