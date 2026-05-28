@@ -178,26 +178,65 @@ fn git_output_details(stdout: &[u8], stderr: &[u8]) -> String {
     }
 }
 
+/// Return true if `git rev-parse --verify <rev>` resolves to a commit.
+fn git_rev_exists(repo: &Path, rev: &str) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .current_dir(repo)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Pick the commit a new worktree should branch from.
+///
+/// Prefers `origin/main` (fetched fresh) when an `origin` remote exists, so
+/// worktrees start from the newest upstream main. Falls back to a local `main`
+/// branch, then the current `HEAD`, so repos without a remote still work.
+fn resolve_base_ref(repo: &Path) -> String {
+    // Only talk to origin if it's actually configured.
+    let has_origin = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if has_origin {
+        // Fetch latest from origin so the worktree starts from the newest main.
+        // Use `output()` instead of `status()` so git's progress / worktree
+        // messages don't leak into the TUI or CLI screen during normal creation.
+        let _ = Command::new("git")
+            .args(["fetch", "origin", "main"])
+            .current_dir(repo)
+            .output();
+
+        if git_rev_exists(repo, "origin/main") {
+            return "origin/main".to_string();
+        }
+    }
+
+    if git_rev_exists(repo, "refs/heads/main") {
+        return "main".to_string();
+    }
+
+    "HEAD".to_string()
+}
+
 fn git_worktree_add(repo: &Path, path: &Path, branch: &str) -> Result<(), WorktreeError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| WorktreeError::Git(format!("failed to create parent dir: {e}")))?;
     }
 
-    // Fetch latest from origin so the worktree starts from the newest main.
-    // Use `output()` instead of `status()` so git's progress / worktree messages
-    // don't leak into the TUI or CLI screen during normal creation.
-    let _ = Command::new("git")
-        .args(["fetch", "origin", "main"])
-        .current_dir(repo)
-        .output();
+    let base_ref = resolve_base_ref(repo);
 
     let output = Command::new("git")
         .args(["worktree", "add"])
         .arg(path)
         .arg("-b")
         .arg(branch)
-        .arg("origin/main")
+        .arg(&base_ref)
         .current_dir(repo)
         .output()?;
     if !output.status.success() {
