@@ -883,8 +883,13 @@ function findLineKeyForReviewComment(
 function patchForFile(file: DiffFile): string {
   const oldPath = file.oldPath === null ? "/dev/null" : `a/${file.oldPath}`;
   const newPath = file.newPath === null ? "/dev/null" : `b/${file.newPath}`;
+  // The `diff --git` line must always carry real a/<path> b/<path> operands —
+  // /dev/null there makes the @pierre/diffs parser throw and blanks the view.
+  // Only the ---/+++ lines below may use /dev/null.
+  const gitOldPath = `a/${file.oldPath ?? file.newPath}`;
+  const gitNewPath = `b/${file.newPath ?? file.oldPath}`;
   return [
-    `diff --git ${oldPath} ${newPath}`,
+    `diff --git ${gitOldPath} ${gitNewPath}`,
     `--- ${oldPath}`,
     `+++ ${newPath}`,
     ...file.hunks.flatMap((hunk) => [
