@@ -3,6 +3,8 @@ import { PatchDiff } from "@pierre/diffs/react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
+  ChevronDown,
+  ChevronRight,
   Edit3,
   GitBranch,
   MessageSquare,
@@ -76,6 +78,8 @@ export function App() {
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [status, setStatus] = useState("Loading session…");
+  const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     async function load() {
@@ -134,6 +138,36 @@ export function App() {
       return accumulator;
     }, {});
   }, [comments]);
+
+  // Marking a file "viewed" also collapses it (and un-viewing re-expands it),
+  // mirroring the GitHub review flow.
+  const toggleViewed = useCallback(
+    (fileId: string) => {
+      const willView = !viewedFiles.has(fileId);
+      setViewedFiles((current) => {
+        const next = new Set(current);
+        if (willView) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
+      setCollapsedFiles((current) => {
+        const next = new Set(current);
+        if (willView) next.add(fileId);
+        else next.delete(fileId);
+        return next;
+      });
+    },
+    [viewedFiles],
+  );
+
+  const toggleCollapsed = useCallback((fileId: string) => {
+    setCollapsedFiles((current) => {
+      const next = new Set(current);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  }, []);
 
   const submitComposer = useCallback(() => {
     if (composer === null || composer.body.trim() === "") return;
@@ -249,6 +283,7 @@ export function App() {
             selectedFileId={selectedFileId}
             session={state.session}
             totals={totals}
+            viewedFiles={viewedFiles}
             onSelect={setSelectedFileId}
           />
           <main className="diff-pane">
@@ -279,13 +314,17 @@ export function App() {
               visibleFiles.map((file) => (
                 <FileDiff
                   key={file.id}
+                  collapsed={collapsedFiles.has(file.id)}
                   comments={comments}
                   composer={composer}
                   file={file}
                   locked={submitted}
+                  viewed={viewedFiles.has(file.id)}
                   onCancelComposer={() => setComposer(null)}
                   onDeleteComment={deleteComment}
                   onEditComment={editComment}
+                  onToggleCollapsed={toggleCollapsed}
+                  onToggleViewed={toggleViewed}
                   onSelectRange={(file, startKey, endKey) => {
                     setComposer({
                       fileId: file.id,
@@ -325,8 +364,8 @@ export function App() {
             <div className="diff-pane__footer">
               <div className="type-mono">{status}</div>
               <div className="type-support">
-                {state.files.length} files · +{totals.additions} / −
-                {totals.deletions}
+                {viewedFiles.size}/{state.files.length} viewed · +
+                {totals.additions} / −{totals.deletions}
               </div>
             </div>
           </main>
@@ -419,6 +458,7 @@ function Sidebar({
   selectedFileId,
   session,
   totals,
+  viewedFiles,
 }: {
   files: DiffFile[];
   noteCounts: Record<string, number>;
@@ -426,6 +466,7 @@ function Sidebar({
   selectedFileId: string | null;
   session: SessionFile;
   totals: { additions: number; deletions: number };
+  viewedFiles: Set<string>;
 }) {
   const totalNotes = Object.values(noteCounts).reduce(
     (sum, count) => sum + count,
@@ -471,15 +512,16 @@ function Sidebar({
         const name = parts.pop() ?? path;
         const dir = parts.join("/");
         const notes = noteCounts[file.id] ?? 0;
+        const viewed = viewedFiles.has(file.id);
         return (
           <button
-            className={`file-row${selectedFileId === file.id ? " is-active" : ""}`}
+            className={`file-row${selectedFileId === file.id ? " is-active" : ""}${viewed ? " is-viewed" : ""}`}
             key={file.id}
             onClick={() => onSelect(file.id)}
             type="button"
           >
             <span className={`file-row__status status-${file.status}`}>
-              {statusLetter(file.status)}
+              {viewed ? <Check size={11} /> : statusLetter(file.status)}
             </span>
             <span className="file-row__name-wrap">
               <span className="file-row__name">{name}</span>
@@ -515,6 +557,7 @@ function Sidebar({
 }
 
 function FileDiff({
+  collapsed,
   comments,
   composer,
   file,
@@ -524,8 +567,12 @@ function FileDiff({
   onEditComment,
   onSelectRange,
   onSubmitComposer,
+  onToggleCollapsed,
+  onToggleViewed,
   onUpdateComposerBody,
+  viewed,
 }: {
+  collapsed: boolean;
   comments: AppComment[];
   composer: ComposerState | null;
   file: DiffFile;
@@ -535,7 +582,10 @@ function FileDiff({
   onEditComment: (id: string, body: string) => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
   onSubmitComposer: () => void;
+  onToggleCollapsed: (fileId: string) => void;
+  onToggleViewed: (fileId: string) => void;
   onUpdateComposerBody: (body: string) => void;
+  viewed: boolean;
 }) {
   const flat = useMemo(() => flattenFile(file), [file]);
 
@@ -574,21 +624,41 @@ function FileDiff({
   }, [composerKeys, file]);
 
   return (
-    <section className="file">
+    <section
+      className={`file${viewed ? " is-viewed" : ""}${collapsed ? " is-collapsed" : ""}`}
+    >
       <header className="file__head">
-        <span className="file__path">
-          <span className="file__path-dir">{filePathDir(file)}/</span>
-          <span className="file__path-name">{filePathName(file)}</span>
-        </span>
+        <button
+          aria-expanded={!collapsed}
+          className="file__head-toggle"
+          onClick={() => onToggleCollapsed(file.id)}
+          title={collapsed ? "Expand file" : "Collapse file"}
+          type="button"
+        >
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          <span className="file__path">
+            <span className="file__path-dir">{filePathDir(file)}/</span>
+            <span className="file__path-name">{filePathName(file)}</span>
+          </span>
+        </button>
         <span className="file__head-stats">
           <span className={`type-badge status-badge status-${file.status}`}>
             {file.status}
           </span>
           <span className="type-mono delta-add">+{file.additions}</span>
           <span className="type-mono delta-del">−{file.deletions}</span>
+          <label className="file__viewed" title="Mark file as viewed">
+            <input
+              checked={viewed}
+              onChange={() => onToggleViewed(file.id)}
+              type="checkbox"
+            />
+            <span>Viewed</span>
+          </label>
         </span>
       </header>
 
+      {collapsed ? null : (
       <div className="pierre-diff">
         <PatchDiff<DiffdeskAnnotation>
           disableWorkerPool
@@ -639,6 +709,7 @@ function FileDiff({
           }}
         />
       </div>
+      )}
     </section>
   );
 }
