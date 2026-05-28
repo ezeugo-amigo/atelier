@@ -48,7 +48,6 @@ type ComposerState = {
   filePath: string;
   startKey: LineKey;
   endKey: LineKey;
-  body: string;
 };
 
 type ParsedKey = {
@@ -169,8 +168,8 @@ export function App() {
     });
   }, []);
 
-  const submitComposer = useCallback(() => {
-    if (composer === null || composer.body.trim() === "") return;
+  const submitComposer = useCallback((body: string) => {
+    if (composer === null || body.trim() === "") return;
     const now = new Date().toISOString();
     setComments((current) => [
       ...current,
@@ -180,7 +179,7 @@ export function App() {
         filePath: composer.filePath,
         startKey: composer.startKey,
         endKey: composer.endKey,
-        body: composer.body.trim(),
+        body: body.trim(),
         author: "you",
         createdAt: "just now",
         updatedAt: now,
@@ -332,15 +331,9 @@ export function App() {
                         file.newPath ?? file.oldPath ?? file.displayPath,
                       startKey,
                       endKey,
-                      body: "",
                     });
                   }}
                   onSubmitComposer={submitComposer}
-                  onUpdateComposerBody={(body) =>
-                    setComposer((current) =>
-                      current === null ? null : { ...current, body },
-                    )
-                  }
                 />
               ))
             )}
@@ -569,7 +562,6 @@ function FileDiff({
   onSubmitComposer,
   onToggleCollapsed,
   onToggleViewed,
-  onUpdateComposerBody,
   viewed,
 }: {
   collapsed: boolean;
@@ -581,10 +573,9 @@ function FileDiff({
   onDeleteComment: (id: string) => void;
   onEditComment: (id: string, body: string) => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
-  onSubmitComposer: () => void;
+  onSubmitComposer: (body: string) => void;
   onToggleCollapsed: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
-  onUpdateComposerBody: (body: string) => void;
   viewed: boolean;
 }) {
   const flat = useMemo(() => flattenFile(file), [file]);
@@ -669,9 +660,7 @@ function FileDiff({
               return (
                 <div className="thread thread--composer pierre-thread">
                   <Composer
-                    body={composer?.body ?? ""}
                     rangeSize={annotation.metadata.rangeSize}
-                    onBodyChange={onUpdateComposerBody}
                     onCancel={onCancelComposer}
                     onSubmit={onSubmitComposer}
                   />
@@ -715,20 +704,21 @@ function FileDiff({
 }
 
 function Composer({
-  body,
-  onBodyChange,
   onCancel,
   onSubmit,
   rangeSize,
 }: {
-  body: string;
-  onBodyChange: (body: string) => void;
   onCancel: () => void;
-  onSubmit: () => void;
+  onSubmit: (body: string) => void;
   rangeSize: number;
 }) {
+  // Draft text is kept local so each keystroke re-renders only this composer,
+  // not the top-level App and every diff renderer below it. The text is lifted
+  // to App state only on submit.
+  const [draft, setDraft] = useState("");
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => textAreaRef.current?.focus(), []);
+  const isEmpty = draft.trim() === "";
   return (
     <div className="composer">
       <div className="composer__head">
@@ -741,7 +731,7 @@ function Composer({
       </div>
       <textarea
         className="comment__textarea"
-        onChange={(event) => onBodyChange(event.target.value)}
+        onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -749,21 +739,21 @@ function Composer({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            onSubmit();
+            onSubmit(draft);
           }
         }}
         placeholder="What should the agent change?"
         ref={textAreaRef}
-        value={body}
+        value={draft}
       />
       <div className="comment__actions">
         <button className="btn btn--ghost" onClick={onCancel} type="button">
           Cancel
         </button>
         <button
-          className={`btn btn--primary${body.trim() === "" ? " is-disabled" : ""}`}
-          disabled={body.trim() === ""}
-          onClick={onSubmit}
+          className={`btn btn--primary${isEmpty ? " is-disabled" : ""}`}
+          disabled={isEmpty}
+          onClick={() => onSubmit(draft)}
           type="button"
         >
           Add note
