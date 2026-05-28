@@ -6,6 +6,15 @@ PNPM ?= corepack pnpm
 ROOT := $(CURDIR)
 VITE_URL ?= http://127.0.0.1:1420
 
+# Directory holding the active node binary (and corepack/pnpm). nvm-managed node
+# is not on PATH in non-login shells, so we resolve it here and (a) use it for the
+# build and (b) bake it into the generated wrapper so it can start Vite anywhere.
+# Resolved at install time; re-run `make install` after upgrading node.
+NODE_BIN := $(shell command -v node >/dev/null 2>&1 && dirname "$$(command -v node)")
+ifneq ($(NODE_BIN),)
+export PATH := $(NODE_BIN):$(PATH)
+endif
+
 .PHONY: build install uninstall which
 
 build:
@@ -31,6 +40,10 @@ install: build
 		printf '%s\n' 'VITE_LOG="$$LOG_DIR/vite.log"'; \
 		printf '%s\n' ''; \
 		printf '%s\n' 'mkdir -p "$$LOG_DIR"'; \
+		printf '%s\n' '# nvm-managed node/corepack are absent from non-login (e.g. agent) shells;'; \
+		printf '%s\n' '# put the install-time node bin dir on PATH so Vite can be started anywhere.'; \
+		printf '%s\n' 'NODE_BIN="$(NODE_BIN)"'; \
+		printf '%s\n' 'if [ -n "$$NODE_BIN" ] && [ -d "$$NODE_BIN" ]; then PATH="$$NODE_BIN:$$PATH"; fi'; \
 		printf '%s\n' 'corepack enable >/dev/null 2>&1 || true'; \
 		printf '%s\n' ''; \
 		printf '%s\n' 'if [ ! -x "$$CLI" ] || [ ! -x "$$APP" ]; then'; \
