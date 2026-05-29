@@ -22,6 +22,7 @@ use vigil_core::{
 };
 
 use crate::archive::Archive;
+use crate::recap::Recap;
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
@@ -83,6 +84,10 @@ pub enum Overlay {
         lines: Vec<String>,
         /// Number of rendered lines scrolled up from the live bottom of the log.
         scroll: usize,
+        /// LLM-generated recap pinned to the corner; synced from `App::recap`.
+        recap: Recap,
+        /// Whether the recap box is shown; toggled with `R`, persisted in `App`.
+        recap_visible: bool,
     },
     SendMessage {
         input: Vec<MessageInputChunk>,
@@ -118,6 +123,12 @@ pub struct App {
     pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
     /// Cache of log data per container id, updated every tick for the selected container.
     log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
+    /// Cache of the last recap per container id, persisted across log-view open/close.
+    recap: HashMap<String, Recap>,
+    /// Receiver for an in-flight recap generation (delivers (container_id, result)).
+    recap_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
+    /// Whether the recap box is shown in the log view; persists across open/close.
+    recap_visible: bool,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
     /// Receiver for the background refresh job. The UI keeps rendering cached
@@ -146,6 +157,9 @@ impl App {
             last_refresh: Instant::now(),
             last_dismissed: None,
             log_cache: HashMap::new(),
+            recap: HashMap::new(),
+            recap_rx: None,
+            recap_visible: true,
             pr_cache: HashMap::new(),
             scan_rx: None,
             refresh_rx: None,
@@ -214,13 +228,60 @@ impl App {
     pub fn open_log_view(&mut self) {
         if let Some(c) = self.selected() {
             let (events, lines) = self.log_cache.get(&c.id).cloned().unwrap_or_default();
+            let recap = self.recap.get(&c.id).cloned().unwrap_or_default();
             self.overlay = Overlay::LogView {
                 container_id: c.id.clone(),
                 events,
                 lines,
                 scroll: 0,
+                recap,
+                recap_visible: self.recap_visible,
             };
         }
+    }
+
+    /// Toggle whether the recap box is shown over the log text.
+    pub fn toggle_recap(&mut self) {
+        self.recap_visible = !self.recap_visible;
+        if let Overlay::LogView {
+            ref mut recap_visible,
+            ..
+        } = self.overlay
+        {
+            *recap_visible = self.recap_visible;
+        }
+    }
+
+    /// Kick off (or refresh) the recap for the session shown in the log view.
+    /// Shells out to `claude --print` off-thread; the result is delivered via
+    /// `recap_rx` and picked up in `refresh()`.
+    pub fn request_recap(&mut self) {
+        let id = match &self.overlay {
+            Overlay::LogView { container_id, .. } => container_id.clone(),
+            _ => return,
+        };
+        let (events, lines) = self.log_cache.get(&id).cloned().unwrap_or_default();
+        if events.is_empty() && lines.is_empty() {
+            return;
+        }
+        self.recap.insert(id.clone(), Recap::Loading);
+        // Requesting a recap always reveals the box, even if it was hidden.
+        self.recap_visible = true;
+        if let Overlay::LogView {
+            ref mut recap,
+            ref mut recap_visible,
+            ..
+        } = self.overlay
+        {
+            *recap = Recap::Loading;
+            *recap_visible = true;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.recap_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = crate::recap::generate(&events, &lines).await;
+            tx.send((id, result)).ok();
+        });
     }
 
     fn open_dismiss_confirm(&mut self) {
@@ -557,6 +618,12 @@ async fn event_loop(
                                     return_to_log: true,
                                 };
                             }
+                            KeyCode::Char('r') => {
+                                app.request_recap();
+                            }
+                            KeyCode::Char('R') => {
+                                app.toggle_recap();
+                            }
                             KeyCode::Char('k') | KeyCode::Up => {
                                 if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
                                     *scroll = scroll.saturating_add(3);
@@ -862,11 +929,14 @@ fn close_send_message(app: &mut App) {
 
 fn log_view_overlay_from_cache(app: &App, container_id: &str) -> Overlay {
     let (events, lines) = app.log_cache.get(container_id).cloned().unwrap_or_default();
+    let recap = app.recap.get(container_id).cloned().unwrap_or_default();
     Overlay::LogView {
         container_id: container_id.to_string(),
         events,
         lines,
         scroll: 0,
+        recap,
+        recap_visible: app.recap_visible,
     }
 }
 
@@ -887,6 +957,24 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                 app.refresh_rx = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+    }
+
+    // Pick up a completed recap, if any, and cache it by container id.
+    if let Some(rx) = app.recap_rx.as_mut() {
+        match rx.try_recv() {
+            Ok((id, result)) => {
+                app.recap_rx = None;
+                let recap = match result {
+                    Ok(text) => Recap::Ready(text),
+                    Err(err) => Recap::Error(err),
+                };
+                app.recap.insert(id, recap);
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                app.recap_rx = None;
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
@@ -945,6 +1033,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         events,
         lines,
         scroll,
+        recap,
         ..
     } = &mut app.overlay
     {
@@ -954,6 +1043,9 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             if events.is_empty() && lines.is_empty() {
                 *scroll = 0;
             }
+        }
+        if let Some(cached_recap) = app.recap.get(container_id) {
+            *recap = cached_recap.clone();
         }
     }
 
