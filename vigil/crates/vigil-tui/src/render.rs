@@ -712,7 +712,10 @@ fn draw_log_view_panel(
                 } else {
                     Style::default().fg(DIM)
                 };
-                Line::from(Span::styled(format!(" {s}"), style))
+                Line::from(Span::styled(
+                    format!(" {}", sanitize_for_display(s)),
+                    style,
+                ))
             })
             .collect();
         f.render_widget(Paragraph::new(display), content);
@@ -877,7 +880,12 @@ fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
                 .iter()
                 .skip(start)
                 .take(max_lines)
-                .map(|s| Line::from(Span::styled(s.clone(), Style::default().fg(DIM))))
+                .map(|s| {
+                    Line::from(Span::styled(
+                        sanitize_for_display(s),
+                        Style::default().fg(DIM),
+                    ))
+                })
                 .collect();
             f.render_widget(Paragraph::new(display), inner);
         }
@@ -1212,8 +1220,64 @@ fn state_style(state: &SessionState) -> Style {
     }
 }
 
+/// Strip ANSI escape sequences and replace other control characters.
+///
+/// Pasted or logged text frequently carries raw control codes — ANSI color
+/// sequences, carriage returns, tabs, backspaces. If these reach ratatui's
+/// cell buffer they are flushed verbatim to the terminal, which *interprets*
+/// them: the cursor jumps, content spills outside the widget's rectangle, and
+/// because ratatui's diff never wrote those off-region cells it never clears
+/// them. The result is text that leaks into the margins and lingers until a
+/// full redraw (restart). Sanitizing before render keeps every glyph a plain,
+/// single-cell printable character.
+fn sanitize_for_display(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\u{1b}' => match chars.peek() {
+                // CSI: ESC [ … <final byte 0x40..=0x7e>
+                Some('[') => {
+                    chars.next();
+                    while let Some(c) = chars.next() {
+                        if ('\u{40}'..='\u{7e}').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: ESC ] … terminated by BEL or ST (ESC \)
+                Some(']') => {
+                    chars.next();
+                    while let Some(c) = chars.next() {
+                        if c == '\u{07}' {
+                            break;
+                        }
+                        if c == '\u{1b}' {
+                            if matches!(chars.peek(), Some('\\')) {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                // Lone ESC or two-char escape — drop the following byte too.
+                _ => {
+                    chars.next();
+                }
+            },
+            '\t' => out.push_str("    "),
+            // Drop remaining control characters (CR, LF, backspace, etc.).
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Split `text` into chunks of at most `width` chars without breaking mid-word.
 fn wrap_str(text: &str, width: usize) -> Vec<String> {
+    let sanitized = sanitize_for_display(text);
+    let text = sanitized.as_str();
     if width == 0 || text.is_empty() {
         return vec![text.to_string()];
     }
@@ -1288,5 +1352,50 @@ fn fmt_age(ts: DateTime<Utc>) -> String {
         format!("{}m", secs / 60)
     } else {
         format!("{}h", secs / 3600)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_strips_ansi_color_sequences() {
+        let input = "\u{1b}[31mred\u{1b}[0m and \u{1b}[1;32mgreen\u{1b}[m";
+        assert_eq!(sanitize_for_display(input), "red and green");
+    }
+
+    #[test]
+    fn sanitize_strips_osc_sequences() {
+        // OSC terminated by BEL and by ST (ESC \).
+        assert_eq!(
+            sanitize_for_display("\u{1b}]0;window title\u{07}body"),
+            "body"
+        );
+        assert_eq!(
+            sanitize_for_display("\u{1b}]8;;http://x\u{1b}\\link"),
+            "link"
+        );
+    }
+
+    #[test]
+    fn sanitize_drops_bare_control_chars_and_expands_tabs() {
+        // CR, backspace, vertical tab, lone ESC are removed; tab → spaces.
+        assert_eq!(sanitize_for_display("a\rb\x08c\x0bd"), "abcd");
+        assert_eq!(sanitize_for_display("a\tb"), "a    b");
+        assert_eq!(sanitize_for_display("a\nb"), "ab");
+    }
+
+    #[test]
+    fn sanitize_keeps_plain_and_wide_unicode() {
+        assert_eq!(sanitize_for_display("héllo 世界 ✓"), "héllo 世界 ✓");
+    }
+
+    #[test]
+    fn wrap_str_sanitizes_before_wrapping() {
+        // A line that is short once the escape codes are stripped must not be
+        // forced onto multiple rows by the now-removed control bytes.
+        let wrapped = wrap_str("\u{1b}[31mhello\u{1b}[0m", 10);
+        assert_eq!(wrapped, vec!["hello".to_string()]);
     }
 }
