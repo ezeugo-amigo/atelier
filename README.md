@@ -19,6 +19,10 @@ hide what doesn't.
   range, or a patch file in a polished UI; annotate; ship the review as
   Markdown or JSON.
 
+- **[todo/](todo/)** — a warm, paper-like daily todo app: an Elm frontend in a
+  Tauri desktop shell. Unfinished tasks carry over to today automatically; a
+  calendar view shows completion history. State persists locally to IndexedDB.
+
 (More tools as they exist.)
 
 ## Why
@@ -39,10 +43,15 @@ atelier/
 │   ├── Cargo.toml     (its own Cargo workspace)
 │   ├── crates/
 │   └── docs/
-└── diffdesk/          (another tool)
-    ├── Cargo.toml     (its own Cargo workspace)
-    ├── src/
-    └── src-tauri/
+├── diffdesk/          (another tool)
+│   ├── Cargo.toml     (its own Cargo workspace)
+│   ├── src/
+│   └── src-tauri/
+└── todo/              (another tool)
+    ├── elm.json       (Elm frontend)
+    ├── src/           (Elm source)
+    ├── web/           (static frontend Tauri bundles)
+    └── src-tauri/     (its own Tauri desktop shell)
 ```
 
 There is no top-level Cargo workspace; each tool builds independently. `cd`

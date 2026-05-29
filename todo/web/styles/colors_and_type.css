@@ -1,0 +1,398 @@
+/* ==========================================================================
+   Amigo Design System — Colors & Type
+   --------------------------------------------------------------------------
+   Warm, editorial, clinical. Serif display (Flecha) + Inter UI + Diatype Mono.
+   Warm grays only. No cool grays. No #000000. No glass on platform.
+
+   v3 (2026-04-23) — aligned to canonical dashboard.html + approved preview panels:
+   · warm-gray scale extended to include -25/-75/-150 and -7/-8/-9 tiers
+   · warm-50 reconciled to canonical #FAF8F6
+   · content-* tokens now derive from warm scale (single source of truth)
+   · border-subtle + border-tables now reference warm tiers
+   · surface-page moved to warm-50 (fixes over-saturated header band)
+   · semantic accent scales declared as first-class tokens (blue/green/red/
+     amber/teal/lavender 100–700); brand primitives bridge at --blue-700,
+     --orange-600, --lavender-200
+   · badge tokens re-derived from hue scale (not Tailwind, not status-light);
+     is-alert + is-neutral dropped; is-product (lavender) added
+   · --surface-support moved off neutral #EFEFE9 to var(--warm-1)
+   · --badge-default moved off --warm-50 (collided with --surface-page)
+   · added --space-1-5 (6px)
+   · added missing type classes approved in preview review
+   · Diatype Mono caps at Regular (400); Medium (500) is NOT licensed
+     — .type-mono and .type-badge use weight 400
+   ========================================================================== */
+
+/* ---------- FONT FACES ---------------------------------------------------- */
+/* PLATFORM font set. Flecha caps at 500, Inter caps at 600, Diatype Mono is 400 only.
+   Flecha Bold + Inter 700 kept in a separate marketing stylesheet when needed. */
+@font-face {
+  font-family: 'Flecha S';
+  src: url('../fonts/FlechaS-Light.woff2') format('woff2');
+  font-weight: 300; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Flecha S';
+  src: url('../fonts/FlechaS-Regular.woff2') format('woff2'),
+       url('../fonts/FlechaS-Regular.woff')  format('woff');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Flecha S';
+  src: url('../fonts/FlechaS-RegularItalic.woff2') format('woff2');
+  font-weight: 400; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'Flecha S';
+  src: url('../fonts/FlechaS-Medium.woff2') format('woff2'),
+       url('../fonts/FlechaS-Medium.woff')  format('woff');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Flecha S';
+  src: url('../fonts/FlechaS-MediumItalic.woff2') format('woff2');
+  font-weight: 500; font-style: italic; font-display: swap;
+}
+@font-face {
+  font-family: 'ABC Diatype Mono';
+  src: url('../fonts/ABCDiatypeMono-Regular.woff2') format('woff2'),
+       url('../fonts/ABCDiatypeMono-Regular.woff')  format('woff');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+/* Diatype Mono Medium (500) is NOT licensed — only Regular (400) is.
+   Mono eyebrows (.type-mono) and badges (.type-badge) use weight 400.
+   Do not re-add a 500 @font-face unless the license is extended. */
+/* Inter: loaded from Google Fonts in each HTML. Platform caps at 600 — never load 700.
+   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet"> */
+
+:root {
+  /* ---------- BRAND PRIMITIVES --------------------------------------- */
+  --amigo-blue:     #083241;   /* secondary brand, identity anchors, data moments */
+  --amigo-orange:   #AA412A;   /* PRIMARY brand — functional accents only (~5% surface) */
+  --amigo-green:    #2c3827;   /* tertiary accent */
+  --amigo-violet:   #222238;   /* tertiary, sparing */
+  --amigo-lavender: #C5BACE;   /* soft decorative accent */
+  --amigo-white:    #FFFFFF;   /* Brand primitive — literal white. NOT the same as --surface-background. */
+  --amigo-black:    #100F0F;   /* NEVER #000000 */
+
+  /* ---------- WARM GRAYS (warm only — no cool grays) -----------------
+     Canonical playbook covers 1–6. Extended tiers 25/75/150 (fills + soft borders)
+     and 7/8/9 (deeper text) are lifted from canonical dashboard.html.
+     A single source-of-truth scale — all neutral tokens below MUST derive from it. */
+  --warm-25:  #FDFCFB;  /* lightest fill — subtle hover on white */
+  --warm-50:  #FAF8F6;  /* page-header band, subtle section fills (reconciled w/ dashboard) */
+  --warm-75:  #F6F2F0;  /* faint border — nested containers (border-subtle) */
+  --warm-1:   #F1EAE7;  /* card bg, input fills — canonical warm-gray-1 */
+  --warm-150: #E8E2DF;  /* muted divider */
+  --warm-2:   #D7D2D0;  /* borders, dividers — canonical warm-gray-2 */
+  --warm-3:   #B3AEAC;  /* disabled text — canonical warm-gray-3 */
+  --warm-4:   #969290;  /* placeholder — canonical warm-gray-4 */
+  --warm-5:   #767270;  /* muted/secondary text — canonical warm-gray-5 */
+  --warm-6:   #575452;  /* strong secondary text, icons — canonical warm-gray-6 */
+  --warm-7:   #3D3937;  /* body text */
+  --warm-8:   #282524;  /* strong body */
+  --warm-9:   #1A1817;  /* titles — near-black, still warm */
+
+  /* ---------- SEMANTIC ACCENT SCALES ---------------------------------
+     Hue-anchored first-class tokens. Brand-primitives (--amigo-*) bridge
+     INTO these at specific tiers:
+       --blue-700    = Amigo Blue
+       --orange-600  = Amigo Orange
+       --lavender-200 = Amigo Lavender
+     Use these for UI state communication (badges, surface-*-light);
+     use --amigo-* for brand moments (logo, selection bg, decorative). */
+  --blue-500:    #0d6280;
+  --blue-600:    #0a4a5e;
+  --blue-700:    #083241;   /* = Amigo Blue */
+  --green-100:   #DFF0EA;
+  --green-600:   #167E60;
+  --green-700:   #0F5D47;   /* badge-content-success / event TOOL text */
+  --red-100:     #FDE8E8;
+  --red-600:     #E0191F;
+  --red-700:     #C41419;   /* destructive pressed / event EMOTION text */
+  --amber-100:   #FEF3E2;
+  --amber-500:   #D97706;
+  --amber-600:   #B45309;   /* badge-content-warning / event STATE text */
+  --teal-100:    #E6F2F7;
+  --teal-600:    #0D729D;
+  --teal-700:    #0A5A7D;   /* badge-content-info / event SESSION text */
+  --lavender-100: #F0EDFC;
+  --lavender-200: var(--amigo-lavender);  /* #C5BACE — bridge to brand */
+  --lavender-600: #6E56CF;
+  --lavender-700: #5B3FB8;   /* badge-content-product / event METRIC text */
+  /* The 700-tier text colors above (teal/green/amber/red/lavender) are the
+     canonical badge-content tier — upgraded from 600 on 2026-05-05 to
+     compensate for Diatype Mono Regular (400) at 10px uppercase.
+     Mono Medium (500) is NOT licensed; darker text is required for legibility. */
+
+  /* Orange scale — verified against canonical button-spec.html
+     600 = default, 500 = hover, 400 = pressed, 100 = subtle fill */
+  --orange-100: #FFF2ED;  /* subtle fill */
+  --orange-400: #D4765F;  /* pressed state */
+  --orange-500: #C25A3F;  /* hover state */
+  --orange-600: #AA412A;  /* default — brand primary — = Amigo Orange */
+
+  /* Linework */
+  --linework-orange: #C68277;
+  --linework-blue:   #5C767E;
+  --linework-green:  #767E73;
+  --linework-white:  #D7D2D0;
+
+  /* ---------- STATUS --------------------------------------------------
+     alert (#D9A21F, amber) vs warning (#CE6418, orange) are BOTH in use:
+     · alert   — soft "heads-up" / attention-required, non-blocking
+                 (e.g. agent requires review, low-confidence response)
+     · warning — stronger "caution" / pre-error, imminent failure
+                 (e.g. approaching rate limit, deprecation) */
+  --status-info:    #0D729D;
+  --status-success: #167E60;
+  --status-alert:   #D9A21F;
+  --status-warning: #CE6418;
+  --status-error:   #E0191F;
+
+  --surface-info-light:    #E7F1F5;
+  --surface-success-light: #E8F2EF;
+  --surface-alert-light:   #FEF8E9;
+  --surface-warning-light: #FAF0E8;
+  --surface-error-light:   #F5E7E7;
+
+  --border-info:    #B6D5E2;
+  --border-success: #B9D8CF;
+  --border-alert:   #FBE8BD;
+  --border-warning: #F0D0BA;
+  --border-error:   #E2B6B8;
+
+  /* ---------- SEMANTIC SURFACES (PLATFORM) ----------------------------
+     NOTE: --surface-background (#FEFEFE) is the platform's near-white surface token.
+     It is NOT "Amigo White" (#FFFFFF, brand primitive). Do not conflate.
+     --surface-main is a near-duplicate of --surface-background intentionally —
+     background = viewport chrome, main = primary content canvas. Distinct scope
+     even when values match; don't consolidate. */
+  --surface-background: #FEFEFE;
+  --surface-main:       #FEFEFE;
+  --surface-support:    var(--warm-1);  /* #F1EAE7 — warm-derived */
+  --surface-secondary:  var(--warm-75);  /* #F6F2F0 — was legacy #F5F5F4 (Tailwind stone-100, cool), reconciled to warm-75 per playbook */
+  --surface-tables:     var(--warm-150);
+  --surface-page:       var(--warm-50);  /* page-header band — subtle near-white tier */
+
+  /* ---------- SEMANTIC CONTENT (derives from warm scale) --------------
+     Single source of truth. Never hand-code a neutral hex for text. */
+  --content-title:       var(--warm-9);  /* #1A1817 */
+  --content-body:        var(--warm-7);  /* #3D3937 */
+  --content-secondary:   var(--warm-5);  /* #767270 */
+  --content-support:     var(--warm-4);  /* #969290 */
+  --content-placeholder: var(--warm-3);  /* #B3AEAC */
+  --content-disabled:    var(--warm-3);  /* matches placeholder — lighter than secondary */
+  --content-on-color:    #FFFFFF;
+
+  /* ---------- SEMANTIC BORDERS (derives from warm scale) --------------
+     warm-150 is the canonical interactive-element border tier.
+     warm-2 is reserved for explicit dividers (e.g. <hr>, table column rules),
+     not for resting borders on inputs/buttons/cards. */
+  --border-subtle:  var(--warm-75);   /* #F6F2F0 — cards, containers */
+  --border-default: var(--warm-150);  /* #E8E2DF — interactive elements (inputs, buttons resting state) */
+  --border-divider: var(--warm-2);    /* #D7D2D0 — explicit dividers only */
+  --border-tables:  var(--warm-50);   /* #FAF8F6 — table row dividers */
+  --border-support: var(--warm-25);   /* #FDFCFB — faintest */
+  --border-active:  var(--content-title);
+
+  /* Selection: lavender tint, brand moment */
+  --selection-bg: #E5DFE9;
+
+  /* ---------- BADGE TOKENS -------------------------------------------
+     Derive from the hue-100 scale (bg) and hue-700 scale (text). Text tokens
+     upgraded from 600-tier to 700-tier on 2026-05-05 to compensate for
+     Diatype Mono Regular (400) at 10px uppercase.
+     Alert vs warning distinction lives at inline-status layer, NOT here —
+     badges collapse to amber-only (is-warning).
+
+     EVENT TYPE BADGE COLOR MAP (canonical, approved 2026-05-12 playground review).
+     Single source of truth for event-type badges across all playground / log pages.
+     TRANSCRIPT is deliberately neutral: it is the most common event type and must
+     not compete with semantic events.
+
+       Event type | Badge variant       | Background       | Text
+       -----------|---------------------|------------------|------------------
+       SESSION    | info (teal)         | --teal-100       | --teal-700
+       TRANSCRIPT | default (neutral)   | --warm-1         | --warm-6
+       STATE      | warning (amber)     | --amber-100      | --amber-600
+       TOOL       | success (green)     | --green-100      | --green-700
+       METRIC     | product (lavender)  | --lavender-100   | --lavender-700
+       EMOTION    | error (red)         | --red-100        | --red-700 */
+  --badge-default: var(--warm-1);         --badge-content-default: var(--warm-6);
+  --badge-info:    var(--teal-100);       --badge-content-info:    var(--teal-700);
+  --badge-success: var(--green-100);      --badge-content-success: var(--green-700);
+  --badge-warning: var(--amber-100);      --badge-content-warning: var(--amber-600);
+  --badge-error:   var(--red-100);        --badge-content-error:   var(--red-700);
+  --badge-product: var(--lavender-100);   --badge-content-product: var(--lavender-700);
+  --badge-content-ghost: var(--warm-6);   --badge-border-ghost:    var(--warm-150);
+
+  /* ---------- TYPOGRAPHY FAMILIES ------------------------------------- */
+  --font-display: 'Flecha S', 'Playfair Display', Georgia, serif;
+  --font-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:    'ABC Diatype Mono', 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+  /* ---------- RADII (PLATFORM TIGHT SCALE) ---------------------------- */
+  --radius-sm:  6px;   /* buttons, inputs, badges, tags */
+  --radius-md:  8px;   /* dropdowns, inner panels, nested */
+  --radius-lg: 12px;   /* PLATFORM cards (NEVER 20px here) */
+  --radius-xl: 20px;   /* marketing containers only */
+  --radius-2xl: 24px;  /* marketing hero cards only */
+  --radius-full: 9999px;
+
+  /* ---------- SPACING (PLATFORM) -------------------------------------- */
+  --space-1:    4px;
+  --space-1-5:  6px;   /* tight inline — between 4 and 8 (approved) */
+  --space-2:    8px;
+  --space-3:   12px;
+  --space-4:   16px;
+  --space-5:   20px;
+  --space-6:   24px;
+  --space-8:   32px;
+  --space-10:  40px;
+  --space-12:  48px;
+
+  --page-pad-x:  32px;   /* px-8 */
+  --page-pad-y:  24px;   /* py-6 */
+  --card-pad:    20px;
+  --section-gap: 24px;
+
+  --sidebar-w:          220px;
+  --sidebar-collapsed:   56px;
+  --side-panel-w:       420px;
+
+  /* ---------- ELEVATION -----------------------------------------------
+     Shadow base: warm tint (matches warm-6 #575452). Warm shadows sit
+     correctly on warm-1/warm-50 surfaces without reading cool. */
+  --shadow-tint:      87, 84, 82;   /* warm-6 rgb — single source of truth */
+  --shadow-card:      0 1px 2px 0 rgba(var(--shadow-tint), 0.05), 0 1px 3px 0 rgba(var(--shadow-tint), 0.05);
+  --shadow-button:    0 1px 2px 0 rgba(var(--shadow-tint), 0.07);
+  --shadow-pop:       0 4px 12px 0 rgba(var(--shadow-tint), 0.10), 0 2px 4px 0 rgba(var(--shadow-tint), 0.05);
+  --shadow-lift:      0 8px 24px 0 rgba(var(--shadow-tint), 0.10);
+  /* Spotlight — focus-ring glow. Uses blue tint, not warm (focus is brand-blue). */
+  --shadow-spotlight: 0 0 0 3px rgba(8, 50, 65, 0.12);
+
+  /* ---------- MOTION --------------------------------------------------- */
+  --motion-instant: 100ms;
+  --motion-fast:    200ms;
+  --motion-base:    300ms;
+  --motion-slow:    500ms;
+  --motion-xslow:   600ms;
+  --easing-std:     cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-in:      cubic-bezier(0.4, 0, 1, 1);
+  --easing-out:     cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* ---------- BASE ---------------------------------------------------------- */
+/* font-feature-settings "ss01" (stylistic alt for dotted zero + single-story a) and
+   "cv11" (straight-tail alts) — documented Inter treatment for the platform. */
+html, body {
+  font-family: var(--font-sans);
+  color: var(--content-title);
+  background: var(--surface-background);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+}
+::selection { background-color: var(--selection-bg); }
+
+/* ---------- SEMANTIC TYPE CLASSES (PLATFORM) ------------------------------ */
+/* Flecha S for display @ 16px+ weight 500 ONLY. Never smaller, never bolder. */
+.type-page-title    { font-family: var(--font-display); font-size: 24px; font-weight: 500; line-height: 1.2;  letter-spacing: -0.5px; color: var(--content-title); }
+.type-hero-metric   { font-family: var(--font-display); font-size: 32px; font-weight: 500; line-height: 1.1;  letter-spacing: -0.5px; color: var(--content-title); }
+.type-support-metric{ font-family: var(--font-display); font-size: 22px; font-weight: 500; line-height: 1.2;  letter-spacing: -0.3px; color: var(--content-title); }
+.type-entity-name   { font-family: var(--font-display); font-size: 17px; font-weight: 500; line-height: 1.3;  color: var(--content-title); }
+.type-card-title    { font-family: var(--font-display); font-size: 16px; font-weight: 500; line-height: 1.3;  color: var(--content-title); }
+
+/* Inter */
+.type-section-header{ font-family: var(--font-sans); font-size: 16px; font-weight: 600; line-height: 1.3;  color: var(--content-title); }
+.type-section-label { font-family: var(--font-sans); font-size: 13px; font-weight: 600; line-height: 1.35; color: var(--content-title); }
+.type-metric-label  { font-family: var(--font-sans); font-size: 13px; font-weight: 500; line-height: 1.35; color: var(--content-secondary); }
+.type-body          { font-family: var(--font-sans); font-size: 14px; font-weight: 400; line-height: 1.4;  color: var(--content-body); }
+.type-support       { font-family: var(--font-sans); font-size: 12px; font-weight: 400; line-height: 1.35; color: var(--content-support); }
+.type-caption       { font-family: var(--font-sans); font-size: 11px; font-weight: 400; line-height: 1.4;  color: var(--content-support); }
+.type-btn           { font-family: var(--font-sans); font-size: 13px; font-weight: 500; line-height: 1.35; letter-spacing: 0.07px; }
+.type-delta         { font-family: var(--font-sans); font-size: 12px; font-weight: 500; line-height: 1.35; }
+/* .type-th letter-spacing is INTENTIONALLY 0.5px, not 0.08em.
+   Inter uppercase needs ~0.5px optical tracking at 11px for legibility;
+   the 0.08em used on Diatype Mono eyebrows (.type-mono) is a separate spec
+   because mono letterforms are already wider. Do not unify these two values. */
+.type-th            { font-family: var(--font-sans); font-size: 11px; font-weight: 500; line-height: 1.35; letter-spacing: 0.5px; text-transform: uppercase; color: var(--content-support); }
+.type-status-inline { font-family: var(--font-sans); font-size: 13px; font-weight: 500; line-height: 1.35; /* color: applied via .is-success / .is-alert / etc; no bg */ }
+.type-empty         { font-family: var(--font-sans); font-size: 13px; font-weight: 400; line-height: 1.35; color: var(--content-placeholder); /* content: "–" (en dash) */ }
+
+/* Diatype Mono — eyebrows, IDs, badges. Tier 3 = weight 400 (Regular is the only licensed face). */
+/* Color uses --warm-6 (#575452), one step darker than --content-secondary (warm-5),
+   to compensate for Mono Regular's thinner strokes at small sizes. */
+.type-mono          { font-family: var(--font-mono); font-size: 11px; font-weight: 400; line-height: 1.45; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warm-6); }
+.type-id            { font-family: var(--font-mono); font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--content-support); }
+.type-timestamp     { font-family: var(--font-mono); font-size: 12px; font-weight: 400; line-height: 1.45; color: var(--content-support); /* exact / ISO timestamps — same specs as .type-id */ }
+/* =========================================================================
+   BADGE PRIMITIVE — ATOMIC BLOCK. Do not split. Do not cherry-pick.
+   -------------------------------------------------------------------------
+   Every pill-shaped primitive (.type-badge, .badge, .pill, .tag, .chip)
+   MUST carry all three parts below: TRINITY (alignment), ANATOMY (chip
+   shape), and TYPE (font spec). Variants declare ONLY colors and inherit
+   everything else. If you find yourself copying only part of this block,
+   stop and copy the whole thing.
+
+   Failure modes this rule prevents:
+   · trinity without anatomy → unstyled wrapping inline text
+   · anatomy without trinity → top-heavy pills, glyphs mis-centered
+   · explicit height         → height+line-height conflict, same bug
+   · variant without base    → variants cascade to nothing, pills vanish
+
+   Canonical: SKILL.md zero-tolerance rule #1,
+              playbook/references/design-retro-log.md
+   ========================================================================= */
+.type-badge,
+.badge, .pill, .tag, .chip {
+  /* Trinity — alignment */
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+
+  /* Anatomy — chip shape. NEVER set explicit height; pad vertically. */
+  /* Optical centering for uppercase mono text: +1px top vs bottom.
+     Uppercase letters have no descenders, so visual center sits above
+     typographic center. Do not symmetrize. The 1px delta is consistent
+     with the small variant's 1px delta (3-2=1). */
+  padding: 5px 8px 4px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  vertical-align: middle;
+
+  /* Type spec — Mono 10 / 400 uppercase (Medium not licensed) */
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* Variants — colors ONLY. Inherit trinity + anatomy + type from base above.
+   Canonical 6: default / info / success / warning / error / product.
+   (is-alert and is-neutral were cut — alert vs warning distinction lives at
+   inline-status layer via .type-status-inline.is-alert, not at the badge layer.) */
+.type-badge.is-default { background: var(--badge-default); color: var(--badge-content-default); }
+.type-badge.is-info    { background: var(--badge-info);    color: var(--badge-content-info); }
+.type-badge.is-success { background: var(--badge-success); color: var(--badge-content-success); }
+.type-badge.is-warning { background: var(--badge-warning); color: var(--badge-content-warning); }
+.type-badge.is-error   { background: var(--badge-error);   color: var(--badge-content-error); }
+.type-badge.is-product { background: var(--badge-product); color: var(--badge-content-product); }
+
+/* Inline status color modifiers — paired with .type-status-inline.
+   This is where amber-vs-orange (alert vs warning) distinction is preserved. */
+.type-status-inline.is-info    { color: var(--status-info); }
+.type-status-inline.is-success { color: var(--status-success); }
+.type-status-inline.is-alert   { color: var(--status-alert); }
+.type-status-inline.is-warning { color: var(--status-warning); }
+.type-status-inline.is-error   { color: var(--status-error); }
+
+/* ---------- FOUNDATIONAL ELEMENT DEFAULTS --------------------------------- */
+h1 { font-family: var(--font-display); font-size: 24px; font-weight: 500; letter-spacing: -0.5px; color: var(--content-title); }
+h2 { font-family: var(--font-sans);    font-size: 18px; font-weight: 600; color: var(--content-title); }
+h3 { font-family: var(--font-sans);    font-size: 15px; font-weight: 600; color: var(--content-title); }
+h4 { font-family: var(--font-sans);    font-size: 13px; font-weight: 600; color: var(--content-title); }
+p  { font-family: var(--font-sans);    font-size: 14px; font-weight: 400; line-height: 1.4;  color: var(--content-body); }
+code, kbd, samp { font-family: var(--font-mono); font-size: 12px; }

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Today",
+  "version": "0.1.0",
+  "identifier": "ai.atelier.today",
+  "build": {
+    "beforeDevCommand": "./build.sh",
+    "beforeBuildCommand": "./build.sh --optimize",
+    "frontendDist": "../web"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Today",
+        "width": 720,
+        "height": 960,
+        "minWidth": 380,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}
