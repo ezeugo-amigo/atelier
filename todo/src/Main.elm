@@ -123,22 +123,22 @@ update msg model =
 
         GotStored value ->
             let
-                ( seeded, nextId ) =
+                stored =
                     case Decode.decodeValue storedDecoder value of
-                        Ok stored ->
-                            if stored.found then
-                                ( stored.tasks, model.nextId )
+                        Ok s ->
+                            if s.found then
+                                s.tasks
 
                             else
-                                seedTasks model.today model.nextId
+                                []
 
                         Err _ ->
-                            seedTasks model.today model.nextId
+                            []
 
                 carried =
-                    applyCarryOver model.today seeded
+                    applyCarryOver model.today stored
             in
-            ( { model | tasks = carried, loaded = True, nextId = nextId }
+            ( { model | tasks = carried, loaded = True }
             , dbSave (encodeTasks carried)
             )
 
@@ -280,82 +280,6 @@ applyCarryOver today tasks =
                 t
         )
         tasks
-
-
-
--- SEED DATA (first run only)
-
-
-type alias Spec =
-    { title : String
-    , note : String
-    , done : Bool
-    , createdOff : Int
-    , dayOff : Int
-    , completedOff : Maybe Int
-    , order : Int
-    }
-
-
-seedTasks : String -> Int -> ( List Task, Int )
-seedTasks today startId =
-    let
-        pastGroups =
-            [ ( -1, [ "Reply to the onboarding email", "Water the plants", "Read two chapters" ] )
-            , ( -2, [ "Submit expense report", "Call the dentist" ] )
-            , ( -3, [ "Draft Q3 planning doc", "Grocery run", "Fix the leaky tap", "30 min walk" ] )
-            , ( -4, [ "Renew library books" ] )
-            , ( -6, [ "Pay credit card", "Book flights for July" ] )
-            , ( -7, [ "Finish the design review", "Stretch routine" ] )
-            , ( -9, [ "Send birthday card", "Clear inbox to zero" ] )
-            , ( -10, [ "Sketch app concept" ] )
-            ]
-
-        pastSpecs =
-            List.concatMap
-                (\( off, titles ) ->
-                    List.indexedMap
-                        (\i title ->
-                            Spec title "" True off off (Just off) i
-                        )
-                        titles
-                )
-                pastGroups
-
-        extras =
-            [ -- completed earlier today
-              Spec "Morning pages" "" True 0 0 (Just 0) 0
-
-            -- open, created on earlier days → these carry over
-            , Spec "Outline the quarterly deck"
-                "Audience: leadership. Keep it to 8 slides.\nLead with the headline metric."
-                False
-                -3
-                -3
-                Nothing
-                1
-            , Spec "Schedule 1:1s for next week" "" False -1 -1 Nothing 2
-
-            -- fresh, created today
-            , Spec "Plan the week" "" False 0 0 Nothing 3
-            , Spec "Go for a run" "" False 0 0 Nothing 4
-            ]
-
-        specs =
-            pastSpecs ++ extras
-
-        toTask i spec =
-            { id = "t" ++ String.fromInt (startId + i)
-            , title = spec.title
-            , note = spec.note
-            , done = spec.done
-            , createdAt = DateUtil.addDays spec.createdOff today
-            , completedAt = Maybe.map (\o -> DateUtil.addDays o today) spec.completedOff
-            , day = DateUtil.addDays spec.dayOff today
-            , order = spec.order
-            }
-    in
-    ( List.indexedMap toTask specs, startId + List.length specs )
 
 
 

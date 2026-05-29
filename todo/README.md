@@ -24,7 +24,7 @@ sparingly on the checks, progress ring, and calendar dots.
 - **Calendar history** — a month grid with a completion dot per finished task
   (open days show a hollow dot); pick any day to read what got done.
 - **Local persistence** — your tasks are saved to **IndexedDB** (in the webview's
-  own store). First run seeds two weeks of sample history so the app opens alive.
+  own store). First run opens to an empty list, ready for your first task.
 
 ## Run it
 
@@ -89,7 +89,7 @@ todo/
 **State lives in Elm.** The model holds the full task list; every mutation sends
 the whole list to JavaScript through the `dbSave` port, and `db.js` writes it to
 a single IndexedDB key. On startup Elm asks for the stored list via `dbLoad`,
-receives it on `dbLoaded`, seeds sample data if nothing is stored, then applies
+receives it on `dbLoaded`, starting empty if nothing is stored, then applies
 carry-over. "Today" comes from JavaScript as a flag, so the Elm side never needs
 the wall clock.
 
