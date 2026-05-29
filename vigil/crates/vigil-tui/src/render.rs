@@ -9,6 +9,7 @@ use ratatui::{
 use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
 use crate::app::{input_presentation, App, Overlay, AGENTS};
+use crate::recap::Recap;
 
 const RED: Color = Color::Rgb(217, 119, 87);
 const GOLD: Color = Color::Rgb(224, 184, 112);
@@ -122,9 +123,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             events,
             lines,
             scroll,
-            ..
+            recap,
+            recap_visible,
         } => {
-            draw_log_view_overlay(f, area, container_id, events, lines, *scroll);
+            draw_log_view_overlay(
+                f,
+                area,
+                container_id,
+                events,
+                lines,
+                *scroll,
+                recap,
+                *recap_visible,
+            );
         }
         Overlay::ProjectPicker {
             query,
@@ -586,6 +597,7 @@ fn draw_default_agent_overlay(f: &mut Frame, area: Rect, current: AgentKind) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_log_view_overlay(
     f: &mut Frame,
     area: Rect,
@@ -593,9 +605,16 @@ fn draw_log_view_overlay(
     events: &[LogEvent],
     lines: &[String],
     scroll: usize,
+    recap: &Recap,
+    recap_visible: bool,
 ) {
     let popup = centered_rect(92, area.height.saturating_sub(4), area);
     draw_log_view_panel(f, popup, container_id, events, lines, scroll);
+    // Keep the corner clear until there's a recap to show, and honor the
+    // user's hide toggle so it never permanently obscures the log text.
+    if recap_visible && !matches!(recap, Recap::Idle) {
+        draw_recap_box(f, popup, recap);
+    }
 }
 
 fn draw_log_response_overlay(
@@ -669,7 +688,11 @@ fn draw_log_view_panel(
         Span::styled("j/k", Style::default().fg(DIM)),
         Span::raw(" scroll  "),
         Span::styled("i", Style::default().fg(DIM)),
-        Span::raw(" send"),
+        Span::raw(" send  "),
+        Span::styled("r", Style::default().fg(DIM)),
+        Span::raw(" recap  "),
+        Span::styled("R", Style::default().fg(DIM)),
+        Span::raw(" hide/show"),
     ];
     if turn_count > 0 {
         hint_spans.push(Span::styled(
@@ -722,6 +745,65 @@ fn draw_log_view_panel(
             content,
         );
     }
+}
+
+/// Render the LLM recap pinned to the bottom-right corner of the log popup.
+fn draw_recap_box(f: &mut Frame, popup: Rect, recap: &Recap) {
+    // Box geometry: roughly half the popup width, anchored bottom-right inside
+    // the popup's border (the -1/-2 insets keep it off the frame edges).
+    let box_width = (popup.width / 2).clamp(34, 60).min(popup.width.saturating_sub(4));
+    let text_width = box_width.saturating_sub(4) as usize;
+
+    let (title, body, color): (&str, String, Color) = match recap {
+        Recap::Idle => (
+            " recap ",
+            "press r to summarize the last messages".to_string(),
+            DIM,
+        ),
+        Recap::Loading => (" recap ", "summarizing…".to_string(), GOLD),
+        Recap::Ready(text) => (" recap ", text.clone(), Color::White),
+        Recap::Error(err) => (" recap ", format!("couldn't summarize: {err}"), RED),
+    };
+
+    let wrapped: Vec<Line> = body
+        .lines()
+        .flat_map(|raw| {
+            let raw = if raw.is_empty() { " " } else { raw };
+            wrap_str(raw, text_width)
+                .into_iter()
+                .map(|chunk| Line::from(render_inline(&chunk, color, EMPTY_COLOR)))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    // Cap height to half the popup so the box never swallows the whole log.
+    let max_inner = (popup.height / 2).saturating_sub(2).max(1) as usize;
+    let inner_lines = wrapped.len().clamp(1, max_inner);
+    let box_height = (inner_lines as u16) + 2; // borders
+
+    let x = popup.x + popup.width.saturating_sub(box_width).saturating_sub(2);
+    let y = popup.y + popup.height.saturating_sub(box_height).saturating_sub(1);
+    let rect = Rect {
+        x,
+        y,
+        width: box_width,
+        height: box_height,
+    };
+
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .title(Span::styled(title, Style::default().fg(PURPLE)))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(PURPLE));
+    let inner = block.inner(rect).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    f.render_widget(block, rect);
+    // Show the tail of the recap if it overflows the capped height.
+    let start = wrapped.len().saturating_sub(inner_lines);
+    let visible: Vec<Line> = wrapped.into_iter().skip(start).collect();
+    f.render_widget(Paragraph::new(visible), inner);
 }
 
 fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'static>> {
@@ -1242,33 +1324,67 @@ fn wrap_str(text: &str, width: usize) -> Vec<String> {
     chunks
 }
 
-/// Parse a line for inline backtick code spans and return styled Spans.
+/// Parse a line for inline markdown — backtick `code` spans and `**bold**` —
+/// and return styled Spans. Unterminated markers are emitted verbatim.
 fn render_inline(text: &str, text_color: Color, _code_color: Color) -> Vec<Span<'static>> {
     const CODE_FG: Color = Color::Rgb(220, 200, 170);
     const CODE_BG: Color = Color::Rgb(45, 42, 38);
 
     let mut spans = Vec::new();
     let mut remaining = text;
-    while let Some(start) = remaining.find('`') {
-        if !remaining[..start].is_empty() {
+    loop {
+        // Find the earliest of the two inline markers we support.
+        let code_at = remaining.find('`');
+        let bold_at = remaining.find("**");
+        let is_code = match (code_at, bold_at) {
+            (None, None) => break,
+            (Some(_), None) => true,
+            (None, Some(_)) => false,
+            (Some(c), Some(b)) => c <= b,
+        };
+        let pos = if is_code {
+            code_at.unwrap()
+        } else {
+            bold_at.unwrap()
+        };
+
+        if pos > 0 {
             spans.push(Span::styled(
-                remaining[..start].to_string(),
+                remaining[..pos].to_string(),
                 Style::default().fg(text_color),
             ));
         }
-        remaining = &remaining[start + 1..];
-        if let Some(end) = remaining.find('`') {
-            spans.push(Span::styled(
-                format!(" {} ", &remaining[..end]),
-                Style::default().fg(CODE_FG).bg(CODE_BG),
-            ));
-            remaining = &remaining[end + 1..];
+
+        if is_code {
+            let rest = &remaining[pos + 1..];
+            if let Some(end) = rest.find('`') {
+                spans.push(Span::styled(
+                    format!(" {} ", &rest[..end]),
+                    Style::default().fg(CODE_FG).bg(CODE_BG),
+                ));
+                remaining = &rest[end + 1..];
+            } else {
+                spans.push(Span::styled(
+                    format!("`{rest}"),
+                    Style::default().fg(text_color),
+                ));
+                return spans;
+            }
         } else {
-            spans.push(Span::styled(
-                format!("`{remaining}"),
-                Style::default().fg(text_color),
-            ));
-            return spans;
+            let rest = &remaining[pos + 2..];
+            if let Some(end) = rest.find("**") {
+                spans.push(Span::styled(
+                    rest[..end].to_string(),
+                    Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+                ));
+                remaining = &rest[end + 2..];
+            } else {
+                spans.push(Span::styled(
+                    format!("**{rest}"),
+                    Style::default().fg(text_color),
+                ));
+                return spans;
+            }
         }
     }
     if !remaining.is_empty() {
