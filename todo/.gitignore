@@ -1,0 +1,8 @@
+elm-stuff/
+
+# Generated Elm output (built by build.sh)
+web/elm.js
+
+# Tauri / Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
