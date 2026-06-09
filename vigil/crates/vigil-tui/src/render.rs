@@ -266,15 +266,12 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let (dot, dot_style) = state_dot(&c.state);
             let state_str = state_label(&c.state);
 
-            // Show only the branch name (last path component) within the group.
+            // Vigil-managed worktrees show their live git branch; external ones
+            // show the worktree path (relative to home) since they aren't ours.
             let branch = {
                 let full = c.worktree_path.display().to_string();
                 if full.starts_with(&vigil_wt) {
-                    c.worktree_path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(c.branch.as_str())
-                        .to_string()
+                    c.branch.clone()
                 } else if !home.is_empty() {
                     full.replacen(&home, "~", 1)
                 } else {
@@ -854,9 +851,7 @@ fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'stat
                     vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
                 let mut used = 0u32;
                 for (kind, count) in tools {
-                    let blocks = ((count * bar_max + total_count / 2) / total_count)
-                        .max(1)
-                        .min(4);
+                    let blocks = ((count * bar_max + total_count / 2) / total_count).clamp(1, 4);
                     used += blocks;
                     let color = match kind {
                         ToolKind::Read => READ_COLOR,
@@ -1321,7 +1316,7 @@ fn sanitize_for_display(text: &str) -> String {
                 // CSI: ESC [ … <final byte 0x40..=0x7e>
                 Some('[') => {
                     chars.next();
-                    while let Some(c) = chars.next() {
+                    for c in chars.by_ref() {
                         if ('\u{40}'..='\u{7e}').contains(&c) {
                             break;
                         }

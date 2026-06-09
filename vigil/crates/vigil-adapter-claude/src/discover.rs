@@ -24,7 +24,7 @@ pub async fn discover_sessions(debug_dir: &Path) -> Result<Vec<SessionId>, Vigil
 
     let mut dir = tokio::fs::read_dir(debug_dir)
         .await
-        .map_err(|e| VigilError::Io(e))?;
+        .map_err(VigilError::Io)?;
 
     while let Some(entry) = dir.next_entry().await? {
         let name = entry.file_name();
