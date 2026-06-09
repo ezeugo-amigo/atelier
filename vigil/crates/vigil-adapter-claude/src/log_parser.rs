@@ -66,8 +66,7 @@ pub fn parse_log_line(raw: &str) -> Option<LogLine> {
     let rest = rest[bracket_end + 1..].trim_start();
 
     // Optional [COMPONENT]
-    let (component, message) = if rest.starts_with('[') {
-        let rest = &rest[1..];
+    let (component, message) = if let Some(rest) = rest.strip_prefix('[') {
         if let Some(end) = rest.find(']') {
             let comp = rest[..end].to_string();
             let msg = rest[end + 1..].trim_start().to_string();

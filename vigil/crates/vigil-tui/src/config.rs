@@ -82,8 +82,8 @@ impl Config {
             .search_paths
             .iter()
             .filter_map(|raw| {
-                let expanded = if raw.starts_with("~/") {
-                    format!("{}/{}", home, &raw[2..])
+                let expanded = if let Some(rest) = raw.strip_prefix("~/") {
+                    format!("{home}/{rest}")
                 } else if raw == "~" {
                     home.clone()
                 } else {

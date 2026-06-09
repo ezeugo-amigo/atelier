@@ -27,6 +27,7 @@ use crate::recap::Recap;
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
 const PR_REFRESH: Duration = Duration::from_secs(60);
+const BRANCH_REFRESH: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RepoScanCache {
@@ -121,6 +122,9 @@ pub struct App {
     last_dismissed: Option<Container>,
     /// Cache of PR status per container id, with the time it was last fetched.
     pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    /// Cache of the live git branch per container id, with the time it was last
+    /// read. Polled on a slower cadence than the tick since branches rarely change.
+    branch_cache: HashMap<String, (String, Instant)>,
     /// Cache of log data per container id, updated every tick for the selected container.
     log_cache: HashMap<String, (Vec<vigil_core::LogEvent>, Vec<String>)>,
     /// Cache of the last recap per container id, persisted across log-view open/close.
@@ -161,6 +165,7 @@ impl App {
             recap_rx: None,
             recap_visible: true,
             pr_cache: HashMap::new(),
+            branch_cache: HashMap::new(),
             scan_rx: None,
             refresh_rx: None,
             last_sent: HashMap::new(),
@@ -472,6 +477,7 @@ pub type AdapterMap = HashMap<AgentKind, Arc<dyn AgentAdapter>>;
 struct RefreshResult {
     containers: Vec<Container>,
     pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    branch_cache: HashMap<String, (String, Instant)>,
     selected_log: Option<(String, Vec<vigil_core::LogEvent>, Vec<String>)>,
 }
 
@@ -950,6 +956,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             Ok(result) => {
                 app.refresh_rx = None;
                 app.pr_cache = result.pr_cache;
+                app.branch_cache = result.branch_cache;
                 if let Some((id, events, lines)) = result.selected_log {
                     app.log_cache.insert(id, (events, lines));
                 }
@@ -1061,6 +1068,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         };
         let adapters = adapters.clone();
         let pr_cache = app.pr_cache.clone();
+        let branch_cache = app.branch_cache.clone();
         let last_sent = app.last_sent.clone();
         let selected_log_info = app
             .selected()
@@ -1068,9 +1076,15 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         app.refresh_rx = Some(rx);
         tokio::spawn(async move {
-            let result =
-                build_refresh_result(entries, adapters, pr_cache, last_sent, selected_log_info)
-                    .await;
+            let result = build_refresh_result(
+                entries,
+                adapters,
+                pr_cache,
+                branch_cache,
+                last_sent,
+                selected_log_info,
+            )
+            .await;
             tx.send(result).ok();
         });
     }
@@ -1082,6 +1096,7 @@ async fn build_refresh_result(
     entries: Vec<WorktreeEntry>,
     adapters: AdapterMap,
     mut pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    mut branch_cache: HashMap<String, (String, Instant)>,
     last_sent: HashMap<String, String>,
     selected_log_info: Option<(String, PathBuf, AgentKind)>,
 ) -> RefreshResult {
@@ -1100,13 +1115,47 @@ async fn build_refresh_result(
         }));
     }
 
-    let mut pr_handles: Vec<(String, _)> = Vec::new();
+    // Re-read each worktree's live git branch, but only when its cache entry has
+    // aged past BRANCH_REFRESH. The branch recorded in the registry is only set
+    // at creation time, so a later `git switch` would otherwise leave a stale
+    // name everywhere (main view, PR lookup); polling on a slower cadence than
+    // the tick keeps that fresh without a `git` fork per worktree every second.
+    let mut branch_handles = Vec::new();
     for entry in &entries {
+        let cached = branch_cache.get(&entry.id);
+        let stale = cached.is_none_or(|(_, t)| t.elapsed() >= BRANCH_REFRESH);
+        if stale {
+            let path = entry.worktree_path.clone();
+            let id = entry.id.clone();
+            let fallback = entry.branch.clone();
+            branch_handles.push((
+                id,
+                fallback,
+                tokio::spawn(async move { current_branch(&path).await }),
+            ));
+        }
+    }
+    for (id, fallback, handle) in branch_handles {
+        let branch = handle.await.unwrap_or(None).unwrap_or(fallback);
+        branch_cache.insert(id, (branch, Instant::now()));
+    }
+    let live_branches: Vec<String> = entries
+        .iter()
+        .map(|e| {
+            branch_cache
+                .get(&e.id)
+                .map(|(b, _)| b.clone())
+                .unwrap_or_else(|| e.branch.clone())
+        })
+        .collect();
+
+    let mut pr_handles: Vec<(String, _)> = Vec::new();
+    for (idx, entry) in entries.iter().enumerate() {
         let cached = pr_cache.get(&entry.id);
         let stale = cached.is_none_or(|(_, t)| t.elapsed() >= PR_REFRESH);
         if stale {
             let repo_root = entry.repo_root.clone();
-            let branch = entry.branch.clone();
+            let branch = live_branches[idx].clone();
             let id = entry.id.clone();
             pr_handles.push((
                 id,
@@ -1122,7 +1171,7 @@ async fn build_refresh_result(
     let cwd_procs = cwd_snapshot().await;
 
     let mut containers = Vec::with_capacity(entries.len());
-    for (entry, handle) in entries.iter().zip(handles) {
+    for (idx, (entry, handle)) in entries.iter().zip(handles).enumerate() {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
         let pr_status = pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
         let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
@@ -1131,7 +1180,7 @@ async fn build_refresh_result(
             worktree_path: entry.worktree_path.clone(),
             repo_root: entry.repo_root.clone(),
             agent: entry.agent,
-            branch: entry.branch.clone(),
+            branch: live_branches[idx].clone(),
             created_at: entry.created_at,
             state: probe.state,
             session_id: probe.session_id,
@@ -1161,6 +1210,7 @@ async fn build_refresh_result(
     RefreshResult {
         containers,
         pr_cache,
+        branch_cache,
         selected_log,
     }
 }
@@ -1248,6 +1298,30 @@ fn collect_background_processes(
 }
 
 /// Query `gh pr view` to get PR status for a branch. Returns None if gh is unavailable.
+/// Read the worktree's current git branch via `git rev-parse --abbrev-ref HEAD`.
+///
+/// Returns `None` on error or when HEAD is detached (the command prints
+/// `"HEAD"`), so callers can fall back to the branch recorded at creation time.
+async fn current_branch(worktree_path: &std::path::Path) -> Option<String> {
+    let output = tokio::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(worktree_path)
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        None
+    } else {
+        Some(branch)
+    }
+}
+
 async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus> {
     let output = tokio::process::Command::new("gh")
         .args(["pr", "view", branch, "--json", "state,mergeStateStatus"])
