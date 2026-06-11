@@ -29,9 +29,11 @@ enum WtAction {
         /// Agent to launch (claude, codex, pi, opencode) [default: claude]
         #[arg(long, short, default_value = "claude")]
         agent: String,
-        /// Git repository root. Inferred from CWD if omitted.
-        #[arg(long)]
-        repo: Option<PathBuf>,
+        /// Git repository root. Inferred from CWD if omitted. Repeat the flag
+        /// to create a multi-repo workspace (one worktree per repo, shared
+        /// branch, agent launched in the parent dir).
+        #[arg(long = "repo")]
+        repos: Vec<PathBuf>,
         /// Skip launching the agent after creation.
         #[arg(long)]
         no_launch: bool,
@@ -85,7 +87,7 @@ fn handle_wt(action: WtAction) -> Result<()> {
         WtAction::New {
             name,
             agent,
-            repo,
+            repos,
             no_launch,
         } => {
             let agent_kind = parse_agent(&agent)?;
@@ -96,7 +98,7 @@ fn handle_wt(action: WtAction) -> Result<()> {
             let opts = CreateOptions {
                 name,
                 agent: agent_kind,
-                repo_root: repo,
+                repo_roots: repos,
                 worktree_dir: None,
                 no_launch,
             };
@@ -104,12 +106,20 @@ fn handle_wt(action: WtAction) -> Result<()> {
             let entry =
                 create(opts, &mut registry, launch_cmd).context("failed to create worktree")?;
 
-            println!("Created worktree '{}'", entry.id);
+            let kind = if entry.is_workspace() {
+                "workspace"
+            } else {
+                "worktree"
+            };
+            println!("Created {kind} '{}'", entry.id);
             println!("  path:   {}", entry.worktree_path.display());
+            for checkout in &entry.repos {
+                println!("    - {}", checkout.worktree_path.display());
+            }
             println!("  branch: {}", entry.branch);
             println!("  agent:  {}", entry.agent.display_name());
             if !no_launch {
-                println!("  launched agent in worktree directory");
+                println!("  launched agent in {kind} directory");
             }
             Ok(())
         }

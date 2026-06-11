@@ -108,15 +108,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::NewWorktree {
             name_buf,
             agent,
-            repo_root,
+            repo_roots,
         } => {
-            draw_new_worktree_overlay(f, area, name_buf, *agent, repo_root.as_deref());
+            draw_new_worktree_overlay(f, area, name_buf, *agent, repo_roots);
         }
         Overlay::DismissConfirm { container_id } => {
             draw_dismiss_confirm_overlay(f, area, container_id);
         }
         Overlay::RemoveConfirm { entry } => {
-            draw_remove_confirm_overlay(f, area, &entry.id, &entry.worktree_path);
+            draw_remove_confirm_overlay(f, area, entry);
         }
         Overlay::LogView {
             container_id,
@@ -142,8 +142,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             all_repos,
             selected_idx,
             scanning,
+            checked,
         } => {
-            draw_project_picker_overlay(f, area, query, all_repos, *selected_idx, *scanning);
+            draw_project_picker_overlay(
+                f,
+                area,
+                query,
+                all_repos,
+                *selected_idx,
+                *scanning,
+                checked,
+            );
         }
         Overlay::DefaultAgent { agent } => {
             draw_default_agent_overlay(f, area, *agent);
@@ -212,16 +221,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
     let mut groups: std::collections::HashMap<String, Vec<usize>> =
         std::collections::HashMap::new();
     for (i, c) in app.containers.iter().enumerate() {
-        let full = c.worktree_path.display().to_string();
-        let repo = if let Some(rest) = full.strip_prefix(&vigil_wt) {
-            rest.split('/').next().unwrap_or("?").to_string()
-        } else {
-            c.repo_root
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("?")
-                .to_string()
-        };
+        let repo = crate::app::container_repo_group(c, &vigil_wt);
         if !groups.contains_key(&repo) {
             group_order.push(repo.clone());
         }
@@ -266,9 +266,12 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let (dot, dot_style) = state_dot(&c.state);
             let state_str = state_label(&c.state);
 
-            // Vigil-managed worktrees show their live git branch; external ones
-            // show the worktree path (relative to home) since they aren't ours.
-            let branch = {
+            // Vigil-managed worktrees show their live git branch; multi-repo
+            // workspaces add a repo-count marker; external ones show the
+            // worktree path (relative to home) since they aren't ours.
+            let branch = if !c.repos.is_empty() {
+                format!("{} ×{}", c.branch, c.repos.len())
+            } else {
                 let full = c.worktree_path.display().to_string();
                 if full.starts_with(&vigil_wt) {
                     c.branch.clone()
@@ -497,38 +500,53 @@ fn draw_new_worktree_overlay(
     area: Rect,
     name_buf: &str,
     current: AgentKind,
-    repo_root: Option<&std::path::Path>,
+    repo_roots: &[std::path::PathBuf],
 ) {
-    let popup = centered_rect(65, 11, area);
+    // One line per extra repo beyond the first keeps every repo visible.
+    let extra = repo_roots.len().saturating_sub(1) as u16;
+    let popup = centered_rect(65, 11 + extra, area);
     f.render_widget(Clear, popup);
 
+    let title = if repo_roots.len() > 1 {
+        " New Workspace "
+    } else {
+        " New Container "
+    };
     let block = Block::default()
-        .title(" New Container ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let repo_str = repo_root
-        .map(|p| {
-            let s = p.display().to_string();
-            if !home.is_empty() {
-                s.replacen(&home, "~", 1)
-            } else {
-                s
-            }
-        })
-        .unwrap_or_else(|| "(inferred from cwd)".into());
+    let tilde = |p: &std::path::Path| {
+        let s = p.display().to_string();
+        if !home.is_empty() {
+            s.replacen(&home, "~", 1)
+        } else {
+            s
+        }
+    };
 
     let agent_spans = agent_picker_spans(current);
 
-    let lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(vec![
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    if repo_roots.is_empty() {
+        lines.push(Line::from(vec![
             Span::styled("  Repo   ", Style::default().fg(DIM)),
-            Span::raw(repo_str),
-        ]),
+            Span::raw("(inferred from cwd)"),
+        ]));
+    } else {
+        for (i, root) in repo_roots.iter().enumerate() {
+            let label = if i == 0 { "  Repo   " } else { "         " };
+            lines.push(Line::from(vec![
+                Span::styled(label, Style::default().fg(DIM)),
+                Span::raw(tilde(root)),
+            ]));
+        }
+    }
+    lines.extend([
         Line::from(vec![
             Span::styled("  Name   ", Style::default().fg(DIM)),
             Span::raw(format!("{name_buf}▋")),
@@ -549,7 +567,7 @@ fn draw_new_worktree_overlay(
             Span::styled("Esc", Style::default().fg(DIM)),
             Span::raw(" cancel"),
         ]),
-    ];
+    ]);
 
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -926,9 +944,27 @@ fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'stat
 fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
     let Some(c) = app.selected() else { return };
 
-    let title = format!(" {} — chat preview ", c.id);
+    // Multi-repo workspaces get a per-repo PR glyph in the title.
+    let mut title_spans = vec![Span::styled(
+        format!(" {} — chat preview ", c.id),
+        Style::default().fg(MUTED),
+    )];
+    if !c.repos.is_empty() {
+        title_spans.push(Span::styled("· ", Style::default().fg(DIM)));
+        for r in &c.repos {
+            let name = r
+                .repo_root
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?");
+            let (icon, style) = pr_dot(r.pr_status.as_ref());
+            title_spans.push(Span::styled(format!("{name} "), Style::default().fg(MUTED)));
+            title_spans.push(Span::styled(icon, style));
+            title_spans.push(Span::raw(" "));
+        }
+    }
     let block = Block::default()
-        .title(Span::styled(title, Style::default().fg(MUTED)))
+        .title(Line::from(title_spans))
         .borders(Borders::TOP)
         .border_style(Style::default().fg(DIM));
     let inner = block.inner(area).inner(Margin {
@@ -1016,25 +1052,27 @@ fn draw_dismiss_confirm_overlay(f: &mut Frame, area: Rect, container_id: &str) {
     f.render_widget(Paragraph::new(lines), inner);
 }
 
-fn draw_remove_confirm_overlay(
-    f: &mut Frame,
-    area: Rect,
-    container_id: &str,
-    worktree_path: &std::path::Path,
-) {
-    let popup = centered_rect(55, 8, area);
+fn draw_remove_confirm_overlay(f: &mut Frame, area: Rect, entry: &atelier_worktree::WorktreeEntry) {
+    // Workspaces list every contained checkout so it's clear what gets deleted.
+    let extra = entry.repos.len().saturating_sub(1) as u16;
+    let popup = centered_rect(55, 8 + extra, area);
     f.render_widget(Clear, popup);
 
+    let title = if entry.is_workspace() {
+        " Remove Workspace "
+    } else {
+        " Remove Container "
+    };
     let block = Block::default()
-        .title(" Remove Container ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(RED));
     let inner = block.inner(popup);
     f.render_widget(block, popup);
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let path_str = {
-        let s = worktree_path.display().to_string();
+    let tilde = |p: &std::path::Path| {
+        let s = p.display().to_string();
         if !home.is_empty() {
             s.replacen(&home, "~", 1)
         } else {
@@ -1042,20 +1080,31 @@ fn draw_remove_confirm_overlay(
         }
     };
 
-    let lines: Vec<Line> = vec![
+    let mut lines: Vec<Line> = vec![
         Line::from(""),
         Line::from(vec![
             Span::raw("  Remove  "),
             Span::styled(
-                container_id,
+                entry.id.clone(),
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::raw("?"),
         ]),
-        Line::from(vec![Span::styled(
-            format!("  {path_str}"),
+    ];
+    if entry.is_workspace() {
+        for checkout in entry.checkouts() {
+            lines.push(Line::from(vec![Span::styled(
+                format!("  {}", tilde(&checkout.worktree_path)),
+                Style::default().fg(DIM),
+            )]));
+        }
+    } else {
+        lines.push(Line::from(vec![Span::styled(
+            format!("  {}", tilde(&entry.worktree_path)),
             Style::default().fg(DIM),
-        )]),
+        )]));
+    }
+    lines.extend([
         Line::from(""),
         Line::from(vec![
             Span::raw("  "),
@@ -1064,7 +1113,7 @@ fn draw_remove_confirm_overlay(
             Span::styled("n / Esc", Style::default().fg(DIM)),
             Span::raw(" cancel"),
         ]),
-    ];
+    ]);
 
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -1076,6 +1125,7 @@ fn draw_project_picker_overlay(
     all_repos: &[std::path::PathBuf],
     selected_idx: usize,
     scanning: bool,
+    checked: &[std::path::PathBuf],
 ) {
     let height = (area.height * 65 / 100).max(12).min(area.height);
     let popup = centered_rect(68, height, area);
@@ -1148,6 +1198,7 @@ fn draw_project_picker_overlay(
             .enumerate()
             .map(|(i, path)| {
                 let is_selected = scroll_start + i == sel;
+                let is_checked = checked.contains(path);
                 let path_str = {
                     let s = path.display().to_string();
                     if !home.is_empty() {
@@ -1156,25 +1207,33 @@ fn draw_project_picker_overlay(
                         s
                     }
                 };
-                if is_selected {
-                    Line::from(vec![
-                        Span::styled(
-                            "▸ ",
-                            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(
-                            path_str,
-                            Style::default()
-                                .fg(Color::White)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ])
+                // Check marker only appears once multi-select is in play, so
+                // the classic single-select look is untouched.
+                let mark = if checked.is_empty() {
+                    ""
+                } else if is_checked {
+                    "◉ "
                 } else {
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(path_str, Style::default().fg(DIM)),
-                    ])
-                }
+                    "○ "
+                };
+                let cursor = if is_selected { "▸ " } else { "  " };
+                let path_style = if is_selected {
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD)
+                } else if is_checked {
+                    Style::default().fg(Color::White)
+                } else {
+                    Style::default().fg(DIM)
+                };
+                Line::from(vec![
+                    Span::styled(
+                        cursor,
+                        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(mark, Style::default().fg(ACCENT)),
+                    Span::styled(path_str, path_style),
+                ])
             })
             .collect();
 
@@ -1184,8 +1243,20 @@ fn draw_project_picker_overlay(
     // Hint footer
     let count_str = if scanning {
         format!("{} repos (scanning...)", filtered.len())
-    } else {
+    } else if checked.is_empty() {
         format!("{} / {} repos", filtered.len(), all_repos.len())
+    } else {
+        format!(
+            "{} / {} repos · {} selected",
+            filtered.len(),
+            all_repos.len(),
+            checked.len()
+        )
+    };
+    let enter_hint = if checked.len() >= 2 {
+        " create workspace  "
+    } else {
+        " open  "
     };
     f.render_widget(
         Line::from(vec![
@@ -1193,8 +1264,10 @@ fn draw_project_picker_overlay(
             Span::raw("   "),
             Span::styled("↑↓ / Tab", Style::default().fg(DIM)),
             Span::raw(" navigate  "),
+            Span::styled("Space", Style::default().fg(DIM)),
+            Span::raw(" select  "),
             Span::styled("Enter", Style::default().fg(DIM)),
-            Span::raw(" open  "),
+            Span::raw(enter_hint),
             Span::styled("Esc", Style::default().fg(DIM)),
             Span::raw(" cancel"),
         ]),
