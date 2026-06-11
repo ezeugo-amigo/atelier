@@ -17,8 +17,8 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
 use serde::{Deserialize, Serialize};
 use vigil_core::{
-    process::cwd_snapshot, AgentAdapter, AgentKind, BackgroundProcess, Container, LogEvent,
-    PrStatus, ProbeResult, SessionId,
+    aggregate_pr_status, process::cwd_snapshot, AgentAdapter, AgentKind, BackgroundProcess,
+    Container, LogEvent, PrStatus, ProbeResult, RepoStatus, SessionId,
 };
 
 use crate::archive::Archive;
@@ -46,7 +46,21 @@ fn vigil_worktrees_prefix() -> String {
     }
 }
 
-fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
+pub(crate) fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
+    // Multi-repo workspaces group under the joined repo names.
+    if !c.repos.is_empty() {
+        return c
+            .repos
+            .iter()
+            .map(|r| {
+                r.repo_root
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("?")
+            })
+            .collect::<Vec<_>>()
+            .join(" + ");
+    }
     let full = c.worktree_path.display().to_string();
     if let Some(rest) = full.strip_prefix(vigil_wt) {
         rest.split('/').next().unwrap_or("?").to_string()
@@ -59,6 +73,12 @@ fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
     }
 }
 
+/// Cache key for per-checkout branch/PR probes: a workspace entry has one
+/// cache slot per contained repo.
+fn probe_cache_key(id: &str, repo_root: &Path) -> String {
+    format!("{id}::{}", repo_root.display())
+}
+
 pub enum MessageInputChunk {
     Text(String),
     Paste(String),
@@ -69,7 +89,8 @@ pub enum Overlay {
     NewWorktree {
         name_buf: String,
         agent: AgentKind,
-        repo_root: Option<PathBuf>,
+        /// Repos to check out. Empty = infer from cwd; 2+ = multi-repo workspace.
+        repo_roots: Vec<PathBuf>,
     },
     DismissConfirm {
         container_id: String,
@@ -105,6 +126,9 @@ pub enum Overlay {
         all_repos: Vec<PathBuf>,
         selected_idx: usize,
         scanning: bool,
+        /// Repos toggled with Space (insertion order). 2+ checked repos create
+        /// a multi-repo workspace; empty falls back to the highlighted repo.
+        checked: Vec<PathBuf>,
     },
     /// Pick the default agent for new containers; persisted to config.
     DefaultAgent {
@@ -336,6 +360,7 @@ impl App {
             all_repos: load_repo_scan_cache(),
             selected_idx: 0,
             scanning: true,
+            checked: Vec::new(),
         };
     }
 
@@ -343,11 +368,22 @@ impl App {
         if self.registry.is_none() {
             return;
         }
-        let repo_root = self.selected().map(|c| c.repo_root.clone());
+        // Prefill from the selected container's registry checkouts so `n` on
+        // a workspace proposes the same repo set; single-repo containers keep
+        // the classic one-root prefill.
+        let repo_roots = self
+            .selected()
+            .and_then(|c| {
+                self.registry
+                    .as_ref()
+                    .and_then(|reg| reg.find_by_id(&c.id))
+                    .map(|e| e.checkouts().iter().map(|ck| ck.repo_root.clone()).collect())
+            })
+            .unwrap_or_default();
         self.overlay = Overlay::NewWorktree {
             name_buf: String::new(),
             agent: self.default_agent,
-            repo_root,
+            repo_roots,
         };
     }
 
@@ -429,18 +465,18 @@ impl App {
 
     /// Returns the worktree_path of the newly created worktree, if any.
     fn confirm_new_worktree(&mut self) -> Option<std::path::PathBuf> {
-        let (name, agent_kind, repo_root) = match &self.overlay {
+        let (name, agent_kind, repo_roots) = match &self.overlay {
             Overlay::NewWorktree {
                 name_buf,
                 agent,
-                repo_root,
+                repo_roots,
             } => {
                 let name = if name_buf.is_empty() {
                     None
                 } else {
                     Some(name_buf.clone())
                 };
-                (name, *agent, repo_root.clone())
+                (name, *agent, repo_roots.clone())
             }
             _ => return None,
         };
@@ -449,7 +485,7 @@ impl App {
             let opts = CreateOptions {
                 name,
                 agent: agent_kind,
-                repo_root,
+                repo_roots,
                 worktree_dir: None,
                 no_launch: true,
             };
@@ -718,32 +754,55 @@ async fn event_loop(
                                     *selected_idx = selected_idx.saturating_sub(1);
                                 }
                             }
-                            KeyCode::Enter => {
-                                // Extract selected repo, then transition to NewWorktree
-                                let selected = if let Overlay::ProjectPicker {
+                            KeyCode::Char(' ') => {
+                                // Toggle the highlighted repo in the multi-select set.
+                                if let Overlay::ProjectPicker {
                                     ref all_repos,
                                     ref query,
                                     selected_idx,
+                                    ref mut checked,
                                     ..
                                 } = app.overlay
                                 {
-                                    let q = query.to_lowercase();
-                                    let filtered: Vec<&PathBuf> = all_repos
-                                        .iter()
-                                        .filter(|p| {
-                                            p.display().to_string().to_lowercase().contains(&q)
-                                        })
-                                        .collect();
-                                    filtered.get(selected_idx).map(|p| (*p).clone())
+                                    if let Some(repo) =
+                                        picker_filtered_at(all_repos, query, selected_idx)
+                                    {
+                                        match checked.iter().position(|p| p == &repo) {
+                                            Some(i) => {
+                                                checked.remove(i);
+                                            }
+                                            None => checked.push(repo),
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Enter => {
+                                // Checked repos win; otherwise fall back to the
+                                // highlighted repo (classic single-select).
+                                let repo_roots = if let Overlay::ProjectPicker {
+                                    ref all_repos,
+                                    ref query,
+                                    selected_idx,
+                                    ref checked,
+                                    ..
+                                } = app.overlay
+                                {
+                                    if checked.is_empty() {
+                                        picker_filtered_at(all_repos, query, selected_idx)
+                                            .map(|p| vec![p])
+                                            .unwrap_or_default()
+                                    } else {
+                                        checked.clone()
+                                    }
                                 } else {
-                                    None
+                                    vec![]
                                 };
-                                if let Some(repo_root) = selected {
+                                if !repo_roots.is_empty() {
                                     app.scan_rx = None;
                                     app.overlay = Overlay::NewWorktree {
                                         name_buf: String::new(),
                                         agent: app.default_agent,
-                                        repo_root: Some(repo_root),
+                                        repo_roots,
                                     };
                                 }
                             }
@@ -1115,72 +1174,95 @@ async fn build_refresh_result(
         }));
     }
 
-    // Re-read each worktree's live git branch, but only when its cache entry has
+    // Re-read each checkout's live git branch, but only when its cache entry has
     // aged past BRANCH_REFRESH. The branch recorded in the registry is only set
     // at creation time, so a later `git switch` would otherwise leave a stale
     // name everywhere (main view, PR lookup); polling on a slower cadence than
     // the tick keeps that fresh without a `git` fork per worktree every second.
+    // Probes run per checkout (keyed id::repo_root) — a workspace's parent dir
+    // is not a git repo, and each contained repo has its own branch.
     let mut branch_handles = Vec::new();
     for entry in &entries {
-        let cached = branch_cache.get(&entry.id);
-        let stale = cached.is_none_or(|(_, t)| t.elapsed() >= BRANCH_REFRESH);
-        if stale {
-            let path = entry.worktree_path.clone();
-            let id = entry.id.clone();
-            let fallback = entry.branch.clone();
-            branch_handles.push((
-                id,
-                fallback,
-                tokio::spawn(async move { current_branch(&path).await }),
-            ));
+        for checkout in entry.checkouts() {
+            let key = probe_cache_key(&entry.id, &checkout.repo_root);
+            let stale = branch_cache
+                .get(&key)
+                .is_none_or(|(_, t)| t.elapsed() >= BRANCH_REFRESH);
+            if stale {
+                let path = checkout.worktree_path.clone();
+                let fallback = checkout.branch.clone();
+                branch_handles.push((
+                    key,
+                    fallback,
+                    tokio::spawn(async move { current_branch(&path).await }),
+                ));
+            }
         }
     }
-    for (id, fallback, handle) in branch_handles {
+    for (key, fallback, handle) in branch_handles {
         let branch = handle.await.unwrap_or(None).unwrap_or(fallback);
-        branch_cache.insert(id, (branch, Instant::now()));
+        branch_cache.insert(key, (branch, Instant::now()));
     }
-    let live_branches: Vec<String> = entries
-        .iter()
-        .map(|e| {
-            branch_cache
-                .get(&e.id)
-                .map(|(b, _)| b.clone())
-                .unwrap_or_else(|| e.branch.clone())
-        })
-        .collect();
+    let live_branch = |entry: &WorktreeEntry, checkout: &atelier_worktree::RepoCheckout| {
+        branch_cache
+            .get(&probe_cache_key(&entry.id, &checkout.repo_root))
+            .map(|(b, _)| b.clone())
+            .unwrap_or_else(|| checkout.branch.clone())
+    };
 
     let mut pr_handles: Vec<(String, _)> = Vec::new();
-    for (idx, entry) in entries.iter().enumerate() {
-        let cached = pr_cache.get(&entry.id);
-        let stale = cached.is_none_or(|(_, t)| t.elapsed() >= PR_REFRESH);
-        if stale {
-            let repo_root = entry.repo_root.clone();
-            let branch = live_branches[idx].clone();
-            let id = entry.id.clone();
-            pr_handles.push((
-                id,
-                tokio::spawn(async move { probe_pr(&repo_root, &branch).await }),
-            ));
+    for entry in &entries {
+        for checkout in entry.checkouts() {
+            let key = probe_cache_key(&entry.id, &checkout.repo_root);
+            let stale = pr_cache
+                .get(&key)
+                .is_none_or(|(_, t)| t.elapsed() >= PR_REFRESH);
+            if stale {
+                let repo_root = checkout.repo_root.clone();
+                let branch = live_branch(entry, &checkout);
+                pr_handles.push((
+                    key,
+                    tokio::spawn(async move { probe_pr(&repo_root, &branch).await }),
+                ));
+            }
         }
     }
-    for (id, handle) in pr_handles {
+    for (key, handle) in pr_handles {
         let status = handle.await.unwrap_or(None);
-        pr_cache.insert(id, (status, Instant::now()));
+        pr_cache.insert(key, (status, Instant::now()));
     }
 
     let cwd_procs = cwd_snapshot().await;
 
     let mut containers = Vec::with_capacity(entries.len());
-    for (idx, (entry, handle)) in entries.iter().zip(handles).enumerate() {
+    for (entry, handle) in entries.iter().zip(handles) {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
-        let pr_status = pr_cache.get(&entry.id).and_then(|(s, _)| s.clone());
+        let checkouts = entry.checkouts();
+        let repo_statuses: Vec<RepoStatus> = checkouts
+            .iter()
+            .map(|ck| RepoStatus {
+                repo_root: ck.repo_root.clone(),
+                worktree_path: ck.worktree_path.clone(),
+                branch: live_branch(entry, ck),
+                pr_status: pr_cache
+                    .get(&probe_cache_key(&entry.id, &ck.repo_root))
+                    .and_then(|(s, _)| s.clone()),
+            })
+            .collect();
+        let pr_status = aggregate_pr_status(
+            &repo_statuses
+                .iter()
+                .map(|r| r.pr_status.clone())
+                .collect::<Vec<_>>(),
+        );
+        let branch = repo_statuses[0].branch.clone();
         let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
         containers.push(Container {
             id: entry.id.clone(),
             worktree_path: entry.worktree_path.clone(),
             repo_root: entry.repo_root.clone(),
             agent: entry.agent,
-            branch: live_branches[idx].clone(),
+            branch,
             created_at: entry.created_at,
             state: probe.state,
             session_id: probe.session_id,
@@ -1191,6 +1273,13 @@ async fn build_refresh_result(
                 .or(probe.last_user_message),
             pr_status,
             background_processes,
+            // Empty for single-repo entries so classic rendering paths stay
+            // untouched.
+            repos: if entry.repos.is_empty() {
+                vec![]
+            } else {
+                repo_statuses
+            },
         });
     }
     sort_containers(&mut containers);
@@ -1346,6 +1435,16 @@ async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus>
         }
         _ => Some(PrStatus::NoPr),
     }
+}
+
+/// The repo at `idx` in the ProjectPicker's filtered view, if any.
+fn picker_filtered_at(all_repos: &[PathBuf], query: &str, idx: usize) -> Option<PathBuf> {
+    let q = query.to_lowercase();
+    all_repos
+        .iter()
+        .filter(|p| p.display().to_string().to_lowercase().contains(&q))
+        .nth(idx)
+        .cloned()
 }
 
 /// Count filtered results for the ProjectPicker without taking ownership.

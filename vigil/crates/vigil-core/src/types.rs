@@ -78,6 +78,34 @@ pub enum PrStatus {
     Merged,
 }
 
+/// Per-repo state inside a multi-repo workspace container.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoStatus {
+    pub repo_root: PathBuf,
+    /// The repo's worktree checkout inside the workspace dir.
+    pub worktree_path: PathBuf,
+    /// Live branch of that checkout.
+    pub branch: String,
+    pub pr_status: Option<PrStatus>,
+}
+
+/// Combine per-repo PR statuses into one container-level status: the "least
+/// done" PR wins (InProgress < ReadyToMerge < Merged), so the dot reflects the
+/// repo that still needs work. NoPr counts only when no repo has a PR at all.
+pub fn aggregate_pr_status(statuses: &[Option<PrStatus>]) -> Option<PrStatus> {
+    fn rank(s: &PrStatus) -> u8 {
+        match s {
+            PrStatus::InProgress => 0,
+            PrStatus::ReadyToMerge => 1,
+            PrStatus::Merged => 2,
+            PrStatus::NoPr => 3,
+        }
+    }
+    let known: Vec<&PrStatus> = statuses.iter().flatten().collect();
+    let min = known.iter().min_by_key(|s| rank(s))?;
+    Some((*min).clone())
+}
+
 /// The primary entity: a registered worktree that may or may not have an active agent session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
@@ -101,6 +129,11 @@ pub struct Container {
     /// (e.g. dev servers spawned by the agent). Empty when nothing is running.
     #[serde(default)]
     pub background_processes: Vec<BackgroundProcess>,
+    /// Per-repo state for multi-repo workspace containers. Empty for classic
+    /// single-repo containers; when populated, `repo_root`/`branch` mirror the
+    /// first repo and `pr_status` holds the aggregate.
+    #[serde(default)]
+    pub repos: Vec<RepoStatus>,
 }
 
 /// A user-spawned process living inside a container (e.g. a dev server).
@@ -108,4 +141,43 @@ pub struct Container {
 pub struct BackgroundProcess {
     pub pid: u32,
     pub command: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aggregate_none_when_no_repo_probed() {
+        assert_eq!(aggregate_pr_status(&[None, None]), None);
+        assert_eq!(aggregate_pr_status(&[]), None);
+    }
+
+    #[test]
+    fn aggregate_least_done_wins() {
+        assert_eq!(
+            aggregate_pr_status(&[Some(PrStatus::Merged), Some(PrStatus::InProgress)]),
+            Some(PrStatus::InProgress)
+        );
+        assert_eq!(
+            aggregate_pr_status(&[Some(PrStatus::Merged), Some(PrStatus::ReadyToMerge)]),
+            Some(PrStatus::ReadyToMerge)
+        );
+        assert_eq!(
+            aggregate_pr_status(&[Some(PrStatus::Merged), Some(PrStatus::Merged)]),
+            Some(PrStatus::Merged)
+        );
+    }
+
+    #[test]
+    fn aggregate_no_pr_only_when_no_repo_has_one() {
+        assert_eq!(
+            aggregate_pr_status(&[Some(PrStatus::NoPr), Some(PrStatus::Merged)]),
+            Some(PrStatus::Merged)
+        );
+        assert_eq!(
+            aggregate_pr_status(&[Some(PrStatus::NoPr), None]),
+            Some(PrStatus::NoPr)
+        );
+    }
 }
