@@ -23,6 +23,10 @@ hide what doesn't.
   Tauri desktop shell. Unfinished tasks carry over to today automatically; a
   calendar view shows completion history. State persists locally to IndexedDB.
 
+- **[devhost/](devhost/)** — a local reverse-proxy runner that gives each
+  development app instance a stable `.localhost` hostname derived from app,
+  repo, and branch/worktree context, so parallel versions do not collide.
+
 (More tools as they exist.)
 
 ## Why
@@ -47,6 +51,10 @@ atelier/
 │   ├── Cargo.toml     (its own Cargo workspace)
 │   ├── src/
 │   └── src-tauri/
+├── devhost/           (another tool)
+│   ├── Cargo.toml
+│   ├── bin/devhost
+│   └── src/
 └── todo/              (another tool)
     ├── elm.json       (Elm frontend)
     ├── src/           (Elm source)
