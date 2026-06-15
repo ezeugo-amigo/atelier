@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Today app icon mockups</title>
+  <style>
+    :root {
+      --paper: #FAF8F6;
+      --paper-2: #F1EAE7;
+      --paper-3: #E8E2DF;
+      --ink: #1A1817;
+      --muted: #767270;
+      --clay: #AA412A;
+      --clay-2: #C25A3F;
+      --blue: #083241;
+      --green: #2C3827;
+      --lavender: #C5BACE;
+      --shadow: 0 22px 55px rgba(40, 37, 36, 0.16), 0 2px 8px rgba(40, 37, 36, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 18% 8%, rgba(197, 186, 206, .24), transparent 28rem),
+        radial-gradient(circle at 86% 12%, rgba(170, 65, 42, .10), transparent 24rem),
+        linear-gradient(180deg, #FEFEFE 0%, #F6F2F0 100%);
+      font: 15px/1.45 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      padding: 44px;
+    }
+
+    header { max-width: 1120px; margin: 0 auto 30px; }
+    .eyebrow {
+      color: var(--clay);
+      font: 11px/1.1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .13em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    h1 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 400;
+      font-size: clamp(38px, 5vw, 64px);
+      letter-spacing: -.04em;
+    }
+    .sub { margin: 10px 0 0; max-width: 760px; color: var(--muted); font-size: 16px; }
+    .grid {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 22px;
+    }
+    .card {
+      background: rgba(253, 252, 251, .78);
+      border: 1px solid rgba(232, 226, 223, .9);
+      border-radius: 28px;
+      padding: 22px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.8) inset;
+    }
+    .preview-row { display: flex; align-items: center; gap: 18px; }
+    .icon-lg { width: 160px; height: 160px; filter: drop-shadow(var(--shadow)); flex: 0 0 auto; }
+    .icon-sm { width: 48px; height: 48px; filter: drop-shadow(0 7px 12px rgba(40,37,36,.18)); }
+    h2 { margin: 16px 0 5px; font-size: 18px; letter-spacing: -.015em; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      margin: 0 0 8px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #FFF2ED;
+      color: var(--clay);
+      font: 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .desc { color: var(--muted); margin: 0; }
+    .notes {
+      max-width: 1120px;
+      margin: 26px auto 0;
+      padding: 18px 22px;
+      border-radius: 20px;
+      border: 1px solid var(--paper-3);
+      color: var(--muted);
+      background: rgba(250,248,246,.74);
+    }
+    .notes b { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Today desktop icon</div>
+    <h1>Six warm-paper icon directions</h1>
+    <p class="sub">All options avoid the current generic purple-square look and use the app’s actual identity: paper surface, clay accent, daily list/calendar semantics, and warm Amigo neutrals.</p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option A Paper Checklist">
+          <defs>
+            <linearGradient id="a-bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#FDFCFB"/><stop offset="1" stop-color="#F1EAE7"/></linearGradient>
+            <clipPath id="squircle-a"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath>
+          </defs>
+          <g clip-path="url(#squircle-a)">
+            <rect width="1024" height="1024" fill="url(#a-bg)"/>
+            <path d="M188 206h648c31 0 56 25 56 56v600H132V262c0-31 25-56 56-56Z" fill="#FAF8F6"/>
+            <path d="M132 332h760" stroke="#E8E2DF" stroke-width="22"/>
+            <circle cx="260" cy="274" r="28" fill="#AA412A"/><circle cx="512" cy="274" r="28" fill="#AA412A"/><circle cx="764" cy="274" r="28" fill="#AA412A"/>
+            <path d="M280 480l58 59 118-135" fill="none" stroke="#AA412A" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M540 430h230M540 522h168M280 674h486" stroke="#1A1817" stroke-width="42" stroke-linecap="round" opacity=".86"/>
+          </g>
+        </svg>
+      </div>
+      <h2>A — Paper Checklist</h2>
+      <div class="tag">most literal</div>
+      <p class="desc">Clear at small sizes: app = todo list. Warm paper, clay check, strong readability.</p>
+    </section>
+
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option B Today Calendar">
+          <defs>
+            <linearGradient id="b-bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#FEFEFE"/><stop offset="1" stop-color="#E8E2DF"/></linearGradient>
+            <clipPath id="squircle-b"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath>
+          </defs>
+          <g clip-path="url(#squircle-b)">
+            <rect width="1024" height="1024" fill="url(#b-bg)"/>
+            <rect x="164" y="182" width="696" height="676" rx="78" fill="#FAF8F6"/>
+            <path d="M164 338h696" stroke="#AA412A" stroke-width="88"/>
+            <path d="M314 170v116M710 170v116" stroke="#083241" stroke-width="48" stroke-linecap="round"/>
+            <text x="512" y="642" text-anchor="middle" font-family="Georgia, serif" font-size="280" fill="#1A1817" letter-spacing="-24">15</text>
+            <path d="M338 742h348" stroke="#AA412A" stroke-width="34" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+      <h2>B — Today Calendar</h2>
+      <div class="tag">date-forward</div>
+      <p class="desc">Says “daily app” immediately. Slight drawback: a fixed number is decorative, not live.</p>
+    </section>
+
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option C Clay Checkmark">
+          <defs>
+            <linearGradient id="c-bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#C25A3F"/><stop offset="1" stop-color="#AA412A"/></linearGradient>
+            <clipPath id="squircle-c"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath>
+          </defs>
+          <g clip-path="url(#squircle-c)">
+            <rect width="1024" height="1024" fill="url(#c-bg)"/>
+            <path d="M224 678 411 815 810 264" fill="none" stroke="#FEFEFE" stroke-width="108" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M206 214h612" stroke="#F1EAE7" stroke-width="32" stroke-linecap="round" opacity=".42"/>
+            <path d="M206 318h372" stroke="#F1EAE7" stroke-width="32" stroke-linecap="round" opacity=".32"/>
+          </g>
+        </svg>
+      </div>
+      <h2>C — Clay Checkmark</h2>
+      <div class="tag">boldest</div>
+      <p class="desc">Best dock visibility. More generic, but much less muddy than the current placeholder.</p>
+    </section>
+
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option D Stacked Days">
+          <defs><clipPath id="squircle-d"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath></defs>
+          <g clip-path="url(#squircle-d)">
+            <rect width="1024" height="1024" fill="#F6F2F0"/>
+            <rect x="242" y="242" width="548" height="548" rx="82" fill="#D7D2D0" transform="rotate(-8 516 516)" opacity=".8"/>
+            <rect x="206" y="206" width="612" height="612" rx="88" fill="#FAF8F6" transform="rotate(4 512 512)"/>
+            <path d="M318 382h394M318 506h394M318 630h260" stroke="#1A1817" stroke-width="42" stroke-linecap="round" opacity=".84"/>
+            <circle cx="250" cy="382" r="24" fill="#AA412A"/><circle cx="250" cy="506" r="24" fill="#AA412A"/><circle cx="250" cy="630" r="24" fill="none" stroke="#AA412A" stroke-width="16"/>
+          </g>
+        </svg>
+      </div>
+      <h2>D — Stacked Days</h2>
+      <div class="tag">carry-over</div>
+      <p class="desc">Hints at yesterday rolling into today. The most conceptually specific to this app.</p>
+    </section>
+
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option E Serif T">
+          <defs><clipPath id="squircle-e"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath></defs>
+          <g clip-path="url(#squircle-e)">
+            <rect width="1024" height="1024" fill="#083241"/>
+            <circle cx="784" cy="236" r="132" fill="#C5BACE" opacity=".9"/>
+            <text x="512" y="716" text-anchor="middle" font-family="Georgia, serif" font-size="600" fill="#FAF8F6" letter-spacing="-40">T</text>
+            <path d="M338 736l69 65 162-196" fill="none" stroke="#AA412A" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+        </svg>
+      </div>
+      <h2>E — Serif T</h2>
+      <div class="tag">brand-like</div>
+      <p class="desc">More identity mark than utility icon. Elegant, but less self-explanatory.</p>
+    </section>
+
+    <section class="card">
+      <div class="preview-row">
+        <svg class="icon-lg" viewBox="0 0 1024 1024" role="img" aria-label="Option F Sunrise List">
+          <defs><clipPath id="squircle-f"><path d="M512 48C231 48 48 231 48 512s183 464 464 464 464-183 464-464S793 48 512 48Z"/></clipPath></defs>
+          <g clip-path="url(#squircle-f)">
+            <rect width="1024" height="1024" fill="#FAF8F6"/>
+            <path d="M150 610c80-180 210-270 362-270s282 90 362 270" fill="#FFF2ED"/>
+            <path d="M150 610c80-180 210-270 362-270s282 90 362 270" fill="none" stroke="#AA412A" stroke-width="40" stroke-linecap="round"/>
+            <path d="M234 688h556M234 784h404" stroke="#1A1817" stroke-width="46" stroke-linecap="round" opacity=".86"/>
+            <path d="M348 516l70 70 150-178" fill="none" stroke="#AA412A" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+          </g>
+        </svg>
+      </div>
+      <h2>F — Sunrise List</h2>
+      <div class="tag">warmest</div>
+      <p class="desc">A softer “new day” metaphor. Pretty, slightly less crisp as a tiny dock icon.</p>
+    </section>
+  </main>
+
+  <section class="notes">
+    <b>My recommendation:</b> A if you want the clearest functional icon; D if you want the app’s carry-over behavior encoded in the mark; C if dock visibility matters above all else.
+  </section>
+</body>
+</html>

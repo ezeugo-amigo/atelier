@@ -40,6 +40,13 @@ port dbSave : Encode.Value -> Cmd msg
 port dbLoaded : (Encode.Value -> msg) -> Sub msg
 
 
+{-| JavaScript tells Elm when the local civil date changes while the app is
+already running. Elm still owns all task/calendar state; JS only supplies the
+wall-clock date string.
+-}
+port todayChanged : (String -> msg) -> Sub msg
+
+
 
 -- MODEL
 
@@ -103,6 +110,7 @@ init flags =
 type Msg
     = NoOp
     | GotStored Encode.Value
+    | GotToday String
     | SetView ViewMode
     | AddInput String
     | SubmitAdd
@@ -141,6 +149,9 @@ update msg model =
             ( { model | tasks = carried, loaded = True }
             , dbSave (encodeTasks carried)
             )
+
+        GotToday newToday ->
+            moveToToday newToday model
 
         SetView v ->
             ( { model | view = v }, Cmd.none )
@@ -219,6 +230,57 @@ update msg model =
 
         CalSelect iso ->
             ( { model | calSelected = iso }, Cmd.none )
+
+
+moveToToday : String -> Model -> ( Model, Cmd Msg )
+moveToToday newToday model =
+    if newToday == model.today then
+        ( model, Cmd.none )
+
+    else
+        let
+            oldToday =
+                model.today
+
+            oldTodayCursor =
+                ( DateUtil.year oldToday, DateUtil.monthIndex oldToday )
+
+            newTodayCursor =
+                ( DateUtil.year newToday, DateUtil.monthIndex newToday )
+
+            movedTasks =
+                if newToday > oldToday then
+                    applyCarryOver newToday model.tasks
+
+                else
+                    model.tasks
+
+            nextModel =
+                { model
+                    | today = newToday
+                    , tasks = movedTasks
+                    , calSelected =
+                        if model.calSelected == oldToday then
+                            newToday
+
+                        else
+                            model.calSelected
+                    , calCursor =
+                        if model.calCursor == oldTodayCursor then
+                            newTodayCursor
+
+                        else
+                            model.calCursor
+                }
+
+            saveCmd =
+                if model.loaded && newToday > oldToday then
+                    dbSave (encodeTasks movedTasks)
+
+                else
+                    Cmd.none
+        in
+        ( nextModel, saveCmd )
 
 
 persist : Model -> ( Model, Cmd Msg )
@@ -931,5 +993,10 @@ main =
         { init = init
         , update = update
         , view = view
-        , subscriptions = \_ -> dbLoaded GotStored
+        , subscriptions =
+            \_ ->
+                Sub.batch
+                    [ dbLoaded GotStored
+                    , todayChanged GotToday
+                    ]
         }

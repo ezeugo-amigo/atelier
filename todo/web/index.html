@@ -15,9 +15,11 @@
   <script type="module">
     import { wire } from "./db.js";
 
-    const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
-    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const localISODate = (date = new Date()) =>
+      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+
+    let today = localISODate();
 
     const app = Elm.Main.init({
       node: document.getElementById("root"),
@@ -25,6 +27,37 @@
     });
 
     wire(app);
+
+    let midnightTimer;
+
+    const msUntilNextLocalMidnight = () => {
+      const now = new Date();
+      const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1, 0);
+      return next.getTime() - now.getTime();
+    };
+
+    const checkToday = () => {
+      const current = localISODate();
+      if (current !== today) {
+        today = current;
+        app.ports.todayChanged.send(today);
+      }
+      scheduleNextDayCheck();
+    };
+
+    function scheduleNextDayCheck() {
+      clearTimeout(midnightTimer);
+      midnightTimer = setTimeout(checkToday, Math.max(1000, msUntilNextLocalMidnight()));
+    }
+
+    scheduleNextDayCheck();
+
+    // Also check when the app wakes or is foregrounded; timer callbacks can be
+    // delayed while a laptop sleeps or a webview is backgrounded.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) checkToday();
+    });
+    window.addEventListener("focus", checkToday);
   </script>
 </body>
 </html>
