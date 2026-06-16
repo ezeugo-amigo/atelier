@@ -8,7 +8,7 @@ use ratatui::{
 };
 use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
-use crate::app::{input_presentation, App, Overlay, AGENTS};
+use crate::app::{agents, input_presentation, App, Overlay};
 use crate::recap::Recap;
 use crate::text::truncate;
 
@@ -309,7 +309,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let agent_label = |agent: AgentKind| -> (&'static str, Style) {
                 match agent {
                     AgentKind::ClaudeCode => ("◆", Style::default().fg(RED)),
-                    AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
+                    AgentKind::Codex => ("◇", Style::default().fg(Color::White)),
                     AgentKind::Pi => ("π", Style::default().fg(BLUE)),
                     AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
                     AgentKind::Droid => ("⬡", Style::default().fg(PURPLE)),
@@ -480,7 +480,7 @@ fn draw_send_message_box(f: &mut Frame, popup: Rect, title: &str, buf: &str, not
 }
 
 fn agent_picker_spans(current: AgentKind) -> Vec<Span<'static>> {
-    AGENTS
+    agents()
         .iter()
         .flat_map(|agent| {
             let (bullet, style) = if *agent == current {

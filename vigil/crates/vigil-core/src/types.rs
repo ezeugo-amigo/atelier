@@ -35,7 +35,7 @@ impl AgentKind {
     pub fn available(&self) -> bool {
         match self {
             AgentKind::ClaudeCode => true,
-            AgentKind::Codex => false,
+            AgentKind::Codex => true,
             AgentKind::Pi => true,
             AgentKind::OpenCode => false,
             AgentKind::Droid => true,
