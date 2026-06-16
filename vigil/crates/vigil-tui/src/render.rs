@@ -10,6 +10,7 @@ use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState,
 
 use crate::app::{input_presentation, App, Overlay, AGENTS};
 use crate::recap::Recap;
+use crate::text::truncate;
 
 const RED: Color = Color::Rgb(217, 119, 87);
 const GOLD: Color = Color::Rgb(224, 184, 112);
@@ -290,7 +291,10 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
             let msg = match &c.state {
                 SessionState::NoSession => format!("↵ launch {}", c.agent.display_name()),
-                _ => c.last_user_message.as_deref().unwrap_or("-").to_string(),
+                _ => truncate(
+                    &sanitize_for_display(c.last_user_message.as_deref().unwrap_or("-")),
+                    LAST_MESSAGE_MAX_CHARS,
+                ),
             };
             let msg_lines = wrap_str(&msg, message_width);
             let msg_height = msg_lines.len().max(1) as u16;
@@ -1423,6 +1427,11 @@ fn sanitize_for_display(text: &str) -> String {
     }
     out
 }
+
+/// Upper bound on the last-message preview, in display chars. A huge paste
+/// would otherwise wrap into a row hundreds of lines tall and, once selected,
+/// overflow the viewport and hide the rest of the list.
+const LAST_MESSAGE_MAX_CHARS: usize = 100;
 
 /// Split `text` into chunks of at most `width` chars without breaking mid-word.
 fn wrap_str(text: &str, width: usize) -> Vec<String> {
