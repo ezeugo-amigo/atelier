@@ -36,20 +36,7 @@ struct RepoScanCache {
 }
 
 pub fn agents() -> &'static [AgentKind] {
-    use std::sync::OnceLock;
-    static AGENTS: OnceLock<Vec<AgentKind>> = OnceLock::new();
-    AGENTS.get_or_init(|| {
-        [
-            AgentKind::ClaudeCode,
-            AgentKind::Codex,
-            AgentKind::Pi,
-            AgentKind::OpenCode,
-            AgentKind::Droid,
-        ]
-        .into_iter()
-        .filter(|a| a.available())
-        .collect()
-    })
+    &[AgentKind::ClaudeCode, AgentKind::Codex, AgentKind::Pi, AgentKind::Droid]
 }
 
 fn vigil_worktrees_prefix() -> String {
@@ -263,10 +250,7 @@ impl App {
     pub fn cycle_selected_agent(&mut self) {
         let Some(c) = self.selected() else { return };
         let id = c.id.clone();
-        let current = c.agent;
-        let all = agents();
-        let idx = all.iter().position(|a| *a == current).unwrap_or(0);
-        let next = all[(idx + 1) % all.len()];
+        let next = Self::next_agent(c.agent);
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }

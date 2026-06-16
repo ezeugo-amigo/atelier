@@ -13,21 +13,29 @@ use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, Tool
 
 pub struct CodexAdapter;
 
-/// Locate the codex binary. Prefers the Conductor-bundled binary (which is the
-/// version users actually have installed) over the broken npm wrapper in PATH.
+/// Locate the codex binary. Uses the standard `codex` from PATH, falling back
+/// to the Conductor-bundled binary if the PATH one is not present.
 fn codex_bin() -> std::ffi::OsString {
-    let conductor = directories::BaseDirs::new()
+    if which_codex_in_path() {
+        return "codex".into();
+    }
+    directories::BaseDirs::new()
         .map(|b| {
             b.home_dir()
                 .join("Library/Application Support/com.conductor.app/bin/codex")
         })
-        .filter(|p| p.exists());
+        .filter(|p| p.exists())
+        .map(|p| p.into_os_string())
+        .unwrap_or_else(|| "codex".into())
+}
 
-    if let Some(path) = conductor {
-        path.into_os_string()
-    } else {
-        "codex".into()
-    }
+fn which_codex_in_path() -> bool {
+    std::env::var_os("PATH")
+        .unwrap_or_default()
+        .to_string_lossy()
+        .split(':')
+        .map(std::path::Path::new)
+        .any(|dir| dir.join("codex").exists())
 }
 
 #[async_trait::async_trait]
