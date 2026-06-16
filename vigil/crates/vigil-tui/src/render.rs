@@ -309,7 +309,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let agent_label = |agent: AgentKind| -> (&'static str, Style) {
                 match agent {
                     AgentKind::ClaudeCode => ("◆", Style::default().fg(RED)),
-                    AgentKind::Codex => ("◇", Style::default().fg(GOLD)),
+                    AgentKind::Codex => ("◇", Style::default().fg(Color::White)),
                     AgentKind::Pi => ("π", Style::default().fg(BLUE)),
                     AgentKind::OpenCode => ("◎", Style::default().fg(GREEN)),
                     AgentKind::Droid => ("⬡", Style::default().fg(PURPLE)),
