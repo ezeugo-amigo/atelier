@@ -35,7 +35,22 @@ struct RepoScanCache {
     repos: Vec<PathBuf>,
 }
 
-pub const AGENTS: [AgentKind; 3] = [AgentKind::ClaudeCode, AgentKind::Pi, AgentKind::Droid];
+pub fn agents() -> &'static [AgentKind] {
+    use std::sync::OnceLock;
+    static AGENTS: OnceLock<Vec<AgentKind>> = OnceLock::new();
+    AGENTS.get_or_init(|| {
+        [
+            AgentKind::ClaudeCode,
+            AgentKind::Codex,
+            AgentKind::Pi,
+            AgentKind::OpenCode,
+            AgentKind::Droid,
+        ]
+        .into_iter()
+        .filter(|a| a.available())
+        .collect()
+    })
+}
 
 fn vigil_worktrees_prefix() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -199,13 +214,15 @@ impl App {
     }
 
     fn next_agent(current: AgentKind) -> AgentKind {
-        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
-        AGENTS[(idx + 1) % AGENTS.len()]
+        let all = agents();
+        let idx = all.iter().position(|a| *a == current).unwrap_or(0);
+        all[(idx + 1) % all.len()]
     }
 
     fn prev_agent(current: AgentKind) -> AgentKind {
-        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
-        AGENTS[idx.checked_sub(1).unwrap_or(AGENTS.len() - 1)]
+        let all = agents();
+        let idx = all.iter().position(|a| *a == current).unwrap_or(0);
+        all[idx.checked_sub(1).unwrap_or(all.len() - 1)]
     }
 
     pub fn selected(&self) -> Option<&Container> {
@@ -247,8 +264,9 @@ impl App {
         let Some(c) = self.selected() else { return };
         let id = c.id.clone();
         let current = c.agent;
-        let idx = AGENTS.iter().position(|a| *a == current).unwrap_or(0);
-        let next = AGENTS[(idx + 1) % AGENTS.len()];
+        let all = agents();
+        let idx = all.iter().position(|a| *a == current).unwrap_or(0);
+        let next = all[(idx + 1) % all.len()];
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }

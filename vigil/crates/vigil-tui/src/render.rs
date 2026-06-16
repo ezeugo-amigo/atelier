@@ -8,7 +8,7 @@ use ratatui::{
 };
 use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
-use crate::app::{input_presentation, App, Overlay, AGENTS};
+use crate::app::{agents, input_presentation, App, Overlay};
 use crate::recap::Recap;
 use crate::text::truncate;
 
@@ -480,7 +480,7 @@ fn draw_send_message_box(f: &mut Frame, popup: Rect, title: &str, buf: &str, not
 }
 
 fn agent_picker_spans(current: AgentKind) -> Vec<Span<'static>> {
-    AGENTS
+    agents()
         .iter()
         .flat_map(|agent| {
             let (bullet, style) = if *agent == current {
