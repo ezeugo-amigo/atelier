@@ -290,7 +290,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
             let msg = match &c.state {
                 SessionState::NoSession => format!("↵ launch {}", c.agent.display_name()),
-                _ => c.last_user_message.as_deref().unwrap_or("-").to_string(),
+                _ => truncate_last_message(c.last_user_message.as_deref().unwrap_or("-")),
             };
             let msg_lines = wrap_str(&msg, message_width);
             let msg_height = msg_lines.len().max(1) as u16;
@@ -1424,6 +1424,23 @@ fn sanitize_for_display(text: &str) -> String {
     out
 }
 
+/// Upper bound on the last-message preview, in display chars. A huge paste
+/// would otherwise wrap into a row hundreds of lines tall and, once selected,
+/// overflow the viewport and hide the rest of the list.
+const LAST_MESSAGE_MAX_CHARS: usize = 100;
+
+/// Sanitize and cap a last-message preview, appending `...` when truncated.
+fn truncate_last_message(text: &str) -> String {
+    let sanitized = sanitize_for_display(text);
+    let mut chars = sanitized.chars();
+    let head: String = chars.by_ref().take(LAST_MESSAGE_MAX_CHARS).collect();
+    if chars.next().is_some() {
+        format!("{head}...")
+    } else {
+        head
+    }
+}
+
 /// Split `text` into chunks of at most `width` chars without breaking mid-word.
 fn wrap_str(text: &str, width: usize) -> Vec<String> {
     let sanitized = sanitize_for_display(text);
@@ -1573,6 +1590,30 @@ mod tests {
     #[test]
     fn sanitize_keeps_plain_and_wide_unicode() {
         assert_eq!(sanitize_for_display("héllo 世界 ✓"), "héllo 世界 ✓");
+    }
+
+    #[test]
+    fn truncate_last_message_caps_long_paste() {
+        let long = "x".repeat(500);
+        let truncated = truncate_last_message(&long);
+        assert_eq!(truncated.chars().count(), LAST_MESSAGE_MAX_CHARS + 3);
+        assert!(truncated.ends_with("..."));
+        assert_eq!(&truncated[..LAST_MESSAGE_MAX_CHARS], &long[..LAST_MESSAGE_MAX_CHARS]);
+    }
+
+    #[test]
+    fn truncate_last_message_leaves_short_text_untouched() {
+        assert_eq!(truncate_last_message("hello"), "hello");
+        // Exactly at the cap, no ellipsis.
+        let exact = "y".repeat(LAST_MESSAGE_MAX_CHARS);
+        assert_eq!(truncate_last_message(&exact), exact);
+    }
+
+    #[test]
+    fn truncate_last_message_strips_escapes_before_capping() {
+        // Escape bytes are removed first, so they don't eat into the budget.
+        let input = format!("\u{1b}[31m{}\u{1b}[0m", "z".repeat(50));
+        assert_eq!(truncate_last_message(&input), "z".repeat(50));
     }
 
     #[test]
