@@ -21,6 +21,19 @@ pub enum AgentKind {
 }
 
 impl AgentKind {
+    /// All known agent kinds in display order. Keep this in sync with the enum.
+    /// `available()` and `display_name()` below use exhaustive matches, so the
+    /// compiler catches missing variants there — add new variants to all three.
+    pub fn all() -> &'static [AgentKind] {
+        &[
+            AgentKind::ClaudeCode,
+            AgentKind::Codex,
+            AgentKind::Pi,
+            AgentKind::OpenCode,
+            AgentKind::Droid,
+        ]
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             AgentKind::ClaudeCode => "Claude Code",
@@ -37,7 +50,7 @@ impl AgentKind {
             AgentKind::ClaudeCode => true,
             AgentKind::Codex => true,
             AgentKind::Pi => true,
-            AgentKind::OpenCode => false,
+            AgentKind::OpenCode => true,
             AgentKind::Droid => true,
         }
     }

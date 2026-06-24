@@ -35,8 +35,12 @@ struct RepoScanCache {
     repos: Vec<PathBuf>,
 }
 
-pub fn agents() -> &'static [AgentKind] {
-    &[AgentKind::ClaudeCode, AgentKind::Codex, AgentKind::Pi, AgentKind::Droid]
+pub fn agents() -> Vec<AgentKind> {
+    AgentKind::all()
+        .iter()
+        .copied()
+        .filter(|a| a.available())
+        .collect()
 }
 
 fn vigil_worktrees_prefix() -> String {
