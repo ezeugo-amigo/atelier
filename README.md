@@ -23,6 +23,10 @@ hide what doesn't.
   Tauri desktop shell. Unfinished tasks carry over to today automatically; a
   calendar view shows completion history. State persists locally to IndexedDB.
 
+- **[maildesk/](maildesk/)** — a Tauri desktop email client scaffold with an
+  Elm three-pane frontend and typed Rust command API. It starts with an
+  in-memory mailbox so provider sync can be added behind a stable boundary.
+
 - **[devhost/](devhost/)** — a local reverse-proxy runner that gives each
   development app instance a stable `.localhost` hostname derived from app,
   repo, and branch/worktree context, so parallel versions do not collide.
@@ -55,11 +59,16 @@ atelier/
 │   ├── Cargo.toml
 │   ├── bin/devhost
 │   └── src/
-└── todo/              (another tool)
+├── todo/              (another tool)
+│   ├── elm.json       (Elm frontend)
+│   ├── src/           (Elm source)
+│   ├── web/           (static frontend Tauri bundles)
+│   └── src-tauri/     (its own Tauri desktop shell)
+└── maildesk/          (another tool)
     ├── elm.json       (Elm frontend)
-    ├── src/           (Elm source)
-    ├── web/           (static frontend Tauri bundles)
-    └── src-tauri/     (its own Tauri desktop shell)
+    ├── src/
+    ├── web/
+    └── src-tauri/     (Tauri shell + Rust command API)
 ```
 
 There is no top-level Cargo workspace; each tool builds independently. `cd`
