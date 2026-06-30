@@ -23,7 +23,7 @@ hide what doesn't.
   Tauri desktop shell. Unfinished tasks carry over to today automatically; a
   calendar view shows completion history. State persists locally to IndexedDB.
 
-- **[maildesk/](maildesk/)** — a Tauri desktop email client scaffold with an
+- **[lotus/](lotus/)** — a Tauri desktop email client scaffold with an
   Elm three-pane frontend and typed Rust command API. It starts with an
   in-memory mailbox so provider sync can be added behind a stable boundary.
 
@@ -64,7 +64,7 @@ atelier/
 │   ├── src/           (Elm source)
 │   ├── web/           (static frontend Tauri bundles)
 │   └── src-tauri/     (its own Tauri desktop shell)
-└── maildesk/          (another tool)
+└── lotus/             (another tool)
     ├── elm.json       (Elm frontend)
     ├── src/
     ├── web/

@@ -1,8 +1,8 @@
-# Maildesk
+# Lotus
 
 An Elm frontend in a Tauri desktop shell, backed by typed Rust commands.
 
-Maildesk is the starting point for a native desktop email client. The first
+Lotus is the starting point for a native desktop email client. The first
 version keeps the hard parts explicit:
 
 - Elm owns the interface and all view state.
@@ -39,7 +39,7 @@ make clean
 ## Shape
 
 ```text
-maildesk/
+lotus/
 ├── build.sh
 ├── docs/frontend-architecture.md
 ├── elm.json

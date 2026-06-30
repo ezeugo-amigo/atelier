@@ -1,11 +1,11 @@
 SHELL := /bin/bash
 
-APP_NAME    := Maildesk
+APP_NAME    := Lotus
 BUNDLE_DIR  := src-tauri/target/release/bundle/macos
 APP_BUNDLE  := $(BUNDLE_DIR)/$(APP_NAME).app
 INSTALL_DIR := /Applications
 INSTALLED   := $(INSTALL_DIR)/$(APP_NAME).app
-DEBUG_BIN   := src-tauri/target/debug/maildesk-app
+DEBUG_BIN   := src-tauri/target/debug/lotus-app
 
 TAURI_CLI_VERSION := ^2.0
 
@@ -14,7 +14,7 @@ TAURI_CLI_VERSION := ^2.0
 .PHONY: help web tauri-cli build install launch run dev clean
 
 help:
-	@echo "Maildesk — make targets:"
+	@echo "Lotus — make targets:"
 	@echo "  make dev        run Tauri dev mode"
 	@echo "  make run        build + run the debug binary directly"
 	@echo "  make build      build the release .app bundle"
@@ -28,7 +28,7 @@ web:
 
 tauri-cli:
 	@if ! cargo tauri --version >/dev/null 2>&1; then \
-		echo "Maildesk: installing tauri-cli ($(TAURI_CLI_VERSION))"; \
+		echo "Lotus: installing tauri-cli ($(TAURI_CLI_VERSION))"; \
 		cargo install tauri-cli --version "$(TAURI_CLI_VERSION)" --locked; \
 	fi
 
@@ -36,7 +36,7 @@ build: tauri-cli
 	cargo tauri build
 
 install: build
-	@echo "Maildesk: installing $(APP_NAME).app -> $(INSTALL_DIR)"
+	@echo "Lotus: installing $(APP_NAME).app -> $(INSTALL_DIR)"
 	@rm -rf "$(INSTALLED)"
 	@cp -R "$(APP_BUNDLE)" "$(INSTALL_DIR)/"
 	@echo "Installed: $(INSTALLED)"

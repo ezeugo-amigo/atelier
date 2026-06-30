@@ -502,7 +502,7 @@ viewSidebar model =
         [ div [ A.class "brand" ]
             [ div [ A.class "brand-title" ]
                 [ span [ A.class "brand-mark" ] [ icon "mail" ]
-                , span [] [ text "Maildesk" ]
+                , span [] [ text "Lotus" ]
                 ]
             , div [ A.class "sidebar-actions" ]
                 [ button [ A.class "icon-button", A.title "Refresh", Ev.onClick Refresh ] [ icon "refresh" ]
