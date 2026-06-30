@@ -531,7 +531,7 @@ pub fn run() {
             refresh_mail
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Maildesk");
+        .expect("error while running Lotus");
 }
 
 fn folder(id: &str, account_id: &str, name: &str, role: &str) -> Folder {

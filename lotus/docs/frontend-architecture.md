@@ -1,13 +1,13 @@
-# Maildesk Frontend Architecture
+# Lotus Frontend Architecture
 
-Maildesk is an Elm application running inside a Tauri webview. Elm owns the UI
+Lotus is an Elm application running inside a Tauri webview. Elm owns the UI
 and view state. Rust owns mailbox data and mutations. A small JavaScript bridge
 connects Elm ports to Tauri commands.
 
 ## File Map
 
 ```text
-maildesk/
+lotus/
 ├── src/Main.elm              Elm app: model, update loop, views, decoders
 ├── web/index.html            Static shell loaded by Tauri
 ├── web/tauri.js              Elm port bridge to Tauri invoke
