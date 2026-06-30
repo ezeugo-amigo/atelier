@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maildesk Icon Variations</title>
+  <style>
+    :root {
+      --paper: #f7f4ec;
+      --ink: #232520;
+      --muted: #777266;
+      --line: #ddd7ca;
+      --panel: #fffdf8;
+      --shadow: 0 18px 42px rgba(35, 37, 32, 0.14);
+      --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 42px 28px 56px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 32px;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 560px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(180px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+    }
+
+    .stage {
+      display: grid;
+      place-items: center;
+      min-height: 248px;
+      padding: 28px 20px 22px;
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.62), rgba(255,255,255,0)),
+        #f1eee6;
+    }
+
+    .icon {
+      width: 172px;
+      height: 172px;
+      filter: drop-shadow(0 18px 24px rgba(35, 37, 32, 0.18));
+    }
+
+    .info {
+      padding: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.2;
+    }
+
+    .note {
+      min-height: 54px;
+      margin: 8px 0 14px;
+      color: var(--muted);
+      font-size: 12.5px;
+      line-height: 1.42;
+    }
+
+    .sizes {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sizes svg {
+      display: block;
+      flex: none;
+      filter: none;
+    }
+
+    .sizes .s64 {
+      width: 64px;
+      height: 64px;
+    }
+
+    .sizes .s32 {
+      width: 32px;
+      height: 32px;
+    }
+
+    @media (max-width: 1120px) {
+      .grid {
+        grid-template-columns: repeat(3, minmax(190px, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      header {
+        display: block;
+      }
+
+      .meta {
+        margin-top: 14px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <h1>Maildesk App Icon Variations</h1>
+        <p class="subtitle">Five email-specific directions to replace the copied Today icon. Each keeps a desktop-app rounded-square silhouette and includes 64 px and 32 px previews.</p>
+      </div>
+      <div class="meta">HTML + inline SVG concepts</div>
+    </header>
+
+    <section class="grid" aria-label="Icon variations">
+      <article class="card">
+        <div class="stage">
+          <svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Folded envelope icon">
+            <defs>
+              <linearGradient id="v1-bg" x1="44" y1="22" x2="220" y2="234" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#2f7771"/>
+                <stop offset="1" stop-color="#173f4f"/>
+              </linearGradient>
+              <linearGradient id="v1-paper" x1="70" y1="72" x2="186" y2="184" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fffaf0"/>
+                <stop offset="1" stop-color="#ded6c7"/>
+              </linearGradient>
+            </defs>
+            <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#v1-bg)"/>
+            <path d="M58 82h140a14 14 0 0 1 14 14v82a14 14 0 0 1-14 14H58a14 14 0 0 1-14-14V96a14 14 0 0 1 14-14Z" fill="url(#v1-paper)"/>
+            <path d="M47 95l81 59 81-59" fill="none" stroke="#285b57" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M52 187l56-51M204 187l-56-51" fill="none" stroke="#b56a3c" stroke-width="10" stroke-linecap="round"/>
+            <circle cx="194" cy="68" r="18" fill="#e7a748"/>
+          </svg>
+        </div>
+        <div class="info">
+          <h2>Folded Envelope</h2>
+          <p class="note">Most literal. Strong read at small sizes, with a warm notification mark that can become a product accent.</p>
+          <div class="sizes">
+            <svg class="s64" viewBox="0 0 256 256" aria-hidden="true"><use href="#folded-symbol"/></svg>
+            <svg class="s32" viewBox="0 0 256 256" aria-hidden="true"><use href="#folded-symbol"/></svg>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Inbox tray icon">
+            <defs>
+              <linearGradient id="v2-bg" x1="26" y1="26" x2="228" y2="230" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#f3d37f"/>
+                <stop offset="1" stop-color="#8d4b35"/>
+              </linearGradient>
+              <linearGradient id="v2-tray" x1="64" y1="66" x2="196" y2="202" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fff9e9"/>
+                <stop offset="1" stop-color="#d9c29a"/>
+              </linearGradient>
+            </defs>
+            <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#v2-bg)"/>
+            <path d="M64 72h128l20 74v36a18 18 0 0 1-18 18H62a18 18 0 0 1-18-18v-36Z" fill="url(#v2-tray)"/>
+            <path d="M50 145h54l16 24h16l16-24h54" fill="none" stroke="#563326" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M82 91h92M76 117h104" stroke="#704736" stroke-width="11" stroke-linecap="round" opacity="0.72"/>
+            <path d="M74 196h108" stroke="#fff6df" stroke-width="10" stroke-linecap="round" opacity="0.8"/>
+          </svg>
+        </div>
+        <div class="info">
+          <h2>Inbox Tray</h2>
+          <p class="note">Feels more like a desktop mail utility. The tray shape stays recognizable when the detailed lines disappear.</p>
+          <div class="sizes">
+            <svg class="s64" viewBox="0 0 256 256" aria-hidden="true"><use href="#tray-symbol"/></svg>
+            <svg class="s32" viewBox="0 0 256 256" aria-hidden="true"><use href="#tray-symbol"/></svg>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Mail stamp icon">
+            <defs>
+              <linearGradient id="v3-bg" x1="34" y1="22" x2="220" y2="238" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#344f89"/>
+                <stop offset="1" stop-color="#171b36"/>
+              </linearGradient>
+              <linearGradient id="v3-stamp" x1="70" y1="60" x2="196" y2="198" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fffdf4"/>
+                <stop offset="1" stop-color="#cfd9e8"/>
+              </linearGradient>
+            </defs>
+            <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#v3-bg)"/>
+            <path d="M72 54h112l8 10 10-2 2 18 12 8-8 16 8 16-8 16 8 16-12 8-2 18-10-2-8 10H72l-8-10-10 2-2-18-12-8 8-16-8-16 8-16-8-16 12-8 2-18 10 2Z" fill="url(#v3-stamp)"/>
+            <path d="M82 105h92M82 130h72" stroke="#1d2c4e" stroke-width="12" stroke-linecap="round"/>
+            <path d="M82 154h44" stroke="#a94635" stroke-width="12" stroke-linecap="round"/>
+            <circle cx="166" cy="78" r="18" fill="#6ea7c8"/>
+            <path d="M155 78h22" stroke="#fffdf4" stroke-width="8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="info">
+          <h2>Postmark Stamp</h2>
+          <p class="note">More distinctive and brandable. Good if Maildesk should feel crafted rather than generic.</p>
+          <div class="sizes">
+            <svg class="s64" viewBox="0 0 256 256" aria-hidden="true"><use href="#stamp-symbol"/></svg>
+            <svg class="s32" viewBox="0 0 256 256" aria-hidden="true"><use href="#stamp-symbol"/></svg>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Secure mail icon">
+            <defs>
+              <linearGradient id="v4-bg" x1="36" y1="28" x2="230" y2="230" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#244a45"/>
+                <stop offset="0.52" stop-color="#1f3838"/>
+                <stop offset="1" stop-color="#101c25"/>
+              </linearGradient>
+              <linearGradient id="v4-card" x1="58" y1="72" x2="202" y2="194" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#f6fff6"/>
+                <stop offset="1" stop-color="#c8e0d6"/>
+              </linearGradient>
+            </defs>
+            <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#v4-bg)"/>
+            <rect x="48" y="88" width="160" height="104" rx="22" fill="url(#v4-card)"/>
+            <path d="M52 100l76 54 76-54" fill="none" stroke="#244a45" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M98 92v-8a30 30 0 0 1 60 0v8" fill="none" stroke="#e2b94f" stroke-width="14" stroke-linecap="round"/>
+            <rect x="92" y="70" width="72" height="52" rx="18" fill="#e2b94f"/>
+            <path d="M128 91v15" stroke="#244a45" stroke-width="10" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="info">
+          <h2>Secure Mail</h2>
+          <p class="note">Leans into privacy and local-first expectations. Best direction if account/keychain work is core to the app.</p>
+          <div class="sizes">
+            <svg class="s64" viewBox="0 0 256 256" aria-hidden="true"><use href="#secure-symbol"/></svg>
+            <svg class="s32" viewBox="0 0 256 256" aria-hidden="true"><use href="#secure-symbol"/></svg>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="stage">
+          <svg class="icon" viewBox="0 0 256 256" role="img" aria-label="Maildesk monogram icon">
+            <defs>
+              <linearGradient id="v5-bg" x1="34" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fbf7e8"/>
+                <stop offset="0.5" stop-color="#d8e7dc"/>
+                <stop offset="1" stop-color="#4d7b82"/>
+              </linearGradient>
+              <linearGradient id="v5-mark" x1="66" y1="54" x2="194" y2="202" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#22312d"/>
+                <stop offset="1" stop-color="#365f67"/>
+              </linearGradient>
+            </defs>
+            <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#v5-bg)"/>
+            <path d="M58 188V74h34l36 48 36-48h34v114h-34v-62l-36 45-36-45v62Z" fill="url(#v5-mark)"/>
+            <path d="M70 96l58 50 58-50" fill="none" stroke="#f9f3df" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M74 188h108" stroke="#a95a38" stroke-width="12" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="info">
+          <h2>Maildesk M</h2>
+          <p class="note">Least generic. Reads as an app brand first, with the envelope fold embedded in the monogram.</p>
+          <div class="sizes">
+            <svg class="s64" viewBox="0 0 256 256" aria-hidden="true"><use href="#mono-symbol"/></svg>
+            <svg class="s32" viewBox="0 0 256 256" aria-hidden="true"><use href="#mono-symbol"/></svg>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <svg width="0" height="0" aria-hidden="true" focusable="false">
+      <symbol id="folded-symbol" viewBox="0 0 256 256">
+        <rect x="18" y="18" width="220" height="220" rx="50" fill="#2f7771"/>
+        <path d="M58 82h140a14 14 0 0 1 14 14v82a14 14 0 0 1-14 14H58a14 14 0 0 1-14-14V96a14 14 0 0 1 14-14Z" fill="#f6eedf"/>
+        <path d="M47 95l81 59 81-59" fill="none" stroke="#285b57" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M52 187l56-51M204 187l-56-51" fill="none" stroke="#b56a3c" stroke-width="10" stroke-linecap="round"/>
+        <circle cx="194" cy="68" r="18" fill="#e7a748"/>
+      </symbol>
+
+      <symbol id="tray-symbol" viewBox="0 0 256 256">
+        <rect x="18" y="18" width="220" height="220" rx="50" fill="#b2653c"/>
+        <path d="M64 72h128l20 74v36a18 18 0 0 1-18 18H62a18 18 0 0 1-18-18v-36Z" fill="#f0dfb9"/>
+        <path d="M50 145h54l16 24h16l16-24h54" fill="none" stroke="#563326" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M82 91h92M76 117h104" stroke="#704736" stroke-width="11" stroke-linecap="round" opacity="0.72"/>
+      </symbol>
+
+      <symbol id="stamp-symbol" viewBox="0 0 256 256">
+        <rect x="18" y="18" width="220" height="220" rx="50" fill="#253c78"/>
+        <path d="M72 54h112l8 10 10-2 2 18 12 8-8 16 8 16-8 16 8 16-12 8-2 18-10-2-8 10H72l-8-10-10 2-2-18-12-8 8-16-8-16 8-16-8-16 12-8 2-18 10 2Z" fill="#eef3f4"/>
+        <path d="M82 105h92M82 130h72" stroke="#1d2c4e" stroke-width="12" stroke-linecap="round"/>
+        <path d="M82 154h44" stroke="#a94635" stroke-width="12" stroke-linecap="round"/>
+        <circle cx="166" cy="78" r="18" fill="#6ea7c8"/>
+      </symbol>
+
+      <symbol id="secure-symbol" viewBox="0 0 256 256">
+        <rect x="18" y="18" width="220" height="220" rx="50" fill="#203b39"/>
+        <rect x="48" y="88" width="160" height="104" rx="22" fill="#dcefe3"/>
+        <path d="M52 100l76 54 76-54" fill="none" stroke="#244a45" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M98 92v-8a30 30 0 0 1 60 0v8" fill="none" stroke="#e2b94f" stroke-width="14" stroke-linecap="round"/>
+        <rect x="92" y="70" width="72" height="52" rx="18" fill="#e2b94f"/>
+      </symbol>
+
+      <symbol id="mono-symbol" viewBox="0 0 256 256">
+        <rect x="18" y="18" width="220" height="220" rx="50" fill="#d8e7dc"/>
+        <path d="M58 188V74h34l36 48 36-48h34v114h-34v-62l-36 45-36-45v62Z" fill="#26423f"/>
+        <path d="M70 96l58 50 58-50" fill="none" stroke="#f9f3df" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M74 188h108" stroke="#a95a38" stroke-width="12" stroke-linecap="round"/>
+      </symbol>
+    </svg>
+  </main>
+</body>
+</html>
