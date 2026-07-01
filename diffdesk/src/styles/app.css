@@ -80,6 +80,7 @@ body,
 }
 
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -600,6 +601,12 @@ button {
   margin-top: 4px;
 }
 
+.diff-pane__tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .diff-pane__legend {
   display: flex;
   align-items: center;
@@ -633,6 +640,93 @@ button {
 .legend-dot--note {
   background: var(--orange-100);
   box-shadow: 0 0 0 1px var(--linework-orange);
+}
+
+.tool-icon-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-background);
+  color: var(--content-secondary);
+  transition:
+    background var(--motion-fast) var(--easing-std),
+    border-color var(--motion-fast) var(--easing-std),
+    color var(--motion-fast) var(--easing-std);
+}
+
+.tool-icon-btn:hover:not(:disabled) {
+  background: var(--warm-50);
+  border-color: var(--warm-2);
+  color: var(--content-title);
+}
+
+.tool-icon-btn:disabled {
+  cursor: default;
+  background: var(--warm-50);
+  color: var(--content-placeholder);
+}
+
+.findbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(560px, 100%);
+  margin: -6px 0 18px auto;
+  padding: 8px;
+  border: 1px solid var(--warm-150);
+  border-radius: var(--radius-md);
+  background: rgba(253, 252, 251, 0.96);
+  box-shadow:
+    var(--shadow-card),
+    0 12px 32px -18px rgba(40, 37, 36, 0.28);
+  color: var(--content-support);
+  backdrop-filter: blur(10px);
+}
+
+.findbar__input {
+  min-width: 0;
+  flex: 1;
+  appearance: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--content-title);
+  font-size: 13px;
+}
+
+.findbar__input::placeholder {
+  color: var(--content-placeholder);
+}
+
+.findbar__input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.findbar__count {
+  min-width: 90px;
+  color: var(--content-support) !important;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.findbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.findbar .tool-icon-btn {
+  width: 26px;
+  height: 26px;
 }
 
 .file {

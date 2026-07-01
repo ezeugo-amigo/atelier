@@ -5,15 +5,24 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Edit3,
   Folder,
   FolderOpen,
   GitBranch,
   MessageSquare,
+  Search,
   Sparkles,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { parseUnifiedDiff } from "./lib/parseUnifiedDiff";
 import type {
   DiffFile,
@@ -78,6 +87,32 @@ type SidebarFolderGroup = {
   deletions: number;
 };
 
+type SearchMatch =
+  | {
+      kind: "file";
+      id: string;
+      fileId: string;
+      filePath: string;
+    }
+  | {
+      kind: "hunk";
+      id: string;
+      fileId: string;
+      filePath: string;
+      hunkIndex: number;
+      unifiedLineIndex: number;
+    }
+  | {
+      kind: "line";
+      id: string;
+      fileId: string;
+      filePath: string;
+      hunkIndex: number;
+      lineIndex: number;
+      lineKey: LineKey;
+      unifiedLineIndex: number;
+    };
+
 const outputFormat: OutputFormat = "markdown";
 
 export function App() {
@@ -92,6 +127,11 @@ export function App() {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     new Set(),
   );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchIndex, setSearchIndex] = useState(0);
+  const diffPaneRef = useRef<HTMLElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -143,6 +183,90 @@ export function App() {
       ? state.files
       : state.files.filter((file) => file.id === selectedFileId);
   }, [selectedFileId, state]);
+
+  const searchMatches = useMemo(
+    () => buildSearchMatches(visibleFiles, searchQuery),
+    [searchQuery, visibleFiles],
+  );
+  const activeSearchIndex =
+    searchMatches.length === 0
+      ? 0
+      : Math.min(searchIndex, searchMatches.length - 1);
+  const activeSearchMatch = searchMatches[activeSearchIndex] ?? null;
+
+  useEffect(() => {
+    if (searchMatches.length > 0 && searchIndex >= searchMatches.length) {
+      setSearchIndex(searchMatches.length - 1);
+    }
+  }, [searchIndex, searchMatches.length]);
+
+  useEffect(() => {
+    setSearchIndex(0);
+  }, [searchQuery, selectedFileId]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (
+        event.key.toLowerCase() === "f" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        setSearchOpen(true);
+        return;
+      }
+
+      if (searchOpen && event.key === "Escape") {
+        event.preventDefault();
+        setSearchOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    });
+  }, [searchOpen]);
+
+  useEffect(() => {
+    if (activeSearchMatch === null || !searchOpen) return;
+    setCollapsedFiles((current) => {
+      if (!current.has(activeSearchMatch.fileId)) return current;
+      const next = new Set(current);
+      next.delete(activeSearchMatch.fileId);
+      return next;
+    });
+
+    let nextFrame = 0;
+    const frame = window.requestAnimationFrame(() => {
+      nextFrame = window.requestAnimationFrame(() => {
+        scrollSearchMatchIntoView(diffPaneRef.current, activeSearchMatch);
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(nextFrame);
+    };
+  }, [activeSearchMatch, searchOpen]);
+
+  const stepSearch = useCallback(
+    (direction: 1 | -1) => {
+      if (searchMatches.length === 0) return;
+      setSearchIndex((current) => {
+        const next = current + direction;
+        if (next < 0) return searchMatches.length - 1;
+        if (next >= searchMatches.length) return 0;
+        return next;
+      });
+    },
+    [searchMatches.length],
+  );
 
   const commentCounts = useMemo(() => {
     return comments.reduce<Record<string, number>>((accumulator, comment) => {
@@ -312,7 +436,7 @@ export function App() {
             onSelect={setSelectedFileId}
             onToggleFolder={toggleFolderCollapsed}
           />
-          <main className="diff-pane">
+          <main className="diff-pane" ref={diffPaneRef}>
             <div className="diff-pane__header">
               <div>
                 <div className="type-page-title">Review changes</div>
@@ -321,24 +445,52 @@ export function App() {
                   span a range. Notes are sent to the agent in one batch.
                 </div>
               </div>
-              <div className="diff-pane__legend type-mono">
-                <span>
-                  <span className="legend-dot legend-dot--add" /> added
-                </span>
-                <span>
-                  <span className="legend-dot legend-dot--del" /> removed
-                </span>
-                <span>
-                  <span className="legend-dot legend-dot--note" /> your note
-                </span>
+              <div className="diff-pane__tools">
+                <button
+                  className="tool-icon-btn"
+                  onClick={() => setSearchOpen(true)}
+                  title="Search diff"
+                  type="button"
+                >
+                  <Search size={14} />
+                </button>
+                <div className="diff-pane__legend type-mono">
+                  <span>
+                    <span className="legend-dot legend-dot--add" /> added
+                  </span>
+                  <span>
+                    <span className="legend-dot legend-dot--del" /> removed
+                  </span>
+                  <span>
+                    <span className="legend-dot legend-dot--note" /> your note
+                  </span>
+                </div>
               </div>
             </div>
+
+            {searchOpen ? (
+              <FindBar
+                inputRef={searchInputRef}
+                matchCount={searchMatches.length}
+                matchIndex={activeSearchIndex}
+                onChange={setSearchQuery}
+                onClose={() => setSearchOpen(false)}
+                onNext={() => stepSearch(1)}
+                onPrevious={() => stepSearch(-1)}
+                query={searchQuery}
+              />
+            ) : null}
 
             {visibleFiles.length === 0 ? (
               <EmptyDiff />
             ) : (
               visibleFiles.map((file) => (
                 <FileDiff
+                  activeSearchMatch={
+                    activeSearchMatch?.fileId === file.id
+                      ? activeSearchMatch
+                      : null
+                  }
                   key={file.id}
                   collapsed={collapsedFiles.has(file.id)}
                   comments={comments}
@@ -467,6 +619,88 @@ function TrafficLights() {
       <span className="traffic-dot close" />
       <span className="traffic-dot minimize" />
       <span className="traffic-dot zoom" />
+    </div>
+  );
+}
+
+function FindBar({
+  inputRef,
+  matchCount,
+  matchIndex,
+  onChange,
+  onClose,
+  onNext,
+  onPrevious,
+  query,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>;
+  matchCount: number;
+  matchIndex: number;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
+  query: string;
+}) {
+  const hasQuery = query.trim() !== "";
+  const counter = hasQuery
+    ? matchCount === 0
+      ? "0 results"
+      : `${matchIndex + 1} of ${matchCount}`
+    : "Type to search";
+
+  return (
+    <div className="findbar">
+      <Search size={14} />
+      <input
+        aria-label="Search diff"
+        className="findbar__input"
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (event.shiftKey) onPrevious();
+            else onNext();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+        placeholder="Search diff"
+        ref={inputRef}
+        type="search"
+        value={query}
+      />
+      <span className="findbar__count type-mono">{counter}</span>
+      <div className="findbar__actions">
+        <button
+          className="tool-icon-btn"
+          disabled={matchCount === 0}
+          onClick={onPrevious}
+          title="Previous result"
+          type="button"
+        >
+          <ChevronUp size={14} />
+        </button>
+        <button
+          className="tool-icon-btn"
+          disabled={matchCount === 0}
+          onClick={onNext}
+          title="Next result"
+          type="button"
+        >
+          <ChevronDown size={14} />
+        </button>
+        <button
+          className="tool-icon-btn"
+          onClick={onClose}
+          title="Close search"
+          type="button"
+        >
+          <X size={14} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -634,6 +868,7 @@ function Sidebar({
 }
 
 function FileDiff({
+  activeSearchMatch,
   collapsed,
   comments,
   composer,
@@ -648,6 +883,7 @@ function FileDiff({
   onToggleViewed,
   viewed,
 }: {
+  activeSearchMatch: SearchMatch | null;
   collapsed: boolean;
   comments: AppComment[];
   composer: ComposerState | null;
@@ -694,13 +930,21 @@ function FileDiff({
   }, [comments, composerKeys, file]);
 
   const selectedLines = useMemo<SelectedLineRange | null>(() => {
+    if (activeSearchMatch?.kind === "line") {
+      return selectedLineRangeForKeys(
+        file,
+        activeSearchMatch.lineKey,
+        activeSearchMatch.lineKey,
+      );
+    }
     if (composerKeys === null) return null;
     return selectedLineRangeForKeys(file, composerKeys.start, composerKeys.end);
-  }, [composerKeys, file]);
+  }, [activeSearchMatch, composerKeys, file]);
 
   return (
     <section
       className={`file${viewed ? " is-viewed" : ""}${collapsed ? " is-collapsed" : ""}`}
+      data-file-id={file.id}
     >
       <header className="file__head">
         <button
@@ -940,6 +1184,116 @@ function EmptyDiff() {
         patch file, or stdin.
       </p>
     </div>
+  );
+}
+
+function buildSearchMatches(files: DiffFile[], query: string): SearchMatch[] {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle === "") return [];
+
+  return files.flatMap((file) => {
+    const path = filePath(file);
+    const matches: SearchMatch[] = [];
+    const hunkStarts = unifiedLineStarts(file);
+    const pathText = [
+      path,
+      file.displayPath,
+      file.oldPath ?? "",
+      file.newPath ?? "",
+    ]
+      .join("\n")
+      .toLocaleLowerCase();
+
+    if (pathText.includes(needle)) {
+      matches.push({
+        kind: "file",
+        id: `${file.id}:file-path`,
+        fileId: file.id,
+        filePath: path,
+      });
+    }
+
+    file.hunks.forEach((hunk, hunkIndex) => {
+      const hunkStart = hunkStarts[hunkIndex] ?? 0;
+      if (hunk.header.toLocaleLowerCase().includes(needle)) {
+        matches.push({
+          kind: "hunk",
+          id: `${file.id}:hunk-${hunkIndex}`,
+          fileId: file.id,
+          filePath: path,
+          hunkIndex,
+          unifiedLineIndex: hunkStart,
+        });
+      }
+
+      let renderedLineOffset = 0;
+      hunk.lines.forEach((line, lineIndex) => {
+        if (line.kind === "metadata") return;
+        const unifiedLineIndex = hunkStart + renderedLineOffset;
+        renderedLineOffset += 1;
+        if (!line.content.toLocaleLowerCase().includes(needle)) return;
+        matches.push({
+          kind: "line",
+          id: `${file.id}:line-${hunkIndex}-${lineIndex}`,
+          fileId: file.id,
+          filePath: path,
+          hunkIndex,
+          lineIndex,
+          lineKey: lineKey(file.id, hunkIndex, lineIndex),
+          unifiedLineIndex,
+        });
+      });
+    });
+
+    return matches;
+  });
+}
+
+function unifiedLineStarts(file: DiffFile): number[] {
+  let lastHunkEnd = 0;
+  let renderedLineCount = 0;
+
+  return file.hunks.map((hunk) => {
+    const collapsedBefore = Math.max(hunk.newStart - 1 - lastHunkEnd, 0);
+    const start = renderedLineCount + collapsedBefore;
+    renderedLineCount +=
+      collapsedBefore +
+      hunk.lines.filter((line) => line.kind !== "metadata").length;
+    lastHunkEnd = hunk.newStart + hunk.newLines - 1;
+    return start;
+  });
+}
+
+function scrollSearchMatchIntoView(
+  container: HTMLElement | null,
+  match: SearchMatch,
+) {
+  if (container === null) return;
+  const fileElement = Array.from(
+    container.querySelectorAll<HTMLElement>("[data-file-id]"),
+  ).find((element) => element.dataset.fileId === match.fileId);
+  if (fileElement === undefined) return;
+
+  const lineElement =
+    match.kind === "file"
+      ? null
+      : findRenderedDiffLine(fileElement, match.unifiedLineIndex);
+  (lineElement ?? fileElement).scrollIntoView({
+    behavior: "smooth",
+    block: "center",
+    inline: "nearest",
+  });
+}
+
+function findRenderedDiffLine(
+  fileElement: HTMLElement,
+  unifiedLineIndex: number,
+): HTMLElement | null {
+  const prefix = `${unifiedLineIndex},`;
+  return (
+    Array.from(
+      fileElement.querySelectorAll<HTMLElement>("[data-line-index]"),
+    ).find((element) => element.dataset.lineIndex?.startsWith(prefix)) ?? null
   );
 }
 
