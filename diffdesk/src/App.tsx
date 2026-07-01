@@ -6,6 +6,8 @@ import {
   ChevronDown,
   ChevronRight,
   Edit3,
+  Folder,
+  FolderOpen,
   GitBranch,
   MessageSquare,
   Sparkles,
@@ -68,6 +70,14 @@ type DiffdeskAnnotation =
   | { kind: "comment"; comment: AppComment }
   | { kind: "composer"; rangeSize: number };
 
+type SidebarFolderGroup = {
+  id: string;
+  label: string;
+  files: DiffFile[];
+  additions: number;
+  deletions: number;
+};
+
 const outputFormat: OutputFormat = "markdown";
 
 export function App() {
@@ -79,6 +89,9 @@ export function App() {
   const [status, setStatus] = useState("Loading session…");
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     async function load() {
@@ -168,25 +181,37 @@ export function App() {
     });
   }, []);
 
-  const submitComposer = useCallback((body: string) => {
-    if (composer === null || body.trim() === "") return;
-    const now = new Date().toISOString();
-    setComments((current) => [
-      ...current,
-      {
-        id: `cmt_${crypto.randomUUID().replaceAll("-", "")}`,
-        fileId: composer.fileId,
-        filePath: composer.filePath,
-        startKey: composer.startKey,
-        endKey: composer.endKey,
-        body: body.trim(),
-        author: "you",
-        createdAt: "just now",
-        updatedAt: now,
-      },
-    ]);
-    setComposer(null);
-  }, [composer]);
+  const toggleFolderCollapsed = useCallback((folderId: string) => {
+    setCollapsedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+
+  const submitComposer = useCallback(
+    (body: string) => {
+      if (composer === null || body.trim() === "") return;
+      const now = new Date().toISOString();
+      setComments((current) => [
+        ...current,
+        {
+          id: `cmt_${crypto.randomUUID().replaceAll("-", "")}`,
+          fileId: composer.fileId,
+          filePath: composer.filePath,
+          startKey: composer.startKey,
+          endKey: composer.endKey,
+          body: body.trim(),
+          author: "you",
+          createdAt: "just now",
+          updatedAt: now,
+        },
+      ]);
+      setComposer(null);
+    },
+    [composer],
+  );
 
   const editComment = useCallback((id: string, body: string) => {
     setComments((current) =>
@@ -277,6 +302,7 @@ export function App() {
         />
         <div className="window__body">
           <Sidebar
+            collapsedFolders={collapsedFolders}
             files={state.files}
             noteCounts={commentCounts}
             selectedFileId={selectedFileId}
@@ -284,6 +310,7 @@ export function App() {
             totals={totals}
             viewedFiles={viewedFiles}
             onSelect={setSelectedFileId}
+            onToggleFolder={toggleFolderCollapsed}
           />
           <main className="diff-pane">
             <div className="diff-pane__header">
@@ -445,22 +472,27 @@ function TrafficLights() {
 }
 
 function Sidebar({
+  collapsedFolders,
   files,
   noteCounts,
   onSelect,
+  onToggleFolder,
   selectedFileId,
   session,
   totals,
   viewedFiles,
 }: {
+  collapsedFolders: Set<string>;
   files: DiffFile[];
   noteCounts: Record<string, number>;
   onSelect: (fileId: string | null) => void;
+  onToggleFolder: (folderId: string) => void;
   selectedFileId: string | null;
   session: SessionFile;
   totals: { additions: number; deletions: number };
   viewedFiles: Set<string>;
 }) {
+  const fileGroups = useMemo(() => groupFilesByTopLevelFolder(files), [files]);
   const totalNotes = Object.values(noteCounts).reduce(
     (sum, count) => sum + count,
     0,
@@ -499,40 +531,92 @@ function Sidebar({
         <span className="file-row__meta">{files.length}</span>
       </button>
 
-      {files.map((file) => {
-        const path = file.newPath ?? file.oldPath ?? file.displayPath;
-        const parts = path.split("/");
-        const name = parts.pop() ?? path;
-        const dir = parts.join("/");
-        const notes = noteCounts[file.id] ?? 0;
-        const viewed = viewedFiles.has(file.id);
+      {fileGroups.map((group) => {
+        const collapsed = collapsedFolders.has(group.id);
+        const notes = group.files.reduce(
+          (sum, file) => sum + (noteCounts[file.id] ?? 0),
+          0,
+        );
         return (
-          <button
-            className={`file-row${selectedFileId === file.id ? " is-active" : ""}${viewed ? " is-viewed" : ""}`}
-            key={file.id}
-            onClick={() => onSelect(file.id)}
-            type="button"
-          >
-            <span className={`file-row__status status-${file.status}`}>
-              {viewed ? <Check size={11} /> : statusLetter(file.status)}
-            </span>
-            <span className="file-row__name-wrap">
-              <span className="file-row__name">{name}</span>
-              <span className="file-row__dir">{dir}</span>
-            </span>
-            <span className="file-row__stats">
-              <span className="delta-add">+{file.additions}</span>
-              <span className="delta-del">−{file.deletions}</span>
-              {notes > 0 ? (
-                <span
-                  className="file-row__comments"
-                  title={`${notes} note${notes === 1 ? "" : "s"}`}
-                >
-                  <MessageSquare size={9} /> {notes}
-                </span>
-              ) : null}
-            </span>
-          </button>
+          <div className="folder-group" key={group.id}>
+            <button
+              aria-expanded={!collapsed}
+              className={`folder-row${collapsed ? " is-collapsed" : ""}`}
+              onClick={() => onToggleFolder(group.id)}
+              title={`${collapsed ? "Expand" : "Collapse"} ${group.label}`}
+              type="button"
+            >
+              <span className="folder-row__toggle">
+                {collapsed ? (
+                  <ChevronRight size={13} />
+                ) : (
+                  <ChevronDown size={13} />
+                )}
+              </span>
+              <span className="folder-row__name-wrap">
+                {collapsed ? <Folder size={13} /> : <FolderOpen size={13} />}
+                <span className="folder-row__name">{group.label}</span>
+              </span>
+              <span className="folder-row__meta">
+                <span>{group.files.length}</span>
+                <span className="delta-add">+{group.additions}</span>
+                <span className="delta-del">−{group.deletions}</span>
+                {notes > 0 ? (
+                  <span
+                    className="folder-row__comments"
+                    title={`${notes} note${notes === 1 ? "" : "s"}`}
+                  >
+                    <MessageSquare size={9} /> {notes}
+                  </span>
+                ) : null}
+              </span>
+            </button>
+
+            {collapsed
+              ? null
+              : group.files.map((file) => {
+                  const notes = noteCounts[file.id] ?? 0;
+                  const viewed = viewedFiles.has(file.id);
+                  return (
+                    <button
+                      className={`file-row file-row--nested${selectedFileId === file.id ? " is-active" : ""}${viewed ? " is-viewed" : ""}`}
+                      key={file.id}
+                      onClick={() => onSelect(file.id)}
+                      type="button"
+                    >
+                      <span
+                        className={`file-row__status status-${file.status}`}
+                      >
+                        {viewed ? (
+                          <Check size={11} />
+                        ) : (
+                          statusLetter(file.status)
+                        )}
+                      </span>
+                      <span className="file-row__name-wrap">
+                        <span className="file-row__name">
+                          {filePathName(file)}
+                        </span>
+                        <span className="file-row__dir">
+                          {filePathDir(file)}
+                        </span>
+                      </span>
+                      <span className="file-row__stats">
+                        <span className="delta-add">+{file.additions}</span>
+                        <span className="delta-del">−{file.deletions}</span>
+                        {notes > 0 ? (
+                          <span
+                            className="file-row__comments"
+                            title={`${notes} note${notes === 1 ? "" : "s"}`}
+                          >
+                            <MessageSquare size={9} /> {notes}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+          </div>
         );
       })}
 
@@ -650,54 +734,54 @@ function FileDiff({
       </header>
 
       {collapsed ? null : (
-      <div className="pierre-diff">
-        <PatchDiff<DiffdeskAnnotation>
-          disableWorkerPool
-          lineAnnotations={annotations}
-          patch={patchForFile(file)}
-          renderAnnotation={(annotation) => {
-            if (annotation.metadata.kind === "composer") {
+        <div className="pierre-diff">
+          <PatchDiff<DiffdeskAnnotation>
+            disableWorkerPool
+            lineAnnotations={annotations}
+            patch={patchForFile(file)}
+            renderAnnotation={(annotation) => {
+              if (annotation.metadata.kind === "composer") {
+                return (
+                  <div className="thread thread--composer pierre-thread">
+                    <Composer
+                      rangeSize={annotation.metadata.rangeSize}
+                      onCancel={onCancelComposer}
+                      onSubmit={onSubmitComposer}
+                    />
+                  </div>
+                );
+              }
+              const { comment } = annotation.metadata;
               return (
-                <div className="thread thread--composer pierre-thread">
-                  <Composer
-                    rangeSize={annotation.metadata.rangeSize}
-                    onCancel={onCancelComposer}
-                    onSubmit={onSubmitComposer}
+                <div className="thread pierre-thread">
+                  <CommentBubble
+                    comment={comment}
+                    locked={locked}
+                    onDelete={() => onDeleteComment(comment.id)}
+                    onEdit={(body) => onEditComment(comment.id, body)}
                   />
                 </div>
               );
-            }
-            const { comment } = annotation.metadata;
-            return (
-              <div className="thread pierre-thread">
-                <CommentBubble
-                  comment={comment}
-                  locked={locked}
-                  onDelete={() => onDeleteComment(comment.id)}
-                  onEdit={(body) => onEditComment(comment.id, body)}
-                />
-              </div>
-            );
-          }}
-          selectedLines={selectedLines}
-          options={{
-            disableFileHeader: true,
-            diffStyle: "unified",
-            enableLineSelection: !locked,
-            hunkSeparators: "metadata",
-            lineHoverHighlight: "both",
-            onLineSelected: (range) => {
-              if (range === null || locked) return;
-              const keys = keysForSelectedLineRange(file, range);
-              if (keys === null) return;
-              onSelectRange(file, keys[0], keys[1]);
-            },
-            overflow: "scroll",
-            theme: "pierre-light",
-            themeType: "light",
-          }}
-        />
-      </div>
+            }}
+            selectedLines={selectedLines}
+            options={{
+              disableFileHeader: true,
+              diffStyle: "unified",
+              enableLineSelection: !locked,
+              hunkSeparators: "metadata",
+              lineHoverHighlight: "both",
+              onLineSelected: (range) => {
+                if (range === null || locked) return;
+                const keys = keysForSelectedLineRange(file, range);
+                if (keys === null) return;
+                onSelectRange(file, keys[0], keys[1]);
+              },
+              overflow: "scroll",
+              theme: "pierre-light",
+              themeType: "light",
+            }}
+          />
+        </div>
       )}
     </section>
   );
@@ -1095,6 +1179,34 @@ function rangeContext(
 
 function filePath(file: DiffFile): string {
   return file.newPath ?? file.oldPath ?? file.displayPath;
+}
+
+function groupFilesByTopLevelFolder(files: DiffFile[]): SidebarFolderGroup[] {
+  const groups = new Map<string, SidebarFolderGroup>();
+  for (const file of files) {
+    const folder = topLevelFolderForFile(file);
+    const group = groups.get(folder.id) ?? {
+      id: folder.id,
+      label: folder.label,
+      files: [],
+      additions: 0,
+      deletions: 0,
+    };
+    group.files.push(file);
+    group.additions += file.additions;
+    group.deletions += file.deletions;
+    groups.set(folder.id, group);
+  }
+  return Array.from(groups.values());
+}
+
+function topLevelFolderForFile(file: DiffFile): { id: string; label: string } {
+  const path = filePath(file);
+  const [folder] = path.split("/");
+  if (folder === undefined || folder === path) {
+    return { id: ".", label: "Root" };
+  }
+  return { id: folder, label: folder };
 }
 
 function filePathName(file: DiffFile): string {
