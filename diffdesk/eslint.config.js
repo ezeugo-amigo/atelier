@@ -16,6 +16,15 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        WebSocket: "readonly",
+      },
+    },
+  },
+  {
     files: ["src/**/*.{ts,tsx}", "vite.config.ts"],
     languageOptions: {
       globals: {
