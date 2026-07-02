@@ -929,7 +929,7 @@ function FileDiff({
     return result;
   }, [comments, composerKeys, file]);
 
-  const selectedLines = useMemo<SelectedLineRange | null>(() => {
+  const searchSelectedLines = useMemo<SelectedLineRange | null>(() => {
     if (activeSearchMatch?.kind === "line") {
       return selectedLineRangeForKeys(
         file,
@@ -937,9 +937,14 @@ function FileDiff({
         activeSearchMatch.lineKey,
       );
     }
+    return null;
+  }, [activeSearchMatch, file]);
+
+  const selectedLines = useMemo<SelectedLineRange | null>(() => {
+    if (searchSelectedLines !== null) return searchSelectedLines;
     if (composerKeys === null) return null;
     return selectedLineRangeForKeys(file, composerKeys.start, composerKeys.end);
-  }, [activeSearchMatch, composerKeys, file]);
+  }, [composerKeys, file, searchSelectedLines]);
 
   return (
     <section
@@ -1016,6 +1021,12 @@ function FileDiff({
               lineHoverHighlight: "both",
               onLineSelected: (range) => {
                 if (range === null || locked) return;
+                if (
+                  searchSelectedLines !== null &&
+                  sameSelectedLineRange(range, searchSelectedLines)
+                ) {
+                  return;
+                }
                 const keys = keysForSelectedLineRange(file, range);
                 if (keys === null) return;
                 onSelectRange(file, keys[0], keys[1]);
@@ -1430,6 +1441,18 @@ function selectedLineRangeForKeys(
     end: end.lineNumber,
     endSide: end.side,
   };
+}
+
+function sameSelectedLineRange(
+  left: SelectedLineRange,
+  right: SelectedLineRange,
+): boolean {
+  return (
+    left.start === right.start &&
+    left.end === right.end &&
+    left.side === right.side &&
+    (left.endSide ?? left.side) === (right.endSide ?? right.side)
+  );
 }
 
 function keysForSelectedLineRange(
