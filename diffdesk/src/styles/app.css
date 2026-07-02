@@ -96,11 +96,7 @@ button {
 .desktop-bg {
   width: 100vw;
   height: 100vh;
-  padding: 14px;
-  background:
-    radial-gradient(circle at 20% 0%, #f4ece8 0%, transparent 50%),
-    radial-gradient(circle at 90% 100%, #efe6e0 0%, transparent 55%),
-    var(--warm-50);
+  background: var(--surface-page);
   color: var(--content-body);
 }
 
@@ -115,12 +111,6 @@ button {
   display: flex;
   flex-direction: column;
   background: var(--surface-background);
-  border-radius: 12px;
-  box-shadow:
-    0 0 0 0.5px rgba(0, 0, 0, 0.18),
-    0 1px 0 rgba(255, 255, 255, 0.6) inset,
-    0 24px 64px -16px rgba(40, 37, 36, 0.28),
-    0 8px 24px -8px rgba(40, 37, 36, 0.16);
 }
 
 .loading-window {
@@ -141,7 +131,8 @@ button {
   height: 48px;
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 220px 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
   align-items: center;
   padding: 0 14px 0 18px;
   background: linear-gradient(180deg, #f5efeb 0%, #efe8e3 100%);
@@ -149,15 +140,15 @@ button {
   -webkit-app-region: drag;
 }
 
-.titlebar__left,
-.titlebar__center,
+.titlebar__meta,
 .titlebar__right {
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
-.titlebar__center {
-  justify-content: center;
+.titlebar__meta {
+  justify-content: flex-start;
 }
 
 .titlebar__right {
@@ -166,32 +157,9 @@ button {
   -webkit-app-region: no-drag;
 }
 
-.traffic-lights {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.traffic-dot {
-  width: 12px;
-  height: 12px;
-  border: 0.5px solid rgba(0, 0, 0, 0.12);
-  border-radius: 50%;
-}
-
-.traffic-dot.close {
-  background: #ff5f57;
-}
-
-.traffic-dot.minimize {
-  background: #febc2e;
-}
-
-.traffic-dot.zoom {
-  background: #28c840;
-}
-
 .titlebar__branch {
+  max-width: 100%;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -204,8 +172,19 @@ button {
 }
 
 .branch-name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--content-title);
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-base {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .branch-sep,

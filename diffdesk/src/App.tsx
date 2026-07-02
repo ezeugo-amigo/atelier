@@ -562,10 +562,7 @@ function TitleBar({
 }) {
   return (
     <div className="titlebar">
-      <div className="titlebar__left">
-        <TrafficLights />
-      </div>
-      <div className="titlebar__center">
+      <div className="titlebar__meta">
         <div className="titlebar__branch">
           <GitBranch size={12} />
           <span className="branch-name">{sourceHead(session)}</span>
@@ -609,16 +606,6 @@ function TitleBar({
           </>
         )}
       </div>
-    </div>
-  );
-}
-
-function TrafficLights() {
-  return (
-    <div className="traffic-lights" aria-hidden="true">
-      <span className="traffic-dot close" />
-      <span className="traffic-dot minimize" />
-      <span className="traffic-dot zoom" />
     </div>
   );
 }
