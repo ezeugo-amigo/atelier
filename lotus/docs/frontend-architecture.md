@@ -301,13 +301,17 @@ updates local sync status. It does not call Rust yet.
 
 ## Styling
 
-All styling lives in `web/styles/app.css`.
+All styling lives in `web/styles/app.css`, which implements the Lotus design
+system (see `docs/design-system.md`): cool neutral tokens, JetBrains Mono as the
+interface font, Newsreader serif for the editorial voice, radius 0, and a single
+green signal color. Fonts load from Google Fonts (linked in `web/index.html`)
+with system mono/serif fallbacks when offline.
 
 The layout is a fixed desktop mail client shell:
 
 ```text
-244px sidebar
-minmax(360px, 440px) message list
+208px sidebar
+minmax(340px, 420px) message list
 minmax(380px, 1fr) detail pane
 ```
 
