@@ -140,6 +140,9 @@ Important `Msg` values:
 
 - `SelectFolder String`
 - `SelectMessage String`
+- `StartAddAccount`
+- `BeginProviderLogin String`
+- `AuthorizeAccount`
 - `SearchInput String`
 - `RunSearch`
 - `Refresh`
@@ -165,6 +168,8 @@ Backend calls go through `enqueue`.
 response into the right shape:
 
 - `BootstrapRequest` decodes `BootstrapData`.
+- `BeginLoginRequest` decodes `AccountLogin`.
+- `CompleteLoginRequest` decodes `AccountSetupResult`.
 - `SelectFolderRequest`, `SearchRequest`, and `ArchiveRequest` decode
   `MailboxSnapshot`.
 - `SelectMessageRequest` and `MarkReadRequest` decode `MessageUpdate`.
@@ -178,6 +183,7 @@ The frontend expects three main response shapes.
 Used on app startup and refresh:
 
 ```text
+providerOptions
 accounts
 folders
 messages
@@ -186,6 +192,36 @@ selectedMessageId
 selectedMessage
 syncStatus
 ```
+
+If `accounts` is empty, Elm renders the account setup flow instead of the
+three-pane mailbox dashboard.
+
+### AccountLogin
+
+Returned by `begin_account_login`:
+
+```text
+provider
+loginUrl
+loginState
+expiresAt
+scopes
+```
+
+The current providers are mock OAuth-style providers. The UI uses this shape to
+render a provider login page without learning provider internals.
+
+### AccountSetupResult
+
+Returned by `complete_account_login`:
+
+```text
+bootstrap
+credential
+```
+
+`credential` is only a preview of the mock credential tails. The full stored
+tokens stay on the Rust side.
 
 ### MailboxSnapshot
 
@@ -230,6 +266,7 @@ view
 `viewSidebar` renders:
 
 - app title
+- add account action
 - refresh and compose buttons
 - accounts
 - folders
@@ -283,7 +320,8 @@ This is still a scaffold:
 
 - No real IMAP, JMAP, Gmail, or Outlook provider integration.
 - No persisted local message store.
-- No credential or keychain handling.
+- No persisted credential or keychain handling; mock credentials are stored
+  in-memory.
 - Composer does not send mail.
 - Search runs against the mock in-memory Rust store.
 
