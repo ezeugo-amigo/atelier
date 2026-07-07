@@ -319,6 +319,10 @@ fn format_log_line(val: &serde_json::Value) -> Option<String> {
 fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
     let mut events: Vec<LogEvent> = Vec::new();
     let mut pending_user: Option<(String, Option<String>)> = None;
+    // Codex splits one logical reply across several assistant response_items,
+    // so consecutive text records accumulate here and flush as one message
+    // when a user turn, tool round-trip, or end of file interrupts them.
+    let mut pending_agent: Option<(String, Option<String>)> = None;
     // Codex tool calls aren't surfaced as distinct content items in the observed JSONL,
     // so we count non-text assistant turns as a single Bash tool group.
     let mut pending_tool_count: u32 = 0;
@@ -338,6 +342,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
 
         match payload["role"].as_str() {
             Some("user") => {
+                flush_agent(&mut events, &mut pending_agent);
                 flush_pending(&mut events, &mut pending_user, &mut pending_tool_count);
                 let text: String = payload["content"]
                     .as_array()
@@ -351,16 +356,13 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
             }
             Some("assistant") => {
                 let content_arr = payload["content"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
-                let has_text = content_arr.iter().any(|c| c["type"] == "output_text");
-                if has_text {
-                    let text: String = content_arr
-                        .iter()
-                        .find(|c| c["type"] == "output_text")
-                        .and_then(|c| c["text"].as_str())
-                        .unwrap_or("")
-                        .chars()
-                        .take(2000)
-                        .collect();
+                let texts: Vec<&str> = content_arr
+                    .iter()
+                    .filter(|c| c["type"] == "output_text")
+                    .filter_map(|c| c["text"].as_str())
+                    .collect();
+                if !texts.is_empty() {
+                    let text: String = texts.join("\n\n").chars().take(2000).collect();
                     if let Some((user_text, user_time)) = pending_user.take() {
                         events.push(LogEvent::UserMessage {
                             text: user_text,
@@ -373,13 +375,17 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                         });
                         pending_tool_count = 0;
                     }
-                    events.push(LogEvent::AgentMessage {
-                        text,
-                        time,
-                        label: "Codex".to_string(),
-                    });
+                    match &mut pending_agent {
+                        Some((acc, _)) => {
+                            acc.push_str("\n\n");
+                            acc.push_str(&text);
+                        }
+                        None => pending_agent = Some((text, time)),
+                    }
                 } else {
-                    // Non-text assistant turn (tool call round-trip).
+                    // Non-text assistant turn (tool call round-trip) — ends the
+                    // current reply so tool bars render between messages in order.
+                    flush_agent(&mut events, &mut pending_agent);
                     pending_tool_count += 1;
                 }
             }
@@ -387,8 +393,19 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
         }
     }
 
+    flush_agent(&mut events, &mut pending_agent);
     flush_pending(&mut events, &mut pending_user, &mut pending_tool_count);
     events
+}
+
+fn flush_agent(events: &mut Vec<LogEvent>, pending_agent: &mut Option<(String, Option<String>)>) {
+    if let Some((text, time)) = pending_agent.take() {
+        events.push(LogEvent::AgentMessage {
+            text,
+            time,
+            label: "Codex".to_string(),
+        });
+    }
 }
 
 fn flush_pending(
@@ -404,5 +421,108 @@ fn flush_pending(
             tools: vec![(ToolKind::Bash, *pending_tool_count)],
         });
         *pending_tool_count = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_line(text: &str, ts: &str) -> String {
+        serde_json::json!({
+            "type": "response_item",
+            "timestamp": ts,
+            "payload": {
+                "role": "user",
+                "content": [{"type": "input_text", "text": text}],
+            },
+        })
+        .to_string()
+    }
+
+    fn assistant_line(texts: &[&str], ts: &str) -> String {
+        let content: Vec<_> = texts
+            .iter()
+            .map(|t| serde_json::json!({"type": "output_text", "text": t}))
+            .collect();
+        serde_json::json!({
+            "type": "response_item",
+            "timestamp": ts,
+            "payload": {"role": "assistant", "content": content},
+        })
+        .to_string()
+    }
+
+    fn tool_line(ts: &str) -> String {
+        serde_json::json!({
+            "type": "response_item",
+            "timestamp": ts,
+            "payload": {"role": "assistant", "content": [{"type": "function_call"}]},
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn consecutive_assistant_texts_merge_into_one_message() {
+        let content = [
+            user_line("do the thing", "2026-07-07T10:00:00Z"),
+            assistant_line(&["part one"], "2026-07-07T10:00:05Z"),
+            assistant_line(&["part two"], "2026-07-07T10:00:09Z"),
+        ]
+        .join("\n");
+
+        let events = parse_conversation_events(&content);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], LogEvent::UserMessage { text, .. } if text == "do the thing"));
+        match &events[1] {
+            LogEvent::AgentMessage { text, time, .. } => {
+                assert_eq!(text, "part one\n\npart two");
+                assert_eq!(time.as_deref(), Some("10:00:05"));
+            }
+            other => panic!("expected merged AgentMessage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_round_trip_splits_agent_messages() {
+        let content = [
+            assistant_line(&["before tools"], "2026-07-07T10:00:00Z"),
+            tool_line("2026-07-07T10:00:02Z"),
+            tool_line("2026-07-07T10:00:04Z"),
+            assistant_line(&["after tools"], "2026-07-07T10:00:06Z"),
+        ]
+        .join("\n");
+
+        let events = parse_conversation_events(&content);
+        assert_eq!(events.len(), 3);
+        assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "before tools"));
+        assert!(
+            matches!(&events[1], LogEvent::ToolGroup { tools } if tools == &[(ToolKind::Bash, 2)])
+        );
+        assert!(matches!(&events[2], LogEvent::AgentMessage { text, .. } if text == "after tools"));
+    }
+
+    #[test]
+    fn user_message_splits_agent_messages() {
+        let content = [
+            assistant_line(&["first reply"], "2026-07-07T10:00:00Z"),
+            user_line("follow-up", "2026-07-07T10:01:00Z"),
+            assistant_line(&["second reply"], "2026-07-07T10:01:05Z"),
+        ]
+        .join("\n");
+
+        let events = parse_conversation_events(&content);
+        assert_eq!(events.len(), 3);
+        assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "first reply"));
+        assert!(matches!(&events[1], LogEvent::UserMessage { text, .. } if text == "follow-up"));
+        assert!(matches!(&events[2], LogEvent::AgentMessage { text, .. } if text == "second reply"));
+    }
+
+    #[test]
+    fn multiple_output_texts_in_one_record_are_joined() {
+        let content = assistant_line(&["alpha", "beta"], "2026-07-07T10:00:00Z");
+        let events = parse_conversation_events(&content);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "alpha\n\nbeta"));
     }
 }
