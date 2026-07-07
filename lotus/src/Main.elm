@@ -83,8 +83,34 @@ type alias SyncStatus =
     }
 
 
+type alias ProviderOption =
+    { provider : String
+    , displayName : String
+    , description : String
+    }
+
+
+type alias AccountLogin =
+    { provider : String
+    , loginUrl : String
+    , loginState : String
+    , expiresAt : String
+    , scopes : List String
+    }
+
+
+type alias CredentialPreview =
+    { accountId : String
+    , provider : String
+    , accessTokenTail : String
+    , refreshTokenTail : String
+    , expiresAt : String
+    }
+
+
 type alias BootstrapData =
-    { accounts : List Account
+    { providerOptions : List ProviderOption
+    , accounts : List Account
     , folders : List Folder
     , messages : List MessageSummary
     , selectedFolderId : String
@@ -111,8 +137,24 @@ type alias MessageUpdate =
     }
 
 
+type alias AccountSetupResult =
+    { bootstrap : BootstrapData
+    , credential : CredentialPreview
+    }
+
+
+type SetupState
+    = SetupClosed
+    | ChoosingProvider
+    | StartingLogin String
+    | MockLogin AccountLogin
+    | LoadingMailbox String
+
+
 type RequestKind
     = BootstrapRequest
+    | BeginLoginRequest
+    | CompleteLoginRequest
     | SelectFolderRequest
     | SelectMessageRequest
     | SearchRequest
@@ -122,8 +164,10 @@ type RequestKind
 
 
 type alias Model =
-    { accounts : List Account
+    { providerOptions : List ProviderOption
+    , accounts : List Account
     , folders : List Folder
+    , collapsedAccounts : Dict String Bool
     , messages : List MessageSummary
     , selectedFolderId : Maybe String
     , selectedMessageId : Maybe String
@@ -135,6 +179,9 @@ type alias Model =
     , error : Maybe String
     , pending : Dict Int RequestKind
     , nextRequestId : Int
+    , setup : SetupState
+    , loginEmail : String
+    , credentialPreview : Maybe CredentialPreview
     , composeOpen : Bool
     , composeTo : String
     , composeSubject : String
@@ -156,8 +203,10 @@ emptySync =
 
 initialModel : Model
 initialModel =
-    { accounts = []
+    { providerOptions = []
+    , accounts = []
     , folders = []
+    , collapsedAccounts = Dict.empty
     , messages = []
     , selectedFolderId = Nothing
     , selectedMessageId = Nothing
@@ -169,6 +218,9 @@ initialModel =
     , error = Nothing
     , pending = Dict.singleton 1 BootstrapRequest
     , nextRequestId = 2
+    , setup = SetupClosed
+    , loginEmail = ""
+    , credentialPreview = Nothing
     , composeOpen = False
     , composeTo = ""
     , composeSubject = ""
@@ -208,6 +260,13 @@ type Msg
     | Refresh
     | ToggleSelectedRead
     | ArchiveSelected
+    | StartAddAccount
+    | CancelAddAccount
+    | BackToProviders
+    | BeginProviderLogin String
+    | LoginEmailInput String
+    | AuthorizeAccount
+    | ToggleAccountFolders String
     | OpenCompose
     | CloseCompose
     | ComposeTo String
@@ -261,6 +320,62 @@ update msg model =
 
                 Just messageId ->
                     enqueue ArchiveRequest "archive_message" (Encode.object [ ( "messageId", Encode.string messageId ) ]) model
+
+        StartAddAccount ->
+            ( { model | setup = ChoosingProvider, error = Nothing }, Cmd.none )
+
+        CancelAddAccount ->
+            ( { model
+                | setup =
+                    if List.isEmpty model.accounts then
+                        ChoosingProvider
+
+                    else
+                        SetupClosed
+                , error = Nothing
+              }
+            , Cmd.none
+            )
+
+        BackToProviders ->
+            ( { model | setup = ChoosingProvider, loginEmail = "", error = Nothing }, Cmd.none )
+
+        BeginProviderLogin provider ->
+            enqueue BeginLoginRequest
+                "begin_account_login"
+                (Encode.object [ ( "provider", Encode.string provider ) ])
+                { model | setup = StartingLogin provider }
+
+        LoginEmailInput value ->
+            ( { model | loginEmail = value }, Cmd.none )
+
+        AuthorizeAccount ->
+            case model.setup of
+                MockLogin login ->
+                    if String.trim model.loginEmail == "" then
+                        ( { model | error = Just "Enter an email address to continue" }, Cmd.none )
+
+                    else
+                        enqueue CompleteLoginRequest
+                            "complete_account_login"
+                            (Encode.object
+                                [ ( "provider", Encode.string login.provider )
+                                , ( "loginState", Encode.string login.loginState )
+                                , ( "emailAddress", Encode.string model.loginEmail )
+                                ]
+                            )
+                            { model | setup = LoadingMailbox login.provider }
+
+                _ ->
+                    ( model, Cmd.none )
+
+        ToggleAccountFolders accountId ->
+            let
+                collapsed =
+                    Dict.get accountId model.collapsedAccounts
+                        |> Maybe.withDefault False
+            in
+            ( { model | collapsedAccounts = Dict.insert accountId (not collapsed) model.collapsedAccounts }, Cmd.none )
 
         OpenCompose ->
             ( { model | composeOpen = True }, Cmd.none )
@@ -364,10 +479,11 @@ handleCommand value model =
                         applyResponse kind response nextModel
 
                     else
-                        ( { nextModel
-                            | loading = False
-                            , error = Just (Maybe.withDefault ("Command failed: " ++ response.command) response.error)
-                          }
+                        ( recoverFailedRequest kind
+                            { nextModel
+                                | loading = False
+                                , error = Just (Maybe.withDefault ("Command failed: " ++ response.command) response.error)
+                            }
                         , Cmd.none
                         )
 
@@ -382,6 +498,12 @@ applyResponse kind response model =
             case kind of
                 BootstrapRequest ->
                     decodeInto bootstrapDecoder applyBootstrap data model
+
+                BeginLoginRequest ->
+                    decodeInto accountLoginDecoder applyAccountLogin data model
+
+                CompleteLoginRequest ->
+                    decodeInto accountSetupResultDecoder applyAccountSetup data model
 
                 RefreshRequest ->
                     decodeInto bootstrapDecoder applyBootstrap data model
@@ -412,17 +534,68 @@ decodeInto decoder apply data model =
             ( { model | loading = False, error = Just (Decode.errorToString error) }, Cmd.none )
 
 
+recoverFailedRequest : RequestKind -> Model -> Model
+recoverFailedRequest kind model =
+    case kind of
+        BeginLoginRequest ->
+            { model | setup = ChoosingProvider }
+
+        CompleteLoginRequest ->
+            { model | setup = ChoosingProvider }
+
+        _ ->
+            model
+
+
 applyBootstrap : BootstrapData -> Model -> Model
 applyBootstrap data model =
     { model
-        | accounts = data.accounts
+        | providerOptions = data.providerOptions
+        , accounts = data.accounts
         , folders = data.folders
+        , collapsedAccounts = model.collapsedAccounts
         , messages = data.messages
-        , selectedFolderId = Just data.selectedFolderId
+        , selectedFolderId =
+            if data.selectedFolderId == "" then
+                Nothing
+
+            else
+                Just data.selectedFolderId
         , selectedMessageId = data.selectedMessageId
         , selectedMessage = data.selectedMessage
         , syncStatus = data.syncStatus
         , booted = True
+        , setup =
+            if List.isEmpty data.accounts then
+                ChoosingProvider
+
+            else
+                SetupClosed
+    }
+
+
+applyAccountLogin : AccountLogin -> Model -> Model
+applyAccountLogin login model =
+    { model
+        | setup = MockLogin login
+        , loginEmail = suggestedEmail login.provider
+        , syncStatus =
+            { state = "Authorizing"
+            , lastChecked = "Now"
+            , detail = "Mock OAuth session opened"
+            }
+    }
+
+
+applyAccountSetup : AccountSetupResult -> Model -> Model
+applyAccountSetup result model =
+    let
+        bootstrapped =
+            applyBootstrap result.bootstrap model
+    in
+    { bootstrapped
+        | credentialPreview = Just result.credential
+        , setup = SetupClosed
     }
 
 
@@ -482,6 +655,18 @@ detailToSummary message =
 
 view : Model -> Html Msg
 view model =
+    if (not model.booted) || List.isEmpty model.accounts then
+        viewSetupPage model
+
+    else if setupIsClosed model.setup then
+        viewAppShell model []
+
+    else
+        viewAppShell model [ viewSetupOverlay model ]
+
+
+viewAppShell : Model -> List (Html Msg) -> Html Msg
+viewAppShell model overlays =
     div [ A.class "app" ]
         ([ viewSidebar model
          , viewListPane model
@@ -493,7 +678,142 @@ view model =
                 else
                     []
                )
+            ++ overlays
         )
+
+
+setupIsClosed : SetupState -> Bool
+setupIsClosed setup =
+    case setup of
+        SetupClosed ->
+            True
+
+        _ ->
+            False
+
+
+viewSetupPage : Model -> Html Msg
+viewSetupPage model =
+    div [ A.class "setup-page" ]
+        [ div [ A.class "setup-panel" ]
+            ([ div [ A.class "setup-brand" ]
+                [ span [ A.class "brand-mark setup-mark" ] [ text "L" ]
+                , span [] [ text "lotus" ]
+                ]
+             ]
+                ++ viewSetupContent model
+            )
+        ]
+
+
+viewSetupOverlay : Model -> Html Msg
+viewSetupOverlay model =
+    div [ A.class "setup-overlay" ]
+        [ div [ A.class "setup-panel compact" ]
+            (button [ A.class "icon-button setup-close", A.title "Close", Ev.onClick CancelAddAccount ] [ icon "x" ]
+                :: viewSetupContent model
+            )
+        ]
+
+
+viewSetupContent : Model -> List (Html Msg)
+viewSetupContent model =
+    let
+        errorView =
+            case model.error of
+                Nothing ->
+                    []
+
+                Just error ->
+                    [ div [ A.class "setup-error" ] [ text error ] ]
+    in
+    case model.setup of
+        SetupClosed ->
+            viewProviderChoice model ++ errorView
+
+        ChoosingProvider ->
+            viewProviderChoice model ++ errorView
+
+        StartingLogin provider ->
+            viewSetupLoading ("Opening " ++ providerDisplayName model provider) "Preparing a mock authorization session." ++ errorView
+
+        MockLogin login ->
+            viewMockLogin model login ++ errorView
+
+        LoadingMailbox provider ->
+            viewSetupLoading ("Loading " ++ providerDisplayName model provider) "Storing credentials and importing the first mailbox snapshot." ++ errorView
+
+
+viewProviderChoice : Model -> List (Html Msg)
+viewProviderChoice model =
+    [ div [ A.class "setup-heading" ]
+        [ h1 [] [ text "Add Account" ]
+        , p [] [ text "Choose a provider to connect." ]
+        ]
+    , div [ A.class "provider-grid" ]
+        (if List.isEmpty model.providerOptions then
+            [ div [ A.class "setup-muted" ] [ text "Loading providers..." ] ]
+
+         else
+            List.map viewProviderOption model.providerOptions
+        )
+    ]
+
+
+viewProviderOption : ProviderOption -> Html Msg
+viewProviderOption option =
+    button [ A.class "provider-card", Ev.onClick (BeginProviderLogin option.provider) ]
+        [ span [ A.class "provider-icon" ] [ icon "mail" ]
+        , span [ A.class "provider-name" ] [ text option.displayName ]
+        , span [ A.class "provider-description" ] [ text option.description ]
+        ]
+
+
+viewMockLogin : Model -> AccountLogin -> List (Html Msg)
+viewMockLogin model login =
+    [ div [ A.class "setup-heading" ]
+        [ h1 [] [ text ("Sign in to " ++ providerDisplayName model login.provider) ]
+        , p [] [ text "Authorize Lotus to read mail and refresh access while offline." ]
+        ]
+    , div [ A.class "mock-login-url" ] [ text login.loginUrl ]
+    , div [ A.class "compose-field setup-field" ]
+        [ label [] [ text "Email" ]
+        , input
+            [ A.value model.loginEmail
+            , Ev.onInput LoginEmailInput
+            , onEnter AuthorizeAccount
+            ]
+            []
+        ]
+    , div [ A.class "scope-list" ] (List.map viewScope login.scopes)
+    , div [ A.class "setup-actions" ]
+        [ button [ A.class "icon-button", A.title "Back", Ev.onClick BackToProviders ] [ icon "arrow-left" ]
+        , if List.isEmpty model.accounts then
+            span [] []
+
+          else
+            button [ A.class "icon-button", A.title "Cancel", Ev.onClick CancelAddAccount ] [ icon "x" ]
+        , button [ A.class "text-button", Ev.onClick AuthorizeAccount ] [ icon "key", span [] [ text "Authorize" ] ]
+        ]
+    ]
+
+
+viewScope : String -> Html Msg
+viewScope scope =
+    span [ A.class "scope-chip" ] [ icon "check", text scope ]
+
+
+viewSetupLoading : String -> String -> List (Html Msg)
+viewSetupLoading title detail =
+    [ div [ A.class "setup-heading" ]
+        [ h1 [] [ text title ]
+        , p [] [ text detail ]
+        ]
+    , div [ A.class "setup-loader" ]
+        [ span [ A.class "spinner" ] []
+        , span [] [ text "Please wait" ]
+        ]
+    ]
 
 
 viewSidebar : Model -> Html Msg
@@ -501,8 +821,8 @@ viewSidebar model =
     div [ A.class "sidebar" ]
         [ div [ A.class "brand" ]
             [ div [ A.class "brand-title" ]
-                [ span [ A.class "brand-mark" ] [ icon "mail" ]
-                , span [] [ text "Lotus" ]
+                [ span [ A.class "brand-mark" ] [ text "L" ]
+                , span [] [ text "lotus" ]
                 ]
             , div [ A.class "sidebar-actions" ]
                 [ button [ A.class "icon-button", A.title "Refresh", Ev.onClick Refresh ] [ icon "refresh" ]
@@ -510,12 +830,12 @@ viewSidebar model =
                 ]
             ]
         , div [ A.class "nav-section" ]
-            [ div [ A.class "nav-heading" ] [ text "Accounts" ]
-            , div [] (List.map viewAccount model.accounts)
-            ]
-        , div [ A.class "nav-section" ]
-            [ div [ A.class "nav-heading" ] [ text "Mailboxes" ]
-            , div [] (List.map (viewFolder model.selectedFolderId) model.folders)
+            [ div [ A.class "nav-heading-row" ]
+                [ div [ A.class "nav-heading" ] [ text "Accounts" ]
+                , button [ A.class "icon-button", A.title "Add account", Ev.onClick StartAddAccount ] [ icon "plus" ]
+                ]
+            , viewUnifiedInbox model
+            , div [ A.class "account-groups" ] (List.map (viewAccountGroup model) model.accounts)
             ]
         , div [ A.class "sync-strip" ]
             [ div [ A.class "sync-line" ]
@@ -527,12 +847,48 @@ viewSidebar model =
         ]
 
 
-viewAccount : Account -> Html Msg
-viewAccount account =
-    button [ A.class "account-row", Ev.onClick NoOp ]
-        [ span [ A.style "color" account.accent ] [ icon "dot" ]
-        , span [ A.class "account-name" ] [ text account.displayName ]
-        , span [ A.class "date" ] [ text account.provider ]
+viewUnifiedInbox : Model -> Html Msg
+viewUnifiedInbox model =
+    button
+        [ A.classList
+            [ ( "folder-row", True )
+            , ( "unified-row", True )
+            , ( "active", model.selectedFolderId == Just unifiedInboxId )
+            ]
+        , Ev.onClick (SelectFolder unifiedInboxId)
+        ]
+        [ span [] [ icon "inbox" ]
+        , span [ A.class "folder-name" ] [ text "Unified Inbox" ]
+        , viewUnreadCount (unifiedUnreadCount model)
+        ]
+
+
+viewAccountGroup : Model -> Account -> Html Msg
+viewAccountGroup model account =
+    let
+        collapsed =
+            Dict.get account.id model.collapsedAccounts
+                |> Maybe.withDefault False
+
+        accountFolders =
+            model.folders
+                |> List.filter (\folder -> folder.accountId == account.id)
+    in
+    div [ A.class "account-group" ]
+        [ button [ A.class "account-header", Ev.onClick (ToggleAccountFolders account.id) ]
+            [ span [ A.style "color" account.accent ] [ icon "dot" ]
+            , span [ A.class "account-heading" ]
+                [ span [ A.class "account-name" ] [ text account.displayName ]
+                , span [ A.class "account-email" ] [ text account.emailAddress ]
+                ]
+            , span [ A.class "account-provider" ] [ text account.provider ]
+            , span [ A.class "collapse-icon" ] [ icon (if collapsed then "chevron-right" else "chevron-down") ]
+            ]
+        , if collapsed then
+            div [] []
+
+          else
+            div [ A.class "account-folders" ] (List.map (viewFolder model.selectedFolderId) accountFolders)
         ]
 
 
@@ -547,12 +903,17 @@ viewFolder selected folder =
         ]
         [ span [] [ iconForRole folder.role ]
         , span [ A.class "folder-name" ] [ text folder.name ]
-        , if folder.unreadCount > 0 then
-            span [ A.class "count" ] [ text (String.fromInt folder.unreadCount) ]
-
-          else
-            span [] []
+        , viewUnreadCount folder.unreadCount
         ]
+
+
+viewUnreadCount : Int -> Html Msg
+viewUnreadCount unreadCount =
+    if unreadCount > 0 then
+        span [ A.class "count" ] [ text (String.fromInt unreadCount) ]
+
+    else
+        span [] []
 
 
 viewListPane : Model -> Html Msg
@@ -740,14 +1101,31 @@ currentFolderName model =
             "Search"
 
         Just folderId ->
-            model.folders
-                |> List.filter (\folder -> folder.id == folderId)
-                |> List.head
-                |> Maybe.map .name
-                |> Maybe.withDefault "Mailbox"
+            if folderId == unifiedInboxId then
+                "Unified Inbox"
+
+            else
+                model.folders
+                    |> List.filter (\folder -> folder.id == folderId)
+                    |> List.head
+                    |> Maybe.map .name
+                    |> Maybe.withDefault "Mailbox"
 
         Nothing ->
             "Mailbox"
+
+
+unifiedInboxId : String
+unifiedInboxId =
+    "unified-inbox"
+
+
+unifiedUnreadCount : Model -> Int
+unifiedUnreadCount model =
+    model.folders
+        |> List.filter (\folder -> folder.role == "inbox")
+        |> List.map .unreadCount
+        |> List.sum
 
 
 folderMeta : Model -> String
@@ -771,6 +1149,38 @@ folderMeta model =
         ++ " unread"
 
 
+providerDisplayName : Model -> String -> String
+providerDisplayName model provider =
+    model.providerOptions
+        |> List.filter (\option -> option.provider == provider)
+        |> List.head
+        |> Maybe.map .displayName
+        |> Maybe.withDefault
+            (case provider of
+                "mockGmail" ->
+                    "Mock Gmail"
+
+                "mockOutlook" ->
+                    "Mock Outlook"
+
+                _ ->
+                    "Provider"
+            )
+
+
+suggestedEmail : String -> String
+suggestedEmail provider =
+    case provider of
+        "mockGmail" ->
+            "you@gmail.test"
+
+        "mockOutlook" ->
+            "you@outlook.test"
+
+        _ ->
+            "you@example.test"
+
+
 
 -- DECODERS
 
@@ -788,6 +1198,34 @@ bridgeResponseDecoder =
         |> required "ok" Decode.bool
         |> required "data" (Decode.maybe Decode.value)
         |> required "error" (Decode.maybe Decode.string)
+
+
+providerOptionDecoder : Decoder ProviderOption
+providerOptionDecoder =
+    Decode.succeed ProviderOption
+        |> required "provider" Decode.string
+        |> required "displayName" Decode.string
+        |> required "description" Decode.string
+
+
+accountLoginDecoder : Decoder AccountLogin
+accountLoginDecoder =
+    Decode.succeed AccountLogin
+        |> required "provider" Decode.string
+        |> required "loginUrl" Decode.string
+        |> required "loginState" Decode.string
+        |> required "expiresAt" Decode.string
+        |> required "scopes" (Decode.list Decode.string)
+
+
+credentialPreviewDecoder : Decoder CredentialPreview
+credentialPreviewDecoder =
+    Decode.succeed CredentialPreview
+        |> required "accountId" Decode.string
+        |> required "provider" Decode.string
+        |> required "accessTokenTail" Decode.string
+        |> required "refreshTokenTail" Decode.string
+        |> required "expiresAt" Decode.string
 
 
 accountDecoder : Decoder Account
@@ -856,6 +1294,7 @@ syncDecoder =
 bootstrapDecoder : Decoder BootstrapData
 bootstrapDecoder =
     Decode.succeed BootstrapData
+        |> required "providerOptions" (Decode.list providerOptionDecoder)
         |> required "accounts" (Decode.list accountDecoder)
         |> required "folders" (Decode.list folderDecoder)
         |> required "messages" (Decode.list summaryDecoder)
@@ -882,6 +1321,13 @@ messageUpdateDecoder =
         |> required "folders" (Decode.list folderDecoder)
         |> required "message" detailDecoder
         |> required "syncStatus" syncDecoder
+
+
+accountSetupResultDecoder : Decoder AccountSetupResult
+accountSetupResultDecoder =
+    Decode.succeed AccountSetupResult
+        |> required "bootstrap" bootstrapDecoder
+        |> required "credential" credentialPreviewDecoder
 
 
 
@@ -956,8 +1402,20 @@ icon name =
                 , Svg.path [ SA.d "m12 5 7 7-7 7" ] []
                 ]
 
+        "arrow-left" ->
+            Svg.svg attrs
+                [ Svg.path [ SA.d "M19 12H5" ] []
+                , Svg.path [ SA.d "m12 19-7-7 7-7" ] []
+                ]
+
         "check" ->
             Svg.svg attrs [ Svg.path [ SA.d "M20 6 9 17l-5-5" ] [] ]
+
+        "chevron-down" ->
+            Svg.svg attrs [ Svg.path [ SA.d "m6 9 6 6 6-6" ] [] ]
+
+        "chevron-right" ->
+            Svg.svg attrs [ Svg.path [ SA.d "m9 6 6 6-6 6" ] [] ]
 
         "dot" ->
             Svg.svg attrs [ Svg.circle [ SA.cx "12", SA.cy "12", SA.r "4", SA.fill "currentColor", SA.stroke "none" ] [] ]
@@ -977,10 +1435,24 @@ icon name =
                 , Svg.path [ SA.d "m5.45 5.11-3.1 6.2A2 2 0 0 0 2.24 13L4 19a2 2 0 0 0 2 1h12a2 2 0 0 0 2-1l1.76-6a2 2 0 0 0-.11-1.69l-3.1-6.2A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" ] []
                 ]
 
+        "key" ->
+            Svg.svg attrs
+                [ Svg.circle [ SA.cx "7.5", SA.cy "14.5", SA.r "3.5" ] []
+                , Svg.path [ SA.d "M10 12 21 1" ] []
+                , Svg.path [ SA.d "m14 8 3 3" ] []
+                , Svg.path [ SA.d "m17 5 3 3" ] []
+                ]
+
         "mail" ->
             Svg.svg attrs
                 [ Svg.rect [ SA.x "3", SA.y "5", SA.width "18", SA.height "14", SA.rx "2" ] []
                 , Svg.path [ SA.d "m3 7 9 6 9-6" ] []
+                ]
+
+        "plus" ->
+            Svg.svg attrs
+                [ Svg.path [ SA.d "M12 5v14" ] []
+                , Svg.path [ SA.d "M5 12h14" ] []
                 ]
 
         "refresh" ->

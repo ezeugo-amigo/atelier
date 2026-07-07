@@ -9,8 +9,10 @@ version keeps the hard parts explicit:
 - A tiny JavaScript bridge turns Elm port messages into Tauri command calls.
 - Rust exposes the backend API boundary for accounts, folders, messages, sync,
   read state, and archive actions.
-- The current backend is an in-memory mailbox so the app is runnable before
-  adding IMAP, JMAP, OAuth, keychain storage, or local indexing.
+- The current backend is local-first: an in-memory mailbox, mock OAuth-style
+  providers, provider sync checkpoints, and a sync outbox make the account
+  setup/read/archive flow runnable before adding IMAP, JMAP, real OAuth,
+  keychain storage, or local indexing.
 
 ## Run It
 
@@ -41,7 +43,9 @@ make clean
 ```text
 lotus/
 ├── build.sh
-├── docs/frontend-architecture.md
+├── docs/
+│   ├── frontend-architecture.md
+│   └── storage-architecture.md
 ├── elm.json
 ├── src/Main.elm
 ├── web/
@@ -56,9 +60,13 @@ lotus/
 
 See [docs/frontend-architecture.md](docs/frontend-architecture.md) for the
 frontend architecture and Tauri bridge flow.
+See [docs/storage-architecture.md](docs/storage-architecture.md) for the
+storage/provider boundary and SQLite schema.
 
-The Rust command API is intentionally small and replaceable. The next real
-backend step is to put provider integrations behind the same command surface:
+The Rust command API is intentionally small and replaceable. Account setup
+already runs through a provider registry with `MockGmail` and `MockOutlook`
+adapters. The next real backend step is to replace those mock adapters behind
+the same command surface:
 
 - Account setup: OAuth for Gmail/Outlook, app passwords for generic IMAP.
 - Storage: encrypted credentials in the OS keychain, message cache in SQLite.
