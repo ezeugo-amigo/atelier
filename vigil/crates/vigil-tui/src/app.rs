@@ -252,9 +252,15 @@ impl App {
     }
 
     pub fn cycle_selected_agent(&mut self) {
-        let Some(c) = self.selected() else { return };
+        let Some(i) = self.table_state.selected() else {
+            return;
+        };
+        let Some(c) = self.containers.get_mut(i) else {
+            return;
+        };
         let id = c.id.clone();
         let next = Self::next_agent(c.agent);
+        c.agent = next;
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }
