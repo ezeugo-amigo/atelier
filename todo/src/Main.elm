@@ -662,11 +662,15 @@ viewTask model carried task =
         [ div [ A.class "task-main" ]
             [ viewCheck task
             , div [ A.class "task-body", Ev.onClick (ToggleOpen task.id) ]
-                [ input
+                [ textarea
                     [ A.class "task-title"
                     , A.value task.title
+                    , A.rows (taskTitleRows task.title)
+                    , A.attribute "data-autosize" "title"
+                    , A.attribute "wrap" "soft"
                     , A.spellcheck False
                     , Ev.onInput (EditTitle task.id)
+                    , stopEnter
                     , stopClick
                     ]
                     []
@@ -723,6 +727,15 @@ viewTask model carried task =
           else
             text ""
         ]
+
+
+taskTitleRows : String -> Int
+taskTitleRows title =
+    title
+        |> String.lines
+        |> List.map (\line -> max 1 ((String.length line + 24) // 25))
+        |> List.sum
+        |> max 1
 
 
 viewCheck : Task -> Html Msg
@@ -977,7 +990,23 @@ onEnter msg =
         )
 
 
-{-| Swallow clicks on the title input so editing doesn't toggle the note drawer. -}
+{-| Preserve one-line input semantics for wrapped title textareas. -}
+stopEnter : Html.Attribute Msg
+stopEnter =
+    Ev.preventDefaultOn "keydown"
+        (Decode.field "key" Decode.string
+            |> Decode.andThen
+                (\key ->
+                    if key == "Enter" then
+                        Decode.succeed ( NoOp, True )
+
+                    else
+                        Decode.fail "not Enter"
+                )
+        )
+
+
+{-| Swallow clicks on the title control so editing doesn't toggle the note drawer. -}
 stopClick : Html.Attribute Msg
 stopClick =
     Ev.stopPropagationOn "click" (Decode.succeed ( NoOp, True ))

@@ -4,6 +4,8 @@
    (--warm-*, --accent fallbacks, fonts, motion) live in colors_and_type.css. */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+textarea { resize: none; }
+textarea::-webkit-resizer { display: none; }
 html, body { height: 100%; }
 body {
   font-family: var(--font-sans);
@@ -184,10 +186,14 @@ body {
   display: flex; flex-direction: column; gap: 2px;
 }
 .task-title {
-  width: 100%; border: none; background: transparent; outline: none;
+  display: block;
+  width: 100%; min-width: 0; border: none; background: transparent; outline: none;
   font-family: var(--font-sans); font-size: 15.5px; font-weight: 400;
   color: var(--content-body); line-height: 1.35;
   padding: 0; letter-spacing: -0.1px;
+  resize: none; overflow: hidden;
+  field-sizing: content;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
 .task-title::placeholder { color: var(--content-placeholder); }
 .task.is-done .task-title { color: var(--content-support); text-decoration: line-through; text-decoration-color: var(--warm-3); }
@@ -325,7 +331,11 @@ body {
 .detail-tick.is-open {
   background: transparent; border: 1.5px solid var(--warm-3);
 }
-.detail-title { font-size: 14px; color: var(--content-body); }
+.detail-title {
+  min-width: 0;
+  font-size: 14px; line-height: 1.35; color: var(--content-body);
+  overflow-wrap: anywhere; word-break: break-word;
+}
 .detail-item.is-done .detail-title { color: var(--content-secondary); }
 
 /* ====================== RESPONSIVE ============================== */
