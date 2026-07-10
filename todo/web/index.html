@@ -21,12 +21,43 @@
 
     let today = localISODate();
 
+    const appRoot = document.getElementById("root");
     const app = Elm.Main.init({
-      node: document.getElementById("root"),
+      node: appRoot,
       flags: { today, seed: Date.now() },
     });
 
     wire(app);
+
+    const autosizeSelector = "textarea[data-autosize]";
+    let autosizeFrame = 0;
+
+    const autosizeTextarea = (textarea) => {
+      textarea.style.height = "auto";
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    };
+
+    const autosizeTextareas = () => {
+      document.querySelectorAll(autosizeSelector).forEach(autosizeTextarea);
+    };
+
+    const scheduleAutosize = () => {
+      cancelAnimationFrame(autosizeFrame);
+      autosizeFrame = requestAnimationFrame(autosizeTextareas);
+      setTimeout(autosizeTextareas, 0);
+    };
+
+    document.addEventListener("input", (event) => {
+      if (event.target instanceof HTMLTextAreaElement && event.target.matches(autosizeSelector)) {
+        autosizeTextarea(event.target);
+      }
+      scheduleAutosize();
+    });
+    document.addEventListener("keydown", scheduleAutosize);
+
+    new MutationObserver(scheduleAutosize).observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("resize", scheduleAutosize);
+    scheduleAutosize();
 
     let midnightTimer;
 
