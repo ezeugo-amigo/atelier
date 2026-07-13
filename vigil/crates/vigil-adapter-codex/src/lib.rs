@@ -120,28 +120,25 @@ impl AgentAdapter for CodexAdapter {
         parse_conversation_events(&tail)
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new(codex_bin());
         cmd.arg("exec")
             .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg(msg)
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Codex, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("codex spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
+    ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new(codex_bin());
         cmd.arg("exec")
             .arg("--dangerously-bypass-approvals-and-sandbox")
@@ -149,17 +146,10 @@ impl AgentAdapter for CodexAdapter {
             .arg(&session_id.0)
             .arg(msg)
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Codex, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("codex spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new(codex_bin());
         cmd.arg("--dangerously-bypass-approvals-and-sandbox")
             .arg("resume")
@@ -168,7 +158,7 @@ impl AgentAdapter for CodexAdapter {
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new(codex_bin());
         cmd.arg("--dangerously-bypass-approvals-and-sandbox")
             .current_dir(dir);

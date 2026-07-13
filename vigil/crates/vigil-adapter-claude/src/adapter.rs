@@ -275,7 +275,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .collect()
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--dangerously-skip-permissions");
         cmd.arg("--debug");
@@ -285,7 +285,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--dangerously-skip-permissions");
         cmd.arg("--debug");
@@ -293,7 +293,11 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--dangerously-skip-permissions")
             .arg("--debug")
@@ -301,22 +305,15 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .arg(msg)
             .env_remove("CLAUDECODE")
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::ClaudeCode, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
+    ) -> Result<std::process::Command, VigilError> {
         // Do not try to type into an existing Claude TTY. In Vigil there often is no
         // attached interactive TTY, and the process holding the debug log may be an
         // internal child process. Resume the conversation in print mode instead,
@@ -330,13 +327,6 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .arg(msg)
             .env_remove("CLAUDECODE")
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::ClaudeCode, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 }

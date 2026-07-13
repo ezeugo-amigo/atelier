@@ -1619,12 +1619,11 @@ fn attach_or_launch(
     terminal.show_cursor()?;
 
     if let Some(adapter) = adapters.get(&agent) {
-        let cmd = if let Some(id) = session_id {
+        let mut cmd = if let Some(id) = session_id {
             adapter.attach_command(id, dir)
         } else {
             adapter.launch_command(dir)
         };
-        let mut cmd = vigil_core::wrap_agent_harness_command(agent, dir, cmd);
         cmd.status().ok();
     }
 

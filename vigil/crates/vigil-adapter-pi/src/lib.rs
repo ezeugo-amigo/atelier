@@ -104,27 +104,24 @@ impl AgentAdapter for PiAdapter {
         parse_conversation_events(&tail)
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new("pi");
         cmd.arg("--print")
             .arg(msg)
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Pi, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         _session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
+    ) -> Result<std::process::Command, VigilError> {
         let session_dir = sessions_dir().join(encode_path(dir));
         let Some(latest) = find_latest(&session_dir) else {
             return Err(VigilError::NotSupported("no Pi session file found".into()));
@@ -137,24 +134,17 @@ impl AgentAdapter for PiAdapter {
             .arg("--print")
             .arg(msg)
             .current_dir(dir);
-        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Pi, dir, cmd);
-        cmd.stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        tokio::process::Command::from(cmd)
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
-        Ok(())
+        Ok(cmd)
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("pi");
         cmd.arg("--session").arg(&session_id.0);
         cmd.current_dir(dir);
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("pi");
         cmd.current_dir(dir);
         cmd
