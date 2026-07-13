@@ -53,15 +53,10 @@ enum WtAction {
 }
 
 fn parse_agent(s: &str) -> Result<AgentKind> {
-    match s.to_lowercase().as_str() {
-        "claude" | "claude-code" | "claudecode" => Ok(AgentKind::ClaudeCode),
-        "codex" => Ok(AgentKind::Codex),
-        "pi" => Ok(AgentKind::Pi),
-        "opencode" => Ok(AgentKind::OpenCode),
-        "droid" => Ok(AgentKind::Droid),
-        other => {
-            anyhow::bail!("unknown agent '{other}'. Valid: claude, codex, pi, opencode, droid")
-        }
+    if let Some(agent) = AgentKind::from_config_key(s) {
+        Ok(agent)
+    } else {
+        anyhow::bail!("unknown agent '{s}'. Valid: claude, codex, pi, opencode, droid")
     }
 }
 

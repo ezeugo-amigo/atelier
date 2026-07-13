@@ -105,13 +105,15 @@ impl AgentAdapter for PiAdapter {
     }
 
     async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new("pi")
-            .arg("--print")
+        let mut cmd = std::process::Command::new("pi");
+        cmd.arg("--print")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Pi, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
         Ok(())
@@ -129,15 +131,17 @@ impl AgentAdapter for PiAdapter {
         };
 
         // Use `pi --session <file> --print <msg>` — fire and forget.
-        tokio::process::Command::new("pi")
-            .arg("--session")
+        let mut cmd = std::process::Command::new("pi");
+        cmd.arg("--session")
             .arg(&latest)
             .arg("--print")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Pi, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("pi spawn failed: {e}")))?;
         Ok(())

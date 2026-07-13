@@ -121,14 +121,16 @@ impl AgentAdapter for CodexAdapter {
     }
 
     async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new(codex_bin())
-            .arg("exec")
+        let mut cmd = std::process::Command::new(codex_bin());
+        cmd.arg("exec")
             .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Codex, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("codex spawn failed: {e}")))?;
         Ok(())
@@ -140,16 +142,18 @@ impl AgentAdapter for CodexAdapter {
         session_id: &SessionId,
         msg: &str,
     ) -> Result<(), VigilError> {
-        tokio::process::Command::new(codex_bin())
-            .arg("exec")
+        let mut cmd = std::process::Command::new(codex_bin());
+        cmd.arg("exec")
             .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg("resume")
             .arg(&session_id.0)
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Codex, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("codex spawn failed: {e}")))?;
         Ok(())

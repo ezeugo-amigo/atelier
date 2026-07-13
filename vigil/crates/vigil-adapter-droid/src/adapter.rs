@@ -220,30 +220,34 @@ impl AgentAdapter for DroidAdapter {
         session_id: &SessionId,
         msg: &str,
     ) -> Result<(), VigilError> {
-        tokio::process::Command::new("droid")
-            .arg("exec")
+        let mut cmd = std::process::Command::new("droid");
+        cmd.arg("exec")
             .arg("--session-id")
             .arg(&session_id.0)
             .arg("--skip-permissions-unsafe")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Droid, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("droid spawn failed: {e}")))?;
         Ok(())
     }
 
     async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new("droid")
-            .arg("exec")
+        let mut cmd = std::process::Command::new("droid");
+        cmd.arg("exec")
             .arg("--skip-permissions-unsafe")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::Droid, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("droid spawn failed: {e}")))?;
         Ok(())

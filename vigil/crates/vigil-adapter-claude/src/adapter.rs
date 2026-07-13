@@ -294,16 +294,18 @@ impl AgentAdapter for ClaudeCodeAdapter {
     }
 
     async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new("claude")
-            .arg("--dangerously-skip-permissions")
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions")
             .arg("--debug")
             .arg("--print")
             .arg(msg)
             .env_remove("CLAUDECODE")
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::ClaudeCode, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
         Ok(())
@@ -319,18 +321,20 @@ impl AgentAdapter for ClaudeCodeAdapter {
         // attached interactive TTY, and the process holding the debug log may be an
         // internal child process. Resume the conversation in print mode instead,
         // matching the Pi adapter's fire-and-forget behavior.
-        tokio::process::Command::new("claude")
-            .arg("--dangerously-skip-permissions")
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions")
             .arg("--debug")
             .arg("--resume")
             .arg(&session_id.0)
             .arg("--print")
             .arg(msg)
             .env_remove("CLAUDECODE")
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
+            .current_dir(dir);
+        let mut cmd = vigil_core::wrap_agent_harness_command(AgentKind::ClaudeCode, dir, cmd);
+        cmd.stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        tokio::process::Command::from(cmd)
             .spawn()
             .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
         Ok(())
