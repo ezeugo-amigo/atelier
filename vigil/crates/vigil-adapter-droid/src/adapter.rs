@@ -201,51 +201,45 @@ impl AgentAdapter for DroidAdapter {
         session_parser::parse_session_jsonl(&content)
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("droid");
         cmd.arg("--resume").arg(&session_id.0);
         cmd.current_dir(dir);
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("droid");
         cmd.current_dir(dir);
         cmd
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
-        tokio::process::Command::new("droid")
-            .arg("exec")
+    ) -> Result<std::process::Command, VigilError> {
+        let mut cmd = std::process::Command::new("droid");
+        cmd.arg("exec")
             .arg("--session-id")
             .arg(&session_id.0)
             .arg("--skip-permissions-unsafe")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("droid spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new("droid")
-            .arg("exec")
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
+        let mut cmd = std::process::Command::new("droid");
+        cmd.arg("exec")
             .arg("--skip-permissions-unsafe")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("droid spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 }

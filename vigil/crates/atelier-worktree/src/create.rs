@@ -155,8 +155,9 @@ pub fn create(
 
     if !opts.no_launch {
         if let Some(mut cmd) = launch_cmd {
-            cmd.current_dir(&worktree_path)
-                .spawn()
+            cmd.current_dir(&worktree_path);
+            let mut cmd = vigil_core::wrap_agent_harness_command(entry.agent, &worktree_path, cmd);
+            cmd.spawn()
                 .map_err(|e| WorktreeError::Git(format!("failed to launch agent: {e}")))?;
         }
     }
@@ -305,8 +306,9 @@ fn create_workspace(
 
     if !no_launch {
         if let Some(mut cmd) = launch_cmd {
-            cmd.current_dir(&workspace)
-                .spawn()
+            cmd.current_dir(&workspace);
+            let mut cmd = vigil_core::wrap_agent_harness_command(entry.agent, &workspace, cmd);
+            cmd.spawn()
                 .map_err(|e| WorktreeError::Git(format!("failed to launch agent: {e}")))?;
         }
     }

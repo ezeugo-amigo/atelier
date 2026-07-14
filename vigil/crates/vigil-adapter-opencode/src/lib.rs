@@ -73,46 +73,40 @@ impl AgentAdapter for OpenCodeAdapter {
             .unwrap_or_default()
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
-        tokio::process::Command::new(opencode_bin())
-            .arg("run")
+    ) -> Result<std::process::Command, VigilError> {
+        let mut cmd = std::process::Command::new(opencode_bin());
+        cmd.arg("run")
             .arg("--session")
             .arg(&session_id.0)
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("opencode spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new(opencode_bin())
-            .arg("run")
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
+        let mut cmd = std::process::Command::new(opencode_bin());
+        cmd.arg("run")
             .arg(msg)
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("opencode spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new(opencode_bin());
         cmd.arg("--session").arg(&session_id.0).current_dir(dir);
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new(opencode_bin());
         cmd.current_dir(dir);
         cmd

@@ -12,7 +12,12 @@ struct ConfigFile {
     /// Each command is run via `sh -c` with `$WORKTREE` set to the new worktree's absolute path.
     #[serde(default)]
     worktree_hooks: HashMap<String, Vec<String>>,
-    /// Default agent for new containers. Accepts "claude-code", "pi", or "droid".
+    /// Shell command prefixes used to run agent harnesses,
+    /// keyed by agent name (`claude-code`, `codex`, `pi`, `opencode`, `droid`)
+    /// or by `*` for all agents.
+    #[serde(default)]
+    agent_harness_wrappers: HashMap<String, String>,
+    /// Default agent for new containers.
     #[serde(default = "default_agent_string")]
     default_agent: String,
 }
@@ -26,6 +31,7 @@ impl Default for ConfigFile {
         Self {
             search_paths: vec!["~/code".into(), "~/projects".into()],
             worktree_hooks: HashMap::new(),
+            agent_harness_wrappers: HashMap::new(),
             default_agent: default_agent_string(),
         }
     }
@@ -101,24 +107,11 @@ impl Config {
 }
 
 fn agent_config_string(agent: AgentKind) -> &'static str {
-    match agent {
-        AgentKind::ClaudeCode => "claude-code",
-        AgentKind::Codex => "codex",
-        AgentKind::Pi => "pi",
-        AgentKind::OpenCode => "opencode",
-        AgentKind::Droid => "droid",
-    }
+    agent.config_key()
 }
 
 fn parse_agent(s: &str) -> Option<AgentKind> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "claude" | "claude-code" | "claudecode" => Some(AgentKind::ClaudeCode),
-        "codex" => Some(AgentKind::Codex),
-        "pi" => Some(AgentKind::Pi),
-        "opencode" => Some(AgentKind::OpenCode),
-        "droid" => Some(AgentKind::Droid),
-        _ => None,
-    }
+    AgentKind::from_config_key(s)
 }
 
 fn config_path() -> PathBuf {

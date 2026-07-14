@@ -275,7 +275,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
             .collect()
     }
 
-    fn attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
+    fn raw_attach_command(&self, session_id: &SessionId, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--dangerously-skip-permissions");
         cmd.arg("--debug");
@@ -285,7 +285,7 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
-    fn launch_command(&self, dir: &Path) -> std::process::Command {
+    fn raw_launch_command(&self, dir: &Path) -> std::process::Command {
         let mut cmd = std::process::Command::new("claude");
         cmd.arg("--dangerously-skip-permissions");
         cmd.arg("--debug");
@@ -293,46 +293,40 @@ impl AgentAdapter for ClaudeCodeAdapter {
         cmd
     }
 
-    async fn start_with_message(&self, dir: &Path, msg: &str) -> Result<(), VigilError> {
-        tokio::process::Command::new("claude")
-            .arg("--dangerously-skip-permissions")
+    fn raw_start_with_message_command(
+        &self,
+        dir: &Path,
+        msg: &str,
+    ) -> Result<std::process::Command, VigilError> {
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions")
             .arg("--debug")
             .arg("--print")
             .arg(msg)
             .env_remove("CLAUDECODE")
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 
-    async fn send_message(
+    fn raw_send_message_command(
         &self,
         dir: &Path,
         session_id: &SessionId,
         msg: &str,
-    ) -> Result<(), VigilError> {
+    ) -> Result<std::process::Command, VigilError> {
         // Do not try to type into an existing Claude TTY. In Vigil there often is no
         // attached interactive TTY, and the process holding the debug log may be an
         // internal child process. Resume the conversation in print mode instead,
         // matching the Pi adapter's fire-and-forget behavior.
-        tokio::process::Command::new("claude")
-            .arg("--dangerously-skip-permissions")
+        let mut cmd = std::process::Command::new("claude");
+        cmd.arg("--dangerously-skip-permissions")
             .arg("--debug")
             .arg("--resume")
             .arg(&session_id.0)
             .arg("--print")
             .arg(msg)
             .env_remove("CLAUDECODE")
-            .current_dir(dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| VigilError::ProcessProbe(format!("claude spawn failed: {e}")))?;
-        Ok(())
+            .current_dir(dir);
+        Ok(cmd)
     }
 }

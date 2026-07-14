@@ -44,6 +44,27 @@ impl AgentKind {
         }
     }
 
+    pub fn config_key(&self) -> &'static str {
+        match self {
+            AgentKind::ClaudeCode => "claude-code",
+            AgentKind::Codex => "codex",
+            AgentKind::Pi => "pi",
+            AgentKind::OpenCode => "opencode",
+            AgentKind::Droid => "droid",
+        }
+    }
+
+    pub fn from_config_key(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "claude" | "claude-code" | "claudecode" => Some(AgentKind::ClaudeCode),
+            "codex" => Some(AgentKind::Codex),
+            "pi" => Some(AgentKind::Pi),
+            "opencode" | "open-code" => Some(AgentKind::OpenCode),
+            "droid" => Some(AgentKind::Droid),
+            _ => None,
+        }
+    }
+
     /// Whether this agent is fully implemented and should be shown in the picker.
     pub fn available(&self) -> bool {
         match self {

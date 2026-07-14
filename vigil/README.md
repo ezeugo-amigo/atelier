@@ -40,6 +40,26 @@ Open it directly in a browser:
 open docs/architecture.html
 ```
 
+## Configuration
+
+Vigil reads local settings from `~/.vigil/config.json`. To run agent harnesses
+through another command, add `agent_harness_wrappers`. Use `*` for every agent,
+or configure a specific harness by key:
+
+```json
+{
+  "agent_harness_wrappers": {
+    "*": "ucode",
+    "codex": "ucode --codex",
+    "claude-code": "ucode --claude"
+  }
+}
+```
+
+Wrappers run from the worktree directory with `WORKTREE` and `VIGIL_AGENT` set.
+For example, the global `ucode` wrapper launches Codex as
+`ucode codex ...` and Claude Code as `ucode claude ...`.
+
 ## Status
 
 Architecture sketch. No working code yet. The Cargo workspace skeleton is
