@@ -6,10 +6,10 @@ const ADJECTIVES: &[&str] = &[
     "keen", "kind", "lean", "light", "loose", "mild", "neat", "open", "patient", "plain", "quick",
     "quiet", "rapid", "ready", "restless", "sharp", "silent", "slim", "slow", "smooth", "soft",
     "solid", "steady", "still", "strong", "sure", "swift", "tall", "tame", "true", "vast", "warm",
-    "wide", "wise", "young", "able", "acute", "agile", "alert",
-    "brisk", "brave", "clean", "crisp", "deft", "dense", "eager", "early", "easy", "even",
-    "exact", "fierce", "fine", "flat", "fond", "fresh", "full", "grand", "great", "hardy",
-    "humble", "jolly", "just", "lofty", "lucky", "lush", "noble", "prime", "pure", "spare",
+    "wide", "wise", "young", "able", "acute", "agile", "alert", "brisk", "brave", "clean", "crisp",
+    "deft", "dense", "eager", "early", "easy", "even", "exact", "fierce", "fine", "flat", "fond",
+    "fresh", "full", "grand", "great", "hardy", "humble", "jolly", "just", "lofty", "lucky",
+    "lush", "noble", "prime", "pure", "spare",
 ];
 
 const NOUNS: &[&str] = &[

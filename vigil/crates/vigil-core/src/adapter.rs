@@ -93,7 +93,11 @@ pub trait AgentAdapter: Send + Sync {
     }
 
     /// Build the agent-native command for `start_with_message`.
-    fn raw_start_with_message_command(&self, _dir: &Path, _msg: &str) -> Result<Command, VigilError> {
+    fn raw_start_with_message_command(
+        &self,
+        _dir: &Path,
+        _msg: &str,
+    ) -> Result<Command, VigilError> {
         Err(VigilError::NotSupported(
             "start_with_message not implemented".into(),
         ))
@@ -109,8 +113,8 @@ async fn spawn_wrapped_background_command(
     cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    tokio::process::Command::from(cmd)
-        .spawn()
-        .map_err(|e| VigilError::ProcessProbe(format!("{} spawn failed: {e}", agent.config_key())))?;
+    tokio::process::Command::from(cmd).spawn().map_err(|e| {
+        VigilError::ProcessProbe(format!("{} spawn failed: {e}", agent.config_key()))
+    })?;
     Ok(())
 }

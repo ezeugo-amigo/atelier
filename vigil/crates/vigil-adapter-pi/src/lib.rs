@@ -110,9 +110,7 @@ impl AgentAdapter for PiAdapter {
         msg: &str,
     ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new("pi");
-        cmd.arg("--print")
-            .arg(msg)
-            .current_dir(dir);
+        cmd.arg("--print").arg(msg).current_dir(dir);
         Ok(cmd)
     }
 

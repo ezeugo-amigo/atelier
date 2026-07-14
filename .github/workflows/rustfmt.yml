@@ -1,0 +1,30 @@
+name: Rustfmt
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  rustfmt:
+    name: Check Rust formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path devhost/Cargo.toml --all -- --check
+          cargo fmt --manifest-path diffdesk/Cargo.toml --all -- --check
+          cargo fmt --manifest-path lotus/src-tauri/Cargo.toml --all -- --check
+          cargo fmt --manifest-path todo/src-tauri/Cargo.toml --all -- --check
+          cargo fmt --manifest-path vigil/Cargo.toml --all -- --check

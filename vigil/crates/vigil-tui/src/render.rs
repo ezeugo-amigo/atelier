@@ -754,10 +754,7 @@ fn draw_log_view_panel(
                 } else {
                     Style::default().fg(DIM)
                 };
-                Line::from(Span::styled(
-                    format!(" {}", sanitize_for_display(s)),
-                    style,
-                ))
+                Line::from(Span::styled(format!(" {}", sanitize_for_display(s)), style))
             })
             .collect();
         f.render_widget(Paragraph::new(display), content);
@@ -773,7 +770,9 @@ fn draw_log_view_panel(
 fn draw_recap_box(f: &mut Frame, popup: Rect, recap: &Recap) {
     // Box geometry: roughly half the popup width, anchored bottom-right inside
     // the popup's border (the -1/-2 insets keep it off the frame edges).
-    let box_width = (popup.width / 2).clamp(34, 60).min(popup.width.saturating_sub(4));
+    let box_width = (popup.width / 2)
+        .clamp(34, 60)
+        .min(popup.width.saturating_sub(4));
     let text_width = box_width.saturating_sub(4) as usize;
 
     let (title, body, color): (&str, String, Color) = match recap {
@@ -1008,10 +1007,7 @@ fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
         }
         _ => {
             f.render_widget(
-                Paragraph::new(Span::styled(
-                    "no chat data yet",
-                    Style::default().fg(DIM),
-                )),
+                Paragraph::new(Span::styled("no chat data yet", Style::default().fg(DIM))),
                 inner,
             );
         }

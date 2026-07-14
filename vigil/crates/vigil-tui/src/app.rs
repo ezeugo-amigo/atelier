@@ -389,7 +389,12 @@ impl App {
                 self.registry
                     .as_ref()
                     .and_then(|reg| reg.find_by_id(&c.id))
-                    .map(|e| e.checkouts().iter().map(|ck| ck.repo_root.clone()).collect())
+                    .map(|e| {
+                        e.checkouts()
+                            .iter()
+                            .map(|ck| ck.repo_root.clone())
+                            .collect()
+                    })
             })
             .unwrap_or_default();
         self.overlay = Overlay::NewWorktree {
@@ -718,10 +723,7 @@ async fn event_loop(
                             KeyCode::Tab | KeyCode::Down | KeyCode::Right | KeyCode::Char('j') => {
                                 app.cycle_default_agent();
                             }
-                            KeyCode::BackTab
-                            | KeyCode::Up
-                            | KeyCode::Left
-                            | KeyCode::Char('k') => {
+                            KeyCode::BackTab | KeyCode::Up | KeyCode::Left | KeyCode::Char('k') => {
                                 app.cycle_default_agent_back();
                             }
                             KeyCode::Enter => {
@@ -1590,7 +1592,10 @@ fn open_terminal(
     terminal.show_cursor()?;
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-    std::process::Command::new(&shell).current_dir(dir).status().ok();
+    std::process::Command::new(&shell)
+        .current_dir(dir)
+        .status()
+        .ok();
 
     enable_raw_mode()?;
     execute!(
