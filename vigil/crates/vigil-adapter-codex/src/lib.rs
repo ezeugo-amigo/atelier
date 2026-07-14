@@ -291,7 +291,10 @@ fn format_log_line(val: &serde_json::Value) -> Option<String> {
                 .iter()
                 .find(|c| c["type"] == "input_text")?["text"]
                 .as_str()?;
-            Some(format!("YOU   {}", text.chars().take(100).collect::<String>()))
+            Some(format!(
+                "YOU   {}",
+                text.chars().take(100).collect::<String>()
+            ))
         }
         "assistant" => {
             let text = payload["content"]
@@ -349,7 +352,10 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                 pending_user = Some((text, time));
             }
             Some("assistant") => {
-                let content_arr = payload["content"].as_array().map(|v| v.as_slice()).unwrap_or(&[]);
+                let content_arr = payload["content"]
+                    .as_array()
+                    .map(|v| v.as_slice())
+                    .unwrap_or(&[]);
                 let texts: Vec<&str> = content_arr
                     .iter()
                     .filter(|c| c["type"] == "output_text")
@@ -489,7 +495,9 @@ mod tests {
 
         let events = parse_conversation_events(&content);
         assert_eq!(events.len(), 3);
-        assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "before tools"));
+        assert!(
+            matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "before tools")
+        );
         assert!(
             matches!(&events[1], LogEvent::ToolGroup { tools } if tools == &[(ToolKind::Bash, 2)])
         );
@@ -509,7 +517,9 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "first reply"));
         assert!(matches!(&events[1], LogEvent::UserMessage { text, .. } if text == "follow-up"));
-        assert!(matches!(&events[2], LogEvent::AgentMessage { text, .. } if text == "second reply"));
+        assert!(
+            matches!(&events[2], LogEvent::AgentMessage { text, .. } if text == "second reply")
+        );
     }
 
     #[test]
@@ -517,6 +527,8 @@ mod tests {
         let content = assistant_line(&["alpha", "beta"], "2026-07-07T10:00:00Z");
         let events = parse_conversation_events(&content);
         assert_eq!(events.len(), 1);
-        assert!(matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "alpha\n\nbeta"));
+        assert!(
+            matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "alpha\n\nbeta")
+        );
     }
 }

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use diffdesk_core::{
-    canceled_path, create_session_from_args, help_text, parse_args, result_path, spawn_app, ParsedArgs,
+    canceled_path, create_session_from_args, help_text, parse_args, result_path, spawn_app,
+    ParsedArgs,
 };
 use std::env;
 use std::fs;
@@ -73,7 +74,10 @@ fn resolve_app_command(args: &ParsedArgs) -> Result<String> {
 
     let release_bundle = PathBuf::from("target/release/bundle/macos/Diffdesk.app");
     if release_bundle.exists() {
-        return Ok(format!("/usr/bin/open -n {} --args", release_bundle.display()));
+        return Ok(format!(
+            "/usr/bin/open -n {} --args",
+            release_bundle.display()
+        ));
     }
 
     let debug_app = PathBuf::from("target/debug/diffdesk-app");

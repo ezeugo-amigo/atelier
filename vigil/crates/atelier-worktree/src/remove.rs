@@ -61,7 +61,9 @@ pub fn remove(id: &str, opts: RemoveOptions, registry: &mut Registry) -> Result<
     // Workspace entries: drop the parent dir (manifest + empty subdir shells).
     // Safety belt: only ever delete under the managed workspaces root.
     if !entry.repos.is_empty()
-        && entry.worktree_path.starts_with(crate::create::workspaces_root())
+        && entry
+            .worktree_path
+            .starts_with(crate::create::workspaces_root())
         && entry.worktree_path.exists()
     {
         std::fs::remove_dir_all(&entry.worktree_path)?;

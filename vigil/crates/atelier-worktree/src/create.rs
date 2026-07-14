@@ -115,7 +115,14 @@ pub fn create(
     };
 
     if repo_roots.len() > 1 {
-        return create_workspace(name, opts.agent, repo_roots, registry, opts.no_launch, launch_cmd);
+        return create_workspace(
+            name,
+            opts.agent,
+            repo_roots,
+            registry,
+            opts.no_launch,
+            launch_cmd,
+        );
     }
     let repo_root = repo_roots.into_iter().next().unwrap();
 

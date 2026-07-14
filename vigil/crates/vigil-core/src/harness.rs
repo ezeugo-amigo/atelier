@@ -150,10 +150,7 @@ mod tests {
             config.wrapper_for(AgentKind::Codex),
             Some("ucode --codex".to_string())
         );
-        assert_eq!(
-            config.wrapper_for(AgentKind::Pi),
-            Some("ucode".to_string())
-        );
+        assert_eq!(config.wrapper_for(AgentKind::Pi), Some("ucode".to_string()));
     }
 
     #[test]

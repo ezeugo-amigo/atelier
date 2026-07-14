@@ -12,7 +12,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, SessionState, ToolKind, VigilError};
+use vigil_core::{
+    AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, SessionState, ToolKind, VigilError,
+};
 
 pub struct OpenCodeAdapter;
 
@@ -94,9 +96,7 @@ impl AgentAdapter for OpenCodeAdapter {
         msg: &str,
     ) -> Result<std::process::Command, VigilError> {
         let mut cmd = std::process::Command::new(opencode_bin());
-        cmd.arg("run")
-            .arg(msg)
-            .current_dir(dir);
+        cmd.arg("run").arg(msg).current_dir(dir);
         Ok(cmd)
     }
 
@@ -164,24 +164,29 @@ fn messages_for_session(conn: &rusqlite::Connection, session_id: &str) -> Vec<Me
         Err(_) => return vec![],
     };
     stmt.query_map(rusqlite::params![session_id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, String>(2)?,
+        ))
     })
     .ok()
     .into_iter()
     .flatten()
     .filter_map(|r| r.ok())
     .filter_map(|(id, tc, data_str)| {
-        serde_json::from_str(&data_str)
-            .ok()
-            .map(|data| MessageRow { id, time_created: tc, data })
+        serde_json::from_str(&data_str).ok().map(|data| MessageRow {
+            id,
+            time_created: tc,
+            data,
+        })
     })
     .collect()
 }
 
 fn parts_for_message(conn: &rusqlite::Connection, message_id: &str) -> Vec<serde_json::Value> {
-    let mut stmt = match conn.prepare(
-        "SELECT data FROM part WHERE message_id = ?1 ORDER BY id ASC",
-    ) {
+    let mut stmt = match conn.prepare("SELECT data FROM part WHERE message_id = ?1 ORDER BY id ASC")
+    {
         Ok(s) => s,
         Err(_) => return vec![],
     };
@@ -236,7 +241,9 @@ fn classify(
             let completed = msg.data["time"]["completed"].as_i64();
 
             if role == "assistant" && has_error {
-                SessionState::Error { message: "API error".to_string() }
+                SessionState::Error {
+                    message: "API error".to_string(),
+                }
             } else if role == "assistant" && completed.is_none() {
                 // Assistant message started but not yet completed — streaming.
                 SessionState::Running
@@ -287,7 +294,9 @@ fn classify(
 fn recent_log_sync(dir: &Path) -> Vec<String> {
     let Some(conn) = open_db() else { return vec![] };
     let dir_str = dir.display().to_string();
-    let Some(session) = latest_session_for_dir(&conn, &dir_str) else { return vec![] };
+    let Some(session) = latest_session_for_dir(&conn, &dir_str) else {
+        return vec![];
+    };
     let messages = messages_for_session(&conn, &session.id);
 
     messages
@@ -305,7 +314,11 @@ fn recent_log_sync(dir: &Path) -> Vec<String> {
             if text.is_empty() {
                 return None;
             }
-            let prefix = if role == "user" { "YOU      " } else { "OPENCODE " };
+            let prefix = if role == "user" {
+                "YOU      "
+            } else {
+                "OPENCODE "
+            };
             Some(format!("{}{}", prefix, text))
         })
         .collect()
@@ -314,7 +327,9 @@ fn recent_log_sync(dir: &Path) -> Vec<String> {
 fn recent_log_events_sync(dir: &Path) -> Vec<LogEvent> {
     let Some(conn) = open_db() else { return vec![] };
     let dir_str = dir.display().to_string();
-    let Some(session) = latest_session_for_dir(&conn, &dir_str) else { return vec![] };
+    let Some(session) = latest_session_for_dir(&conn, &dir_str) else {
+        return vec![];
+    };
     let messages = messages_for_session(&conn, &session.id);
     build_log_events(&conn, &messages)
 }
@@ -346,8 +361,10 @@ fn build_log_events(conn: &rusqlite::Connection, messages: &[MessageRow]) -> Vec
                 events.push(LogEvent::UserMessage { text, time: None });
             }
         } else if role == "assistant" {
-            let tool_parts: Vec<&serde_json::Value> =
-                parts.iter().filter(|p| p["type"].as_str() == Some("tool")).collect();
+            let tool_parts: Vec<&serde_json::Value> = parts
+                .iter()
+                .filter(|p| p["type"].as_str() == Some("tool"))
+                .collect();
             if !tool_parts.is_empty() {
                 let mut counts: HashMap<String, u32> = HashMap::new();
                 for p in &tool_parts {
@@ -382,9 +399,17 @@ fn build_log_events(conn: &rusqlite::Connection, messages: &[MessageRow]) -> Vec
 
 fn classify_tool_name(name: &str) -> ToolKind {
     let lower = name.to_lowercase();
-    if lower.contains("read") || lower.contains("glob") || lower.contains("grep") || lower.contains("list") {
+    if lower.contains("read")
+        || lower.contains("glob")
+        || lower.contains("grep")
+        || lower.contains("list")
+    {
         ToolKind::Read
-    } else if lower.contains("bash") || lower.contains("shell") || lower.contains("run") || lower.contains("exec") {
+    } else if lower.contains("bash")
+        || lower.contains("shell")
+        || lower.contains("run")
+        || lower.contains("exec")
+    {
         ToolKind::Bash
     } else if lower.contains("edit") || lower.contains("write") || lower.contains("patch") {
         ToolKind::Edit

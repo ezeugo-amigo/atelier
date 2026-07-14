@@ -44,7 +44,11 @@ fn load_session(session_id: String) -> Result<LoadSessionResponse, String> {
 }
 
 #[tauri::command]
-fn save_drafts(session_id: String, summary: String, comments: Vec<ReviewComment>) -> Result<DraftFile, String> {
+fn save_drafts(
+    session_id: String,
+    summary: String,
+    comments: Vec<ReviewComment>,
+) -> Result<DraftFile, String> {
     core_save_drafts(&session_id, summary, comments).map_err(|error| error.to_string())
 }
 

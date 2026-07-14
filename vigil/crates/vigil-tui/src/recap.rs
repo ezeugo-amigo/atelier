@@ -41,7 +41,12 @@ fn transcript_from_events(events: &[LogEvent]) -> String {
     // Keep only the message-bearing events, then take the last RECAP_WINDOW.
     let msgs: Vec<&LogEvent> = events
         .iter()
-        .filter(|e| matches!(e, LogEvent::UserMessage { .. } | LogEvent::AgentMessage { .. }))
+        .filter(|e| {
+            matches!(
+                e,
+                LogEvent::UserMessage { .. } | LogEvent::AgentMessage { .. }
+            )
+        })
         .collect();
     let start = msgs.len().saturating_sub(RECAP_WINDOW);
 
@@ -125,7 +130,11 @@ pub async fn generate(events: &[LogEvent], lines: &[String]) -> Result<String, S
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let msg = stderr.trim().lines().next().unwrap_or("claude exited with error");
+        let msg = stderr
+            .trim()
+            .lines()
+            .next()
+            .unwrap_or("claude exited with error");
         return Err(msg.chars().take(120).collect());
     }
 

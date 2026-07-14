@@ -21,7 +21,11 @@ pub struct SessionFile {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum DiffSource {
     Git {
         repo_root: PathBuf,
@@ -185,23 +189,33 @@ pub fn parse_args(raw_args: &[String]) -> Result<ParsedArgs> {
             "--json" => output_format = OutputFormat::Json,
             "--markdown" => output_format = OutputFormat::Markdown,
             "--format" => {
-                let value = iter.next().ok_or_else(|| anyhow!("--format requires markdown or json"))?;
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--format requires markdown or json"))?;
                 output_format = parse_format(value)?;
             }
             "--output" | "-o" => {
-                let value = iter.next().ok_or_else(|| anyhow!("--output requires a path"))?;
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--output requires a path"))?;
                 output_path = Some(PathBuf::from(value));
             }
             "--session" => {
-                let value = iter.next().ok_or_else(|| anyhow!("--session requires an id"))?;
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--session requires an id"))?;
                 session_id = Some(value.clone());
             }
             "--app-command" => {
-                let value = iter.next().ok_or_else(|| anyhow!("--app-command requires a command"))?;
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--app-command requires a command"))?;
                 app_command = Some(value.clone());
             }
             "--send-to-ai" => {
-                let value = iter.next().ok_or_else(|| anyhow!("--send-to-ai requires a command"))?;
+                let value = iter
+                    .next()
+                    .ok_or_else(|| anyhow!("--send-to-ai requires a command"))?;
                 ai_command = Some(value.clone());
             }
             value if value.starts_with('-') && value != "-" => {
@@ -209,7 +223,9 @@ pub fn parse_args(raw_args: &[String]) -> Result<ParsedArgs> {
             }
             value => {
                 if target.is_some() {
-                    return Err(anyhow!("multiple diff targets supplied; use one range, file, or '-'"));
+                    return Err(anyhow!(
+                        "multiple diff targets supplied; use one range, file, or '-'"
+                    ));
                 }
                 target = Some(value.to_string());
             }
@@ -235,7 +251,9 @@ fn parse_format(value: &str) -> Result<OutputFormat> {
     match value {
         "markdown" | "md" => Ok(OutputFormat::Markdown),
         "json" => Ok(OutputFormat::Json),
-        other => Err(anyhow!("unsupported format '{other}', expected markdown or json")),
+        other => Err(anyhow!(
+            "unsupported format '{other}', expected markdown or json"
+        )),
     }
 }
 
@@ -319,7 +337,8 @@ pub fn write_session(session: &SessionFile) -> Result<()> {
 
 pub fn load_session(session_id: &str) -> Result<SessionFile> {
     let path = session_dir(session_id)?.join("session.json");
-    let json = fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let json =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     serde_json::from_str(&json).with_context(|| format!("failed to parse {}", path.display()))
 }
 
@@ -334,12 +353,18 @@ pub fn load_drafts(session_id: &str) -> Result<Option<DraftFile>> {
     if !path.exists() {
         return Ok(None);
     }
-    let json = fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let drafts = serde_json::from_str(&json).with_context(|| format!("failed to parse {}", path.display()))?;
+    let json =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let drafts = serde_json::from_str(&json)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
     Ok(Some(drafts))
 }
 
-pub fn save_drafts(session_id: &str, summary: String, comments: Vec<ReviewComment>) -> Result<DraftFile> {
+pub fn save_drafts(
+    session_id: &str,
+    summary: String,
+    comments: Vec<ReviewComment>,
+) -> Result<DraftFile> {
     let draft = DraftFile {
         schema_version: "1.0".to_string(),
         session_id: session_id.to_string(),
@@ -355,7 +380,11 @@ pub fn save_drafts(session_id: &str, summary: String, comments: Vec<ReviewCommen
 
 pub fn submit_review(session_id: &str, payload: SubmitPayload) -> Result<SubmitResult> {
     let session = load_session(session_id)?;
-    save_drafts(session_id, payload.summary.clone(), payload.comments.clone())?;
+    save_drafts(
+        session_id,
+        payload.summary.clone(),
+        payload.comments.clone(),
+    )?;
 
     let output_path = match session.options.output_path.clone() {
         Some(path) => Some(absolutize(&path)?),
@@ -372,7 +401,8 @@ pub fn submit_review(session_id: &str, payload: SubmitPayload) -> Result<SubmitR
 
     if let Some(path) = &output_path {
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
         }
         fs::write(path, &content).with_context(|| format!("failed to write {}", path.display()))?;
     }
@@ -483,7 +513,10 @@ pub fn canceled_path(session_id: &str) -> Result<PathBuf> {
     Ok(session_dir(session_id)?.join("canceled.json"))
 }
 
-pub fn app_session_id_from_env_or_args(raw_args: &[String], current_dir: &Path) -> Result<SessionFile> {
+pub fn app_session_id_from_env_or_args(
+    raw_args: &[String],
+    current_dir: &Path,
+) -> Result<SessionFile> {
     let parsed = parse_args(raw_args)?;
     create_session_from_args(&parsed, current_dir)
 }
@@ -492,7 +525,9 @@ fn load_diff_source(args: &ParsedArgs, current_dir: &Path) -> Result<(String, Di
     match &args.target {
         Some(target) if target == "-" => {
             let mut raw = String::new();
-            io::stdin().read_to_string(&mut raw).context("failed to read diff from stdin")?;
+            io::stdin()
+                .read_to_string(&mut raw)
+                .context("failed to read diff from stdin")?;
             Ok((raw, DiffSource::Stdin))
         }
         Some(target) => {
@@ -570,9 +605,15 @@ fn git_diff(current_dir: &Path, range: Option<&str>, staged: bool, all: bool) ->
         cmd.arg(range);
     }
 
-    let output = cmd.current_dir(current_dir).output().context("failed to execute git diff")?;
+    let output = cmd
+        .current_dir(current_dir)
+        .output()
+        .context("failed to execute git diff")?;
     if !output.status.success() {
-        return Err(anyhow!("git diff failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(anyhow!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
     }
 
     Ok(String::from_utf8(output.stdout)?)
@@ -595,13 +636,18 @@ pub fn spawn_app(command: &str, session_id: &str, wait_for_app_exit: bool) -> Re
     cmd.arg("--session").arg(session_id);
 
     if wait_for_app_exit {
-        let status = cmd.status().with_context(|| format!("failed to run app command '{command}'"))?;
+        let status = cmd
+            .status()
+            .with_context(|| format!("failed to run app command '{command}'"))?;
         if !status.success() {
             return Err(anyhow!("app command exited with status {status}"));
         }
     } else {
-        cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        cmd.spawn().with_context(|| format!("failed to spawn app command '{command}'"))?;
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        cmd.spawn()
+            .with_context(|| format!("failed to spawn app command '{command}'"))?;
     }
     Ok(())
 }
@@ -611,7 +657,10 @@ pub fn export_markdown(session: &SessionFile, summary: &str, comments: &[ReviewC
     out.push_str("# Diff Review Comments\n\n");
     out.push_str(&format!("Session: `{}`  \n", session.session_id));
     out.push_str(&format!("Created: `{}`  \n", session.created_at));
-    out.push_str(&format!("Source: `{}`\n\n", describe_source(&session.source)));
+    out.push_str(&format!(
+        "Source: `{}`\n\n",
+        describe_source(&session.source)
+    ));
 
     out.push_str("## Instructions for AI\n\n");
     out.push_str("You are receiving human review comments on a code diff. Apply the requested changes carefully, preserve unrelated behavior, and update tests when a comment identifies a correctness issue.\n\n");
@@ -635,7 +684,10 @@ pub fn export_markdown(session: &SessionFile, summary: &str, comments: &[ReviewC
         out.push_str(&format!("Comment ID: `{}`  \n", comment.id));
         out.push_str(&format!("Severity: `{:?}`  \n", comment.severity));
         out.push_str(&format!("Side: `{}`  \n", comment.anchor.side));
-        match (comment.anchor.old_line_number, comment.anchor.new_line_number) {
+        match (
+            comment.anchor.old_line_number,
+            comment.anchor.new_line_number,
+        ) {
             (_, Some(line)) => out.push_str(&format!("Line: `{line}`  \n")),
             (Some(line), None) => out.push_str(&format!("Old line: `{line}`  \n")),
             _ => {}
@@ -652,7 +704,13 @@ pub fn export_markdown(session: &SessionFile, summary: &str, comments: &[ReviewC
 
 fn describe_source(source: &DiffSource) -> String {
     match source {
-        DiffSource::Git { repo_root, range, staged, all, .. } => {
+        DiffSource::Git {
+            repo_root,
+            range,
+            staged,
+            all,
+            ..
+        } => {
             let mode = if *staged {
                 "staged"
             } else if *all {
