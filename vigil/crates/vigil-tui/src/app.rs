@@ -174,6 +174,9 @@ pub struct App {
     /// After creating a new worktree, hold its path here so the next refresh
     /// can auto-select it once the background probe delivers the container.
     pending_select_path: Option<PathBuf>,
+    /// Agent changes made in the UI that may not be reflected in an in-flight
+    /// refresh snapshot yet.
+    pending_agent_overrides: HashMap<String, AgentKind>,
     /// Default agent kind for new containers, sourced from `~/.vigil/config.json`.
     default_agent: AgentKind,
 }
@@ -200,6 +203,7 @@ impl App {
             refresh_rx: None,
             last_sent: HashMap::new(),
             pending_select_path: None,
+            pending_agent_overrides: HashMap::new(),
             default_agent: crate::config::Config::load().default_agent(),
         }
     }
@@ -261,6 +265,7 @@ impl App {
         let id = c.id.clone();
         let next = Self::next_agent(c.agent);
         c.agent = next;
+        self.pending_agent_overrides.insert(id.clone(), next);
         if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }
@@ -1033,7 +1038,10 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
                 if let Some((id, events, lines)) = result.selected_log {
                     app.log_cache.insert(id, (events, lines));
                 }
-                app.containers = result.containers;
+                app.containers = apply_pending_agent_overrides(
+                    result.containers,
+                    &mut app.pending_agent_overrides,
+                );
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                 app.refresh_rx = None;
@@ -1342,6 +1350,24 @@ fn restore_selection(app: &mut App, selected_id: Option<String>) {
     }
 }
 
+fn apply_pending_agent_overrides(
+    mut containers: Vec<Container>,
+    pending: &mut HashMap<String, AgentKind>,
+) -> Vec<Container> {
+    for container in &mut containers {
+        let Some(expected_agent) = pending.get(&container.id).copied() else {
+            continue;
+        };
+
+        if container.agent == expected_agent {
+            pending.remove(&container.id);
+        } else {
+            container.agent = expected_agent;
+        }
+    }
+    containers
+}
+
 /// Commands that are part of the agent/shell harness running inside a worktree,
 /// and therefore not interesting as "background tasks" the user spawned.
 const BG_PROCESS_EXCLUDE: &[&str] = &[
@@ -1640,4 +1666,56 @@ fn attach_or_launch(
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use std::path::PathBuf;
+    use vigil_core::SessionState;
+
+    fn container(agent: AgentKind) -> Container {
+        Container {
+            id: "firm-hilbert".to_string(),
+            worktree_path: PathBuf::from("/tmp/firm-hilbert"),
+            repo_root: PathBuf::from("/tmp/repo"),
+            agent,
+            branch: "firm-hilbert".to_string(),
+            created_at: Utc::now(),
+            state: SessionState::NoSession,
+            session_id: None,
+            last_activity: None,
+            last_user_message: None,
+            pr_status: None,
+            background_processes: Vec::new(),
+            repos: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn stale_refresh_keeps_the_pending_agent_switch() {
+        let mut pending = HashMap::from([("firm-hilbert".to_string(), AgentKind::Codex)]);
+
+        let containers = apply_pending_agent_overrides(
+            vec![container(AgentKind::ClaudeCode)],
+            &mut pending,
+        );
+
+        assert_eq!(containers[0].agent, AgentKind::Codex);
+        assert_eq!(pending.get("firm-hilbert"), Some(&AgentKind::Codex));
+    }
+
+    #[test]
+    fn refresh_clears_the_override_once_persisted_agent_arrives() {
+        let mut pending = HashMap::from([("firm-hilbert".to_string(), AgentKind::Codex)]);
+
+        let containers = apply_pending_agent_overrides(
+            vec![container(AgentKind::Codex)],
+            &mut pending,
+        );
+
+        assert_eq!(containers[0].agent, AgentKind::Codex);
+        assert!(pending.is_empty());
+    }
 }
