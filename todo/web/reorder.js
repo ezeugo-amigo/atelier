@@ -9,14 +9,21 @@ function taskAtPoint(event) {
   return element?.closest?.(".task") ?? null;
 }
 
+function dropEndAtPoint(event) {
+  const element = document.elementFromPoint(event.clientX, event.clientY);
+  return element?.closest?.(".task-drop-end") ?? null;
+}
+
 export function wireTaskReordering(app) {
   let drag = null;
   let lastTargetId = null;
 
-  const endDrag = (targetId = null) => {
+  const endDrag = ({ targetId = null, afterId = null } = {}) => {
     if (!drag) return;
 
-    if (targetId) {
+    if (afterId) {
+      app.ports.taskDroppedAfter.send(afterId);
+    } else if (targetId) {
       app.ports.taskDropped.send(targetId);
     } else {
       app.ports.taskDragEnded.send(null);
@@ -46,8 +53,15 @@ export function wireTaskReordering(app) {
     if (!drag || event.pointerId !== drag.pointerId) return;
 
     event.preventDefault();
-    const task = taskAtPoint(event);
-    const targetId = task?.dataset.taskId;
+    const endZone = dropEndAtPoint(event);
+    const afterId = endZone?.dataset.dropAfterId;
+    if (afterId && `after:${afterId}` !== lastTargetId) {
+      lastTargetId = `after:${afterId}`;
+      app.ports.taskDragOverAfter.send(afterId);
+      return;
+    }
+
+    const targetId = taskAtPoint(event)?.dataset.taskId;
     if (targetId && targetId !== lastTargetId) {
       lastTargetId = targetId;
       app.ports.taskDragOver.send(targetId);
@@ -58,8 +72,12 @@ export function wireTaskReordering(app) {
     if (!drag || event.pointerId !== drag.pointerId) return;
 
     event.preventDefault();
-    const task = taskAtPoint(event);
-    endDrag(task?.dataset.taskId ?? null);
+    const endZone = dropEndAtPoint(event);
+    if (endZone?.dataset.dropAfterId) {
+      endDrag({ afterId: endZone.dataset.dropAfterId });
+    } else {
+      endDrag({ targetId: taskAtPoint(event)?.dataset.taskId ?? null });
+    }
   });
 
   document.addEventListener("pointercancel", (event) => {
