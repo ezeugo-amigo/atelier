@@ -78,6 +78,8 @@ type alias Model =
     , calSelected : String -- ISO date selected for the day-detail panel
     , nextId : Int
     , loaded : Bool
+    , draggingId : Maybe String
+    , dragOverId : Maybe String
     }
 
 
@@ -98,6 +100,8 @@ init flags =
       , calSelected = flags.today
       , nextId = flags.seed
       , loaded = False
+      , draggingId = Nothing
+      , dragOverId = Nothing
       }
     , dbLoad ()
     )
@@ -118,6 +122,10 @@ type Msg
     | EditTitle String String
     | EditNote String String
     | ToggleOpen String
+    | DragStart String
+    | DragOver String
+    | Drop String
+    | DragEnd
     | Delete String
     | CalShift Int
     | CalSelect String
@@ -215,6 +223,33 @@ update msg model =
             , Cmd.none
             )
 
+        DragStart id ->
+            ( { model | draggingId = Just id, dragOverId = Nothing }, Cmd.none )
+
+        DragOver id ->
+            ( { model | dragOverId = Just id }, Cmd.none )
+
+        Drop targetId ->
+            case model.draggingId of
+                Just draggedId ->
+                    let
+                        reordered =
+                            reorderTaskBefore model.today draggedId targetId model
+                    in
+                    ( { reordered | draggingId = Nothing, dragOverId = Nothing }
+                    , if reordered.tasks == model.tasks then
+                        Cmd.none
+
+                      else
+                        dbSave (encodeTasks reordered.tasks)
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        DragEnd ->
+            ( { model | draggingId = Nothing, dragOverId = Nothing }, Cmd.none )
+
         Delete id ->
             persist { model | tasks = List.filter (\t -> t.id /= id) model.tasks }
 
@@ -302,6 +337,82 @@ mapTask id f model =
                 )
                 model.tasks
     }
+
+
+reorderTaskBefore : String -> String -> String -> Model -> Model
+reorderTaskBefore today draggedId targetId model =
+    let
+        dragged =
+            List.filter (\task -> task.id == draggedId) model.tasks |> List.head
+
+        target =
+            List.filter (\task -> task.id == targetId) model.tasks |> List.head
+    in
+    case ( dragged, target ) of
+        ( Just draggedTask, Just targetTask ) ->
+            if draggedId == targetId || not (sameReorderGroup today draggedTask targetTask) then
+                model
+
+            else
+                let
+                    group =
+                        model.tasks
+                            |> List.filter (sameReorderGroup today draggedTask)
+                            |> List.sortBy .order
+
+                    moved =
+                        group
+                            |> List.filter (\task -> task.id /= draggedId)
+                            |> insertBefore targetId draggedTask
+
+                    renumbered =
+                        moved
+                            |> List.indexedMap (\index task -> { task | order = index + 1 })
+
+                    orderById =
+                        Dict.fromList (List.map (\task -> ( task.id, task.order )) renumbered)
+                in
+                { model | tasks = applyOrders orderById model.tasks }
+
+        _ ->
+            model
+
+
+sameReorderGroup : String -> Task -> Task -> Bool
+sameReorderGroup today first second =
+    first.day == today
+        && second.day == today
+        && not first.done
+        && not second.done
+        && (first.createdAt < today) == (second.createdAt < today)
+
+
+applyOrders : Dict String Int -> List Task -> List Task
+applyOrders orderById tasks =
+    List.map
+        (\task ->
+            case Dict.get task.id orderById of
+                Just order ->
+                    { task | order = order }
+
+                Nothing ->
+                    task
+        )
+        tasks
+
+
+insertBefore : String -> Task -> List Task -> List Task
+insertBefore targetId task tasks =
+    case tasks of
+        first :: rest ->
+            if first.id == targetId then
+                task :: first :: rest
+
+            else
+                first :: insertBefore targetId task rest
+
+        [] ->
+            [ task ]
 
 
 toggleTask : String -> Task -> Task
@@ -527,15 +638,7 @@ viewList model =
         carried =
             todays
                 |> List.filter (\t -> not t.done && t.createdAt < model.today)
-                |> List.sortWith
-                    (\a b ->
-                        case compare a.createdAt b.createdAt of
-                            EQ ->
-                                compare a.order b.order
-
-                            ord ->
-                                ord
-                    )
+                |> List.sortBy .order
 
         fresh =
             todays
@@ -657,10 +760,19 @@ viewTask model carried task =
             [ ( "task", True )
             , ( "is-done", task.done )
             , ( "is-open", isOpen )
+            , ( "is-dragging", model.draggingId == Just task.id )
+            , ( "is-drop-target", model.dragOverId == Just task.id && model.draggingId /= Just task.id )
             ]
+        , Ev.preventDefaultOn "dragover" (Decode.succeed ( DragOver task.id, True ))
+        , Ev.preventDefaultOn "drop" (Decode.succeed ( Drop task.id, True ))
         ]
         [ div [ A.class "task-main" ]
-            [ viewCheck task
+            [ if task.done then
+                text ""
+
+              else
+                viewDragHandle task
+            , viewCheck task
             , div [ A.class "task-body", Ev.onClick (ToggleOpen task.id) ]
                 [ textarea
                     [ A.class "task-title"
@@ -726,6 +838,22 @@ viewTask model carried task =
 
           else
             text ""
+        ]
+
+
+viewDragHandle : Task -> Html Msg
+viewDragHandle task =
+    span
+        [ A.class "drag-handle"
+        , A.attribute "role" "button"
+        , A.attribute "aria-label" "Drag to reorder task"
+        , A.title "Drag to reorder"
+        , A.draggable "true"
+        , Ev.on "dragstart" (Decode.succeed (DragStart task.id))
+        , Ev.on "dragend" (Decode.succeed DragEnd)
+        ]
+        [ strokeSvg "18" "1.7"
+            [ Svg.path [ SA.d "M7 5h.01M12 5h.01M17 5h.01M7 9h.01M12 9h.01M17 9h.01M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01M17 17h.01" ] [] ]
         ]
 
 
