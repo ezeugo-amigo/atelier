@@ -52,6 +52,22 @@ fn vigil_worktrees_prefix() -> String {
     }
 }
 
+fn launch_target(
+    containers: &[Container],
+    container_id: &str,
+) -> Option<(Option<SessionId>, PathBuf, AgentKind)> {
+    containers
+        .iter()
+        .find(|container| container.id == container_id)
+        .map(|container| {
+            (
+                container.session_id.clone(),
+                container.worktree_path.clone(),
+                container.agent,
+            )
+        })
+}
+
 pub(crate) fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
     // Multi-repo workspaces group under the joined repo names.
     if !c.repos.is_empty() {
@@ -621,17 +637,18 @@ async fn event_loop(
                             KeyCode::Char('S') => app.open_default_agent_picker(),
                             KeyCode::Enter => {
                                 if let Some(c) = app.selected() {
-                                    let session_id = c.session_id.clone();
-                                    let path = c.worktree_path.clone();
-                                    let agent = c.agent;
-                                    attach_or_launch(
-                                        terminal,
-                                        &adapters,
-                                        session_id.as_ref(),
-                                        &path,
-                                        agent,
-                                    )?;
-                                    terminal.clear()?;
+                                    if let Some((session_id, path, agent)) =
+                                        launch_target(&app.containers, &c.id)
+                                    {
+                                        attach_or_launch(
+                                            terminal,
+                                            &adapters,
+                                            session_id.as_ref(),
+                                            &path,
+                                            agent,
+                                        )?;
+                                        terminal.clear()?;
+                                    }
                                 }
                             }
                             _ => {}
@@ -668,6 +685,25 @@ async fn event_loop(
                         match key.code {
                             KeyCode::Esc | KeyCode::Char('l') | KeyCode::Char('q') => {
                                 app.overlay = Overlay::None;
+                            }
+                            KeyCode::Enter => {
+                                let target =
+                                    if let Overlay::LogView { container_id, .. } = &app.overlay {
+                                        launch_target(&app.containers, container_id)
+                                    } else {
+                                        None
+                                    };
+                                if let Some((session_id, path, agent)) = target {
+                                    app.overlay = Overlay::None;
+                                    attach_or_launch(
+                                        terminal,
+                                        &adapters,
+                                        session_id.as_ref(),
+                                        &path,
+                                        agent,
+                                    )?;
+                                    terminal.clear()?;
+                                }
                             }
                             KeyCode::Char('i') => {
                                 let container_id =
@@ -1697,10 +1733,8 @@ mod tests {
     fn stale_refresh_keeps_the_pending_agent_switch() {
         let mut pending = HashMap::from([("firm-hilbert".to_string(), AgentKind::Codex)]);
 
-        let containers = apply_pending_agent_overrides(
-            vec![container(AgentKind::ClaudeCode)],
-            &mut pending,
-        );
+        let containers =
+            apply_pending_agent_overrides(vec![container(AgentKind::ClaudeCode)], &mut pending);
 
         assert_eq!(containers[0].agent, AgentKind::Codex);
         assert_eq!(pending.get("firm-hilbert"), Some(&AgentKind::Codex));
@@ -1710,12 +1744,22 @@ mod tests {
     fn refresh_clears_the_override_once_persisted_agent_arrives() {
         let mut pending = HashMap::from([("firm-hilbert".to_string(), AgentKind::Codex)]);
 
-        let containers = apply_pending_agent_overrides(
-            vec![container(AgentKind::Codex)],
-            &mut pending,
-        );
+        let containers =
+            apply_pending_agent_overrides(vec![container(AgentKind::Codex)], &mut pending);
 
         assert_eq!(containers[0].agent, AgentKind::Codex);
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn launch_target_resolves_the_requested_container() {
+        let containers = vec![container(AgentKind::Codex)];
+
+        let (session_id, path, agent) = launch_target(&containers, "firm-hilbert").unwrap();
+
+        assert_eq!(session_id, None);
+        assert_eq!(path, PathBuf::from("/tmp/firm-hilbert"));
+        assert_eq!(agent, AgentKind::Codex);
+        assert!(launch_target(&containers, "missing").is_none());
     }
 }
