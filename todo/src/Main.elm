@@ -251,7 +251,7 @@ update msg model =
         DragOver id ->
             ( { model
                 | dragOverId =
-                    if model.draggingId == Just id then
+                    if model.draggingId == Just id || isImmediateSuccessor model.today model.draggingId id model then
                         Nothing
 
                     else
@@ -438,6 +438,41 @@ sameReorderGroup today first second =
         && not first.done
         && not second.done
         && (first.createdAt < today) == (second.createdAt < today)
+
+
+isImmediateSuccessor : String -> Maybe String -> String -> Model -> Bool
+isImmediateSuccessor today draggingId targetId model =
+    case draggingId of
+        Just draggedId ->
+            let
+                dragged =
+                    List.filter (\task -> task.id == draggedId) model.tasks |> List.head
+
+                orderedGroup =
+                    case dragged of
+                        Just draggedTask ->
+                            model.tasks
+                                |> List.filter (sameReorderGroup today draggedTask)
+                                |> List.sortBy .order
+
+                        Nothing ->
+                            []
+            in
+            hasAdjacentPair draggedId targetId orderedGroup
+
+        Nothing ->
+            False
+
+
+hasAdjacentPair : String -> String -> List Task -> Bool
+hasAdjacentPair draggedId targetId tasks =
+    case tasks of
+        first :: second :: rest ->
+            (first.id == draggedId && second.id == targetId)
+                || hasAdjacentPair draggedId targetId (second :: rest)
+
+        _ ->
+            False
 
 
 applyOrders : Dict String Int -> List Task -> List Task
