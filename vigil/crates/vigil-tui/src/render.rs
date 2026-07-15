@@ -702,6 +702,8 @@ fn draw_log_view_panel(
         })
         .sum();
     let mut hint_spans = vec![
+        Span::styled("Enter", Style::default().fg(DIM)),
+        Span::raw(" open  "),
         Span::styled("Esc / l", Style::default().fg(DIM)),
         Span::raw(" close  "),
         Span::styled("j/k", Style::default().fg(DIM)),
