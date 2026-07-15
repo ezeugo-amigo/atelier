@@ -47,6 +47,18 @@ wall-clock date string.
 port todayChanged : (String -> msg) -> Sub msg
 
 
+port taskDragStarted : (String -> msg) -> Sub msg
+
+
+port taskDragOver : (String -> msg) -> Sub msg
+
+
+port taskDropped : (String -> msg) -> Sub msg
+
+
+port taskDragEnded : (() -> msg) -> Sub msg
+
+
 
 -- MODEL
 
@@ -763,8 +775,7 @@ viewTask model carried task =
             , ( "is-dragging", model.draggingId == Just task.id )
             , ( "is-drop-target", model.dragOverId == Just task.id && model.draggingId /= Just task.id )
             ]
-        , Ev.preventDefaultOn "dragover" (Decode.succeed ( DragOver task.id, True ))
-        , Ev.preventDefaultOn "drop" (Decode.succeed ( Drop task.id, True ))
+        , A.attribute "data-task-id" task.id
         ]
         [ div [ A.class "task-main" ]
             [ if task.done then
@@ -848,9 +859,6 @@ viewDragHandle task =
         , A.attribute "role" "button"
         , A.attribute "aria-label" "Drag to reorder task"
         , A.title "Drag to reorder"
-        , A.draggable "true"
-        , Ev.on "dragstart" (Decode.succeed (DragStart task.id))
-        , Ev.on "dragend" (Decode.succeed DragEnd)
         ]
         [ strokeSvg "18" "1.7"
             [ Svg.path [ SA.d "M7 5h.01M12 5h.01M17 5h.01M7 9h.01M12 9h.01M17 9h.01M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01M17 17h.01" ] [] ]
@@ -1155,5 +1163,9 @@ main =
                 Sub.batch
                     [ dbLoaded GotStored
                     , todayChanged GotToday
+                    , taskDragStarted DragStart
+                    , taskDragOver DragOver
+                    , taskDropped Drop
+                    , taskDragEnded (\_ -> DragEnd)
                     ]
         }

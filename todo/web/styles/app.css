@@ -229,6 +229,7 @@ body {
 .task.is-open .note-btn { opacity: 1; color: var(--accent); }
 .task.is-dragging { opacity: 0.45; }
 .task.is-drop-target { border-top: 2px solid var(--accent); }
+body.is-reordering { user-select: none; cursor: grabbing; }
 
 .task-note-wrap { padding: 0 2px 14px 47px; }
 .task-note {
