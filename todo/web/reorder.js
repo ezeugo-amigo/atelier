@@ -14,24 +14,37 @@ function dropEndAtPoint(event) {
   return element?.closest?.(".task-drop-end") ?? null;
 }
 
+function locationAtPoint(event) {
+  const endZone = dropEndAtPoint(event);
+  const afterId = endZone?.dataset.dropAfterId;
+  if (afterId) return { afterId, key: `after:${afterId}` };
+
+  const targetId = taskAtPoint(event)?.dataset.taskId;
+  if (targetId) return { targetId, key: `before:${targetId}` };
+
+  return null;
+}
+
 export function wireTaskReordering(app) {
   let drag = null;
-  let lastTargetId = null;
+  let currentLocation = null;
+  let lastLocationKey = null;
 
-  const endDrag = ({ targetId = null, afterId = null } = {}) => {
+  const endDrag = (location = null) => {
     if (!drag) return;
 
-    if (afterId) {
-      app.ports.taskDroppedAfter.send(afterId);
-    } else if (targetId) {
-      app.ports.taskDropped.send(targetId);
+    if (location?.afterId) {
+      app.ports.taskDroppedAfter.send(location.afterId);
+    } else if (location?.targetId) {
+      app.ports.taskDropped.send(location.targetId);
     } else {
       app.ports.taskDragEnded.send(null);
     }
 
     document.body.classList.remove("is-reordering");
     drag = null;
-    lastTargetId = null;
+    currentLocation = null;
+    lastLocationKey = null;
   };
 
   document.addEventListener("pointerdown", (event) => {
@@ -44,7 +57,8 @@ export function wireTaskReordering(app) {
 
     event.preventDefault();
     drag = { id: taskId, pointerId: event.pointerId };
-    lastTargetId = taskId;
+    currentLocation = null;
+    lastLocationKey = null;
     document.body.classList.add("is-reordering");
     app.ports.taskDragStarted.send(taskId);
   });
@@ -53,18 +67,15 @@ export function wireTaskReordering(app) {
     if (!drag || event.pointerId !== drag.pointerId) return;
 
     event.preventDefault();
-    const endZone = dropEndAtPoint(event);
-    const afterId = endZone?.dataset.dropAfterId;
-    if (afterId && `after:${afterId}` !== lastTargetId) {
-      lastTargetId = `after:${afterId}`;
-      app.ports.taskDragOverAfter.send(afterId);
-      return;
-    }
-
-    const targetId = taskAtPoint(event)?.dataset.taskId;
-    if (targetId && targetId !== lastTargetId) {
-      lastTargetId = targetId;
-      app.ports.taskDragOver.send(targetId);
+    const location = locationAtPoint(event);
+    if (location && location.key !== lastLocationKey) {
+      currentLocation = location;
+      lastLocationKey = location.key;
+      if (location.afterId) {
+        app.ports.taskDragOverAfter.send(location.afterId);
+      } else {
+        app.ports.taskDragOver.send(location.targetId);
+      }
     }
   });
 
@@ -72,12 +83,7 @@ export function wireTaskReordering(app) {
     if (!drag || event.pointerId !== drag.pointerId) return;
 
     event.preventDefault();
-    const endZone = dropEndAtPoint(event);
-    if (endZone?.dataset.dropAfterId) {
-      endDrag({ afterId: endZone.dataset.dropAfterId });
-    } else {
-      endDrag({ targetId: taskAtPoint(event)?.dataset.taskId ?? null });
-    }
+    endDrag(locationAtPoint(event) ?? currentLocation);
   });
 
   document.addEventListener("pointercancel", (event) => {
