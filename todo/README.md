@@ -19,8 +19,8 @@ sparingly on the checks, progress ring, and calendar dots.
   Completed tasks stay anchored to the day they were finished, so history stays
   truthful.
 - **Today list** — Carried over / Today / Completed groups, a progress ring,
-  inline-editable titles, expandable notes (one sub-step per line), and an
-  add-task row.
+  inline-editable titles, expandable notes (one sub-step per line), hover-only
+  drag handles for prioritizing open tasks, and an add-task row.
 - **Calendar history** — a month grid with a completion dot per finished task
   (open days show a hollow dot); pick any day to read what got done.
 - **Local persistence** — your tasks are saved to **IndexedDB** (in the webview's

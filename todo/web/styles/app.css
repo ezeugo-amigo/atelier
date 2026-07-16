@@ -209,19 +209,29 @@ body {
   padding: 3px 6px 2px; border-radius: var(--radius-sm);
   letter-spacing: 0.02em; margin-right: 2px;
 }
-.note-btn, .del-btn {
+.drag-handle, .note-btn, .del-btn {
   width: 26px; height: 26px; border: none; background: transparent;
   border-radius: var(--radius-sm); cursor: pointer;
   color: var(--content-placeholder);
   display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
 }
+.drag-handle { flex-shrink: 0; cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
 .task-main:hover .note-btn,
 .task-main:hover .del-btn { opacity: 1; }
+.task-main:hover .drag-handle,
+.drag-handle:focus-visible { opacity: 1; }
 .note-btn[data-has-note="1"] { opacity: 1; color: var(--content-support); }
 .note-btn:hover { color: var(--content-body); background: var(--warm-1); }
+.drag-handle:hover { color: var(--accent); background: var(--warm-1); }
 .del-btn:hover { color: var(--status-error); background: var(--surface-error-light); }
 .task.is-open .note-btn { opacity: 1; color: var(--accent); }
+.task.is-dragging { opacity: 0.45; }
+.task.is-drop-target { border-top: 2px solid var(--accent); }
+.task-drop-end { height: 8px; border-top: 2px solid transparent; }
+.task-drop-end.is-drop-target { border-top-color: var(--accent); }
+body.is-reordering { user-select: none; cursor: grabbing; }
 
 .task-note-wrap { padding: 0 2px 14px 47px; }
 .task-note {

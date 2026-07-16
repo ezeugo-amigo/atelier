@@ -47,6 +47,24 @@ wall-clock date string.
 port todayChanged : (String -> msg) -> Sub msg
 
 
+port taskDragStarted : (String -> msg) -> Sub msg
+
+
+port taskDragOver : (String -> msg) -> Sub msg
+
+
+port taskDragOverAfter : (String -> msg) -> Sub msg
+
+
+port taskDropped : (String -> msg) -> Sub msg
+
+
+port taskDroppedAfter : (String -> msg) -> Sub msg
+
+
+port taskDragEnded : (() -> msg) -> Sub msg
+
+
 
 -- MODEL
 
@@ -78,6 +96,9 @@ type alias Model =
     , calSelected : String -- ISO date selected for the day-detail panel
     , nextId : Int
     , loaded : Bool
+    , draggingId : Maybe String
+    , dragOverId : Maybe String
+    , dropAfterId : Maybe String
     }
 
 
@@ -98,6 +119,9 @@ init flags =
       , calSelected = flags.today
       , nextId = flags.seed
       , loaded = False
+      , draggingId = Nothing
+      , dragOverId = Nothing
+      , dropAfterId = Nothing
       }
     , dbLoad ()
     )
@@ -118,6 +142,12 @@ type Msg
     | EditTitle String String
     | EditNote String String
     | ToggleOpen String
+    | DragStart String
+    | DragOver String
+    | DragOverAfter String
+    | Drop String
+    | DropAfter String
+    | DragEnd
     | Delete String
     | CalShift Int
     | CalSelect String
@@ -215,6 +245,64 @@ update msg model =
             , Cmd.none
             )
 
+        DragStart id ->
+            ( { model | draggingId = Just id, dragOverId = Nothing, dropAfterId = Nothing }, Cmd.none )
+
+        DragOver id ->
+            ( { model
+                | dragOverId =
+                    if model.draggingId == Just id || isImmediateSuccessor model.today model.draggingId id model then
+                        Nothing
+
+                    else
+                        Just id
+                , dropAfterId = Nothing
+              }
+            , Cmd.none
+            )
+
+        DragOverAfter id ->
+            ( { model | dragOverId = Nothing, dropAfterId = Just id }, Cmd.none )
+
+        Drop targetId ->
+            case model.draggingId of
+                Just draggedId ->
+                    let
+                        reordered =
+                            reorderTaskBefore model.today draggedId targetId model
+                    in
+                    ( { reordered | draggingId = Nothing, dragOverId = Nothing, dropAfterId = Nothing }
+                    , if reordered.tasks == model.tasks then
+                        Cmd.none
+
+                      else
+                        dbSave (encodeTasks reordered.tasks)
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        DropAfter anchorId ->
+            case model.draggingId of
+                Just draggedId ->
+                    let
+                        reordered =
+                            reorderTaskAfter model.today draggedId anchorId model
+                    in
+                    ( { reordered | draggingId = Nothing, dragOverId = Nothing, dropAfterId = Nothing }
+                    , if reordered.tasks == model.tasks then
+                        Cmd.none
+
+                      else
+                        dbSave (encodeTasks reordered.tasks)
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        DragEnd ->
+            ( { model | draggingId = Nothing, dragOverId = Nothing, dropAfterId = Nothing }, Cmd.none )
+
         Delete id ->
             persist { model | tasks = List.filter (\t -> t.id /= id) model.tasks }
 
@@ -302,6 +390,170 @@ mapTask id f model =
                 )
                 model.tasks
     }
+
+
+reorderTaskBefore : String -> String -> String -> Model -> Model
+reorderTaskBefore today draggedId targetId model =
+    let
+        dragged =
+            List.filter (\task -> task.id == draggedId) model.tasks |> List.head
+
+        target =
+            List.filter (\task -> task.id == targetId) model.tasks |> List.head
+    in
+    case ( dragged, target ) of
+        ( Just draggedTask, Just targetTask ) ->
+            if draggedId == targetId || not (sameReorderGroup today draggedTask targetTask) then
+                model
+
+            else
+                let
+                    group =
+                        model.tasks
+                            |> List.filter (sameReorderGroup today draggedTask)
+                            |> List.sortBy .order
+
+                    moved =
+                        group
+                            |> List.filter (\task -> task.id /= draggedId)
+                            |> insertBefore targetId draggedTask
+
+                    renumbered =
+                        moved
+                            |> List.indexedMap (\index task -> { task | order = index + 1 })
+
+                    orderById =
+                        Dict.fromList (List.map (\task -> ( task.id, task.order )) renumbered)
+                in
+                { model | tasks = applyOrders orderById model.tasks }
+
+        _ ->
+            model
+
+
+sameReorderGroup : String -> Task -> Task -> Bool
+sameReorderGroup today first second =
+    first.day == today
+        && second.day == today
+        && not first.done
+        && not second.done
+        && (first.createdAt < today) == (second.createdAt < today)
+
+
+isImmediateSuccessor : String -> Maybe String -> String -> Model -> Bool
+isImmediateSuccessor today draggingId targetId model =
+    case draggingId of
+        Just draggedId ->
+            let
+                dragged =
+                    List.filter (\task -> task.id == draggedId) model.tasks |> List.head
+
+                orderedGroup =
+                    case dragged of
+                        Just draggedTask ->
+                            model.tasks
+                                |> List.filter (sameReorderGroup today draggedTask)
+                                |> List.sortBy .order
+
+                        Nothing ->
+                            []
+            in
+            hasAdjacentPair draggedId targetId orderedGroup
+
+        Nothing ->
+            False
+
+
+hasAdjacentPair : String -> String -> List Task -> Bool
+hasAdjacentPair draggedId targetId tasks =
+    case tasks of
+        first :: second :: rest ->
+            (first.id == draggedId && second.id == targetId)
+                || hasAdjacentPair draggedId targetId (second :: rest)
+
+        _ ->
+            False
+
+
+applyOrders : Dict String Int -> List Task -> List Task
+applyOrders orderById tasks =
+    List.map
+        (\task ->
+            case Dict.get task.id orderById of
+                Just order ->
+                    { task | order = order }
+
+                Nothing ->
+                    task
+        )
+        tasks
+
+
+insertBefore : String -> Task -> List Task -> List Task
+insertBefore targetId task tasks =
+    case tasks of
+        first :: rest ->
+            if first.id == targetId then
+                task :: first :: rest
+
+            else
+                first :: insertBefore targetId task rest
+
+        [] ->
+            [ task ]
+
+
+reorderTaskAfter : String -> String -> String -> Model -> Model
+reorderTaskAfter today draggedId anchorId model =
+    let
+        dragged =
+            List.filter (\task -> task.id == draggedId) model.tasks |> List.head
+
+        anchor =
+            List.filter (\task -> task.id == anchorId) model.tasks |> List.head
+    in
+    case ( dragged, anchor ) of
+        ( Just draggedTask, Just anchorTask ) ->
+            if draggedId == anchorId || not (sameReorderGroup today draggedTask anchorTask) then
+                model
+
+            else
+                let
+                    group =
+                        model.tasks
+                            |> List.filter (sameReorderGroup today draggedTask)
+                            |> List.sortBy .order
+
+                    moved =
+                        group
+                            |> List.filter (\task -> task.id /= draggedId)
+                            |> insertAfter anchorId draggedTask
+
+                    renumbered =
+                        moved
+                            |> List.indexedMap (\index task -> { task | order = index + 1 })
+
+                    orderById =
+                        Dict.fromList (List.map (\task -> ( task.id, task.order )) renumbered)
+                in
+                { model | tasks = applyOrders orderById model.tasks }
+
+        _ ->
+            model
+
+
+insertAfter : String -> Task -> List Task -> List Task
+insertAfter anchorId task tasks =
+    case tasks of
+        first :: rest ->
+            if first.id == anchorId then
+                first :: task :: rest
+
+            else
+                first :: insertAfter anchorId task rest
+
+        [] ->
+            [ task ]
 
 
 toggleTask : String -> Task -> Task
@@ -527,15 +779,7 @@ viewList model =
         carried =
             todays
                 |> List.filter (\t -> not t.done && t.createdAt < model.today)
-                |> List.sortWith
-                    (\a b ->
-                        case compare a.createdAt b.createdAt of
-                            EQ ->
-                                compare a.order b.order
-
-                            ord ->
-                                ord
-                    )
+                |> List.sortBy .order
 
         fresh =
             todays
@@ -562,6 +806,7 @@ viewList model =
                 [ groupHead "Carried over" (Just (List.length carried))
                 , div [ A.class "group-rows" ]
                     (List.map (viewTask model True) carried)
+                , viewDropEnd model carried
                 ]
         , section [ A.class "group" ]
             [ if List.isEmpty carried then
@@ -571,6 +816,7 @@ viewList model =
                 groupHead "Today" Nothing
             , div [ A.class "group-rows" ]
                 (List.map (viewTask model False) fresh)
+            , viewDropEnd model fresh
             , if isEmpty then
                 viewEmpty "A clear day." "Add the first thing below."
 
@@ -616,6 +862,23 @@ viewEmpty line sub =
         ]
 
 
+viewDropEnd : Model -> List Task -> Html Msg
+viewDropEnd model tasks =
+    case ( model.draggingId, List.reverse tasks |> List.head ) of
+        ( Just _, Just anchor ) ->
+            div
+                [ A.classList
+                    [ ( "task-drop-end", True )
+                    , ( "is-drop-target", model.dropAfterId == Just anchor.id )
+                    ]
+                , A.attribute "data-drop-after-id" anchor.id
+                ]
+                []
+
+        _ ->
+            text ""
+
+
 viewAddRow : Model -> Html Msg
 viewAddRow model =
     div [ A.class "add-row" ]
@@ -657,10 +920,18 @@ viewTask model carried task =
             [ ( "task", True )
             , ( "is-done", task.done )
             , ( "is-open", isOpen )
+            , ( "is-dragging", model.draggingId == Just task.id )
+            , ( "is-drop-target", model.dragOverId == Just task.id && model.draggingId /= Just task.id )
             ]
+        , A.attribute "data-task-id" task.id
         ]
         [ div [ A.class "task-main" ]
-            [ viewCheck task
+            [ if task.done then
+                text ""
+
+              else
+                viewDragHandle task
+            , viewCheck task
             , div [ A.class "task-body", Ev.onClick (ToggleOpen task.id) ]
                 [ textarea
                     [ A.class "task-title"
@@ -726,6 +997,19 @@ viewTask model carried task =
 
           else
             text ""
+        ]
+
+
+viewDragHandle : Task -> Html Msg
+viewDragHandle task =
+    span
+        [ A.class "drag-handle"
+        , A.attribute "role" "button"
+        , A.attribute "aria-label" "Drag to reorder task"
+        , A.title "Drag to reorder"
+        ]
+        [ strokeSvg "18" "1.7"
+            [ Svg.path [ SA.d "M7 5h.01M12 5h.01M17 5h.01M7 9h.01M12 9h.01M17 9h.01M7 13h.01M12 13h.01M17 13h.01M7 17h.01M12 17h.01M17 17h.01" ] [] ]
         ]
 
 
@@ -1027,5 +1311,11 @@ main =
                 Sub.batch
                     [ dbLoaded GotStored
                     , todayChanged GotToday
+                    , taskDragStarted DragStart
+                    , taskDragOver DragOver
+                    , taskDragOverAfter DragOverAfter
+                    , taskDropped Drop
+                    , taskDroppedAfter DropAfter
+                    , taskDragEnded (\_ -> DragEnd)
                     ]
         }
