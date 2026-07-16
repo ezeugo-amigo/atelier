@@ -84,6 +84,28 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         f.render_widget(Clear, inner);
     }
 
+    if let Overlay::LogView {
+        container_id,
+        events,
+        lines,
+        scroll,
+        recap,
+        recap_visible,
+    } = &mut app.overlay
+    {
+        draw_log_view_overlay(
+            f,
+            area,
+            container_id,
+            events,
+            lines,
+            scroll,
+            recap,
+            *recap_visible,
+        );
+        return;
+    }
+
     match &app.overlay {
         Overlay::None => {}
         Overlay::SendMessage {
@@ -119,25 +141,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::RemoveConfirm { entry } => {
             draw_remove_confirm_overlay(f, area, entry);
         }
-        Overlay::LogView {
-            container_id,
-            events,
-            lines,
-            scroll,
-            recap,
-            recap_visible,
-        } => {
-            draw_log_view_overlay(
-                f,
-                area,
-                container_id,
-                events,
-                lines,
-                *scroll,
-                recap,
-                *recap_visible,
-            );
-        }
+        Overlay::LogView { .. } => unreachable!(),
         Overlay::ProjectPicker {
             query,
             all_repos,
@@ -623,7 +627,7 @@ fn draw_log_view_overlay(
     container_id: &str,
     events: &[LogEvent],
     lines: &[String],
-    scroll: usize,
+    scroll: &mut usize,
     recap: &Recap,
     recap_visible: bool,
 ) {
@@ -658,7 +662,8 @@ fn draw_log_response_overlay(
         })
         .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
 
-    draw_log_view_panel(f, log_area, id, events, lines, 0);
+    let mut scroll = 0;
+    draw_log_view_panel(f, log_area, id, events, lines, &mut scroll);
     draw_send_message_box(f, input_area, " Reply ", buf, note);
 }
 
@@ -668,7 +673,7 @@ fn draw_log_view_panel(
     container_id: &str,
     events: &[LogEvent],
     lines: &[String],
-    scroll: usize,
+    scroll: &mut usize,
 ) {
     f.render_widget(Clear, popup);
 
@@ -729,19 +734,22 @@ fn draw_log_view_panel(
 
         let max_lines = content.height as usize;
         let max_scroll = display.len().saturating_sub(max_lines);
-        let scroll = scroll.min(max_scroll);
+        *scroll = (*scroll).min(max_scroll);
         let start = display
             .len()
             .saturating_sub(max_lines)
-            .saturating_sub(scroll);
+            .saturating_sub(*scroll);
         let visible: Vec<Line> = display.into_iter().skip(start).take(max_lines).collect();
         f.render_widget(Paragraph::new(visible), content);
     } else if !lines.is_empty() {
         // ── Raw log fallback (Claude Code debug logs) ─────────────────────────
         let max_lines = content.height as usize;
         let max_scroll = lines.len().saturating_sub(max_lines);
-        let scroll = scroll.min(max_scroll);
-        let start = lines.len().saturating_sub(max_lines).saturating_sub(scroll);
+        *scroll = (*scroll).min(max_scroll);
+        let start = lines
+            .len()
+            .saturating_sub(max_lines)
+            .saturating_sub(*scroll);
         let display: Vec<Line> = lines
             .iter()
             .skip(start)
