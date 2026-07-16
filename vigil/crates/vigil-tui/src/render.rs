@@ -84,6 +84,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         f.render_widget(Clear, inner);
     }
 
+    normalize_log_view_scroll(area, &mut app.overlay);
+
     match &app.overlay {
         Overlay::None => {}
         Overlay::SendMessage {
@@ -159,6 +161,41 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             draw_default_agent_overlay(f, area, *agent);
         }
     }
+}
+
+fn normalize_log_view_scroll(area: Rect, overlay: &mut Overlay) {
+    let Overlay::LogView {
+        events,
+        lines,
+        scroll,
+        ..
+    } = overlay
+    else {
+        return;
+    };
+
+    let popup = centered_rect(92, area.height.saturating_sub(4), area);
+    let content = log_view_content_area(popup);
+    let rendered_lines = if !events.is_empty() {
+        build_event_lines(events, content.width as usize).len()
+    } else {
+        lines.len()
+    };
+    let max_scroll = rendered_lines.saturating_sub(content.height as usize);
+    *scroll = (*scroll).min(max_scroll);
+}
+
+fn log_view_content_area(popup: Rect) -> Rect {
+    let inner = Block::default()
+        .borders(Borders::ALL)
+        .inner(popup)
+        .inner(Margin {
+            horizontal: 2,
+            vertical: 1,
+        });
+    let [content, _hint_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+    content
 }
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
@@ -728,8 +765,6 @@ fn draw_log_view_panel(
         let display = build_event_lines(events, content.width as usize);
 
         let max_lines = content.height as usize;
-        let max_scroll = display.len().saturating_sub(max_lines);
-        let scroll = scroll.min(max_scroll);
         let start = display
             .len()
             .saturating_sub(max_lines)
@@ -739,8 +774,6 @@ fn draw_log_view_panel(
     } else if !lines.is_empty() {
         // ── Raw log fallback (Claude Code debug logs) ─────────────────────────
         let max_lines = content.height as usize;
-        let max_scroll = lines.len().saturating_sub(max_lines);
-        let scroll = scroll.min(max_scroll);
         let start = lines.len().saturating_sub(max_lines).saturating_sub(scroll);
         let display: Vec<Line> = lines
             .iter()
