@@ -166,8 +166,8 @@ pub struct App {
     pub registry: Option<Registry>,
     last_refresh: Instant,
     last_dismissed: Option<Container>,
-    /// Cache of PR status per container id, with the time it was last fetched.
-    pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    /// Cache of PR status and URL per checkout, with the time they were last fetched.
+    pr_cache: HashMap<String, (Option<PrProbe>, Instant)>,
     /// Cache of the live git branch per container id, with the time it was last
     /// read. Polled on a slower cadence than the tick since branches rarely change.
     branch_cache: HashMap<String, (String, Instant)>,
@@ -550,9 +550,15 @@ pub type AdapterMap = HashMap<AgentKind, Arc<dyn AgentAdapter>>;
 
 struct RefreshResult {
     containers: Vec<Container>,
-    pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    pr_cache: HashMap<String, (Option<PrProbe>, Instant)>,
     branch_cache: HashMap<String, (String, Instant)>,
     selected_log: Option<(String, Vec<vigil_core::LogEvent>, Vec<String>)>,
+}
+
+#[derive(Debug, Clone)]
+struct PrProbe {
+    status: PrStatus,
+    url: Option<String>,
 }
 
 pub async fn run(adapters: AdapterMap) -> Result<()> {
@@ -1212,7 +1218,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
 async fn build_refresh_result(
     entries: Vec<WorktreeEntry>,
     adapters: AdapterMap,
-    mut pr_cache: HashMap<String, (Option<PrStatus>, Instant)>,
+    mut pr_cache: HashMap<String, (Option<PrProbe>, Instant)>,
     mut branch_cache: HashMap<String, (String, Instant)>,
     last_sent: HashMap<String, String>,
     selected_log_info: Option<(String, PathBuf, AgentKind)>,
@@ -1296,23 +1302,41 @@ async fn build_refresh_result(
     for (entry, handle) in entries.iter().zip(handles) {
         let probe: ProbeResult = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
         let checkouts = entry.checkouts();
-        let repo_statuses: Vec<RepoStatus> = checkouts
+        let repo_prs: Vec<Option<PrProbe>> = checkouts
             .iter()
-            .map(|ck| RepoStatus {
-                repo_root: ck.repo_root.clone(),
-                worktree_path: ck.worktree_path.clone(),
-                branch: live_branch(entry, ck),
-                pr_status: pr_cache
+            .map(|ck| {
+                pr_cache
                     .get(&probe_cache_key(&entry.id, &ck.repo_root))
-                    .and_then(|(s, _)| s.clone()),
+                    .and_then(|(probe, _)| probe.clone())
             })
             .collect();
         let pr_status = aggregate_pr_status(
-            &repo_statuses
+            &repo_prs
                 .iter()
-                .map(|r| r.pr_status.clone())
+                .map(|probe| probe.as_ref().map(|probe| probe.status.clone()))
                 .collect::<Vec<_>>(),
         );
+        let pr_url = pr_status.as_ref().and_then(|status| {
+            repo_prs.iter().find_map(|probe| {
+                probe.as_ref().and_then(|probe| {
+                    if &probe.status == status {
+                        probe.url.clone()
+                    } else {
+                        None
+                    }
+                })
+            })
+        });
+        let repo_statuses: Vec<RepoStatus> = checkouts
+            .iter()
+            .zip(repo_prs.iter())
+            .map(|(ck, probe)| RepoStatus {
+                repo_root: ck.repo_root.clone(),
+                worktree_path: ck.worktree_path.clone(),
+                branch: live_branch(entry, ck),
+                pr_status: probe.as_ref().map(|probe| probe.status.clone()),
+            })
+            .collect();
         let branch = repo_statuses[0].branch.clone();
         let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
         containers.push(Container {
@@ -1330,6 +1354,7 @@ async fn build_refresh_result(
                 .cloned()
                 .or(probe.last_user_message),
             pr_status,
+            pr_url,
             background_processes,
             // Empty for single-repo entries so classic rendering paths stay
             // untouched.
@@ -1487,30 +1512,38 @@ async fn current_branch(worktree_path: &std::path::Path) -> Option<String> {
     }
 }
 
-async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrStatus> {
+async fn probe_pr(repo_root: &std::path::Path, branch: &str) -> Option<PrProbe> {
     let output = tokio::process::Command::new("gh")
-        .args(["pr", "view", branch, "--json", "state,mergeStateStatus"])
+        .args(["pr", "view", branch, "--json", "url,state,mergeStateStatus"])
         .current_dir(repo_root)
         .output()
         .await
         .ok()?;
 
     if !output.status.success() {
-        return Some(PrStatus::NoPr);
+        return Some(PrProbe {
+            status: PrStatus::NoPr,
+            url: None,
+        });
     }
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    match json["state"].as_str()? {
-        "MERGED" => Some(PrStatus::Merged),
+    let status = match json["state"].as_str()? {
+        "MERGED" => PrStatus::Merged,
         "OPEN" => {
             if json["mergeStateStatus"].as_str() == Some("CLEAN") {
-                Some(PrStatus::ReadyToMerge)
+                PrStatus::ReadyToMerge
             } else {
-                Some(PrStatus::InProgress)
+                PrStatus::InProgress
             }
         }
-        _ => Some(PrStatus::NoPr),
-    }
+        _ => PrStatus::NoPr,
+    };
+    let url = match status {
+        PrStatus::NoPr => None,
+        _ => json["url"].as_str().map(str::to_owned),
+    };
+    Some(PrProbe { status, url })
 }
 
 /// The repo at `idx` in the ProjectPicker's filtered view, if any.
@@ -1724,6 +1757,7 @@ mod tests {
             last_activity: None,
             last_user_message: None,
             pr_status: None,
+            pr_url: None,
             background_processes: Vec::new(),
             repos: Vec::new(),
         }

@@ -129,6 +129,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             recap,
             recap_visible,
         } => {
+            let pr_url = app
+                .containers
+                .iter()
+                .find(|container| container.id == *container_id)
+                .and_then(|container| container.pr_url.as_deref());
             draw_log_view_overlay(
                 f,
                 area,
@@ -138,6 +143,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 *scroll,
                 recap,
                 *recap_visible,
+                pr_url,
             );
         }
         Overlay::ProjectPicker {
@@ -663,9 +669,10 @@ fn draw_log_view_overlay(
     scroll: usize,
     recap: &Recap,
     recap_visible: bool,
+    pr_url: Option<&str>,
 ) {
     let popup = centered_rect(92, area.height.saturating_sub(4), area);
-    draw_log_view_panel(f, popup, container_id, events, lines, scroll);
+    draw_log_view_panel(f, popup, container_id, events, lines, scroll, pr_url);
     // Keep the corner clear until there's a recap to show, and honor the
     // user's hide toggle so it never permanently obscures the log text.
     if recap_visible && !matches!(recap, Recap::Idle) {
@@ -694,8 +701,14 @@ fn draw_log_response_overlay(
                 .map(|(events, lines)| (id, events, lines))
         })
         .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
+    let pr_url = container_id.and_then(|id| {
+        app.containers
+            .iter()
+            .find(|container| container.id == id)
+            .and_then(|container| container.pr_url.as_deref())
+    });
 
-    draw_log_view_panel(f, log_area, id, events, lines, 0);
+    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url);
     draw_send_message_box(f, input_area, " Reply ", buf, note);
 }
 
@@ -706,6 +719,7 @@ fn draw_log_view_panel(
     events: &[LogEvent],
     lines: &[String],
     scroll: usize,
+    pr_url: Option<&str>,
 ) {
     f.render_widget(Clear, popup);
 
@@ -720,8 +734,22 @@ fn draw_log_view_panel(
     });
     f.render_widget(block, popup);
 
-    let [content, hint_area] =
-        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner);
+    let [content, hint_area] = if let Some(pr_url) = pr_url {
+        if inner.height >= 5 {
+            let [pr_area, content, hint_area] = Layout::vertical([
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ])
+            .areas(inner);
+            draw_pr_link_box(f, pr_area, pr_url);
+            [content, hint_area]
+        } else {
+            Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner)
+        }
+    } else {
+        Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner)
+    };
 
     // Footer with hint + stats (for structured view).
     let turn_count = events
@@ -799,6 +827,50 @@ fn draw_log_view_panel(
             content,
         );
     }
+}
+
+fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str) {
+    if area.width < 8 || area.height < 3 {
+        return;
+    }
+
+    let box_width = (pr_url.chars().count() as u16 + 4)
+        .clamp(32, 68)
+        .min(area.width);
+    let rect = Rect {
+        x: area.right().saturating_sub(box_width),
+        y: area.y,
+        width: box_width,
+        height: 3,
+    };
+    let block = Block::default()
+        .title(Span::styled(
+            " PR ",
+            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(BLUE));
+    let inner = block.inner(rect).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    f.render_widget(block, rect);
+
+    let max_width = inner.width as usize;
+    let link = if pr_url.chars().count() > max_width {
+        truncate(pr_url, max_width.saturating_sub(3))
+    } else {
+        pr_url.to_string()
+    };
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            link,
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::UNDERLINED),
+        ))),
+        inner,
+    );
 }
 
 /// Render the LLM recap pinned to the bottom-right corner of the log popup.

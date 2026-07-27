@@ -159,6 +159,9 @@ pub struct Container {
     pub last_user_message: Option<String>,
     /// PR status for this container's branch, if known.
     pub pr_status: Option<PrStatus>,
+    /// PR URL for this container's branch, if one was found.
+    #[serde(default)]
+    pub pr_url: Option<String>,
     /// Non-agent processes whose working directory lives under `worktree_path`
     /// (e.g. dev servers spawned by the agent). Empty when nothing is running.
     #[serde(default)]
