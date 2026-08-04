@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
@@ -8,7 +10,8 @@ use ratatui::{
 };
 use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
-use crate::app::{agents, input_presentation, App, Overlay};
+use crate::app::{agents, input_presentation, App, DashboardSection, Overlay};
+use crate::greeting::Greeting;
 use crate::recap::Recap;
 use crate::text::truncate;
 
@@ -29,54 +32,20 @@ const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
 const APP_MAX_WIDTH: u16 = 147;
 const APP_MIN_WIDTH: u16 = 91;
 const APP_HORIZONTAL_PADDING: u16 = 4;
+const GREETING_MARGIN_WIDTH: u16 = 38;
+const GREETING_MARGIN_GAP: u16 = 2;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
     let inner = app_content_rect(area);
+    draw_dashboard(f, inner, app);
 
-    let show_preview = app.selected().is_some() && inner.height >= 24;
-    let preview_height = if show_preview {
-        (inner.height / 3).clamp(8, 14)
-    } else {
-        0
-    };
-
-    let header_area;
-    let table_area;
-    let preview_area;
-    let footer_area;
-    if show_preview {
-        let [h, t, p, f_] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(preview_height),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
-        header_area = h;
-        table_area = t;
-        preview_area = Some(p);
-        footer_area = f_;
-    } else {
-        let [h, t, f_] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
-        header_area = h;
-        table_area = t;
-        preview_area = None;
-        footer_area = f_;
+    if let Some(greeting) = app.visible_greeting() {
+        if let Some(greeting_area) = greeting_margin_area(area, inner) {
+            draw_greeting_box(f, greeting_area, greeting);
+        }
     }
-
-    draw_header(f, header_area, app);
-    draw_table(f, table_area, app);
-    if let Some(p) = preview_area {
-        draw_chat_preview(f, p, app);
-    }
-    draw_footer(f, footer_area, app);
 
     // Blank the interior before rendering any modal overlay so background content doesn't bleed through
     // SendMessage is inline (footer), not a modal, so skip the Clear for it.
@@ -129,11 +98,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             recap,
             recap_visible,
         } => {
-            let pr_url = app
+            let container = app
                 .containers
                 .iter()
-                .find(|container| container.id == *container_id)
-                .and_then(|container| container.pr_url.as_deref());
+                .find(|container| container.id == *container_id);
+            let pr_url = container.and_then(|container| container.pr_url.as_deref());
+            let pr_status = container.and_then(|container| container.pr_status.as_ref());
             draw_log_view_overlay(
                 f,
                 area,
@@ -144,6 +114,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 recap,
                 *recap_visible,
                 pr_url,
+                pr_status,
             );
         }
         Overlay::ProjectPicker {
@@ -166,7 +137,74 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Overlay::DefaultAgent { agent } => {
             draw_default_agent_overlay(f, area, *agent);
         }
+        Overlay::NewScratchChat { title_buf, agent } => {
+            draw_new_scratch_chat_overlay(f, area, title_buf, *agent);
+        }
+        Overlay::ScratchDeleteConfirm { container_id } => {
+            draw_scratch_delete_confirm_overlay(f, area, app, container_id);
+        }
     }
+}
+
+fn greeting_margin_area(area: Rect, dashboard: Rect) -> Option<Rect> {
+    let right_margin = area.right().saturating_sub(dashboard.right());
+    let required_width = GREETING_MARGIN_WIDTH + GREETING_MARGIN_GAP;
+    if right_margin < required_width {
+        return None;
+    }
+
+    let horizontal_padding = (right_margin - GREETING_MARGIN_WIDTH) / 2;
+    Some(Rect {
+        x: dashboard.right() + horizontal_padding,
+        y: dashboard.y,
+        width: GREETING_MARGIN_WIDTH,
+        height: dashboard.height,
+    })
+}
+
+fn draw_dashboard(f: &mut Frame, inner: Rect, app: &mut App) {
+    let show_preview = app.selected().is_some() && inner.height >= 24;
+    let preview_height = if show_preview {
+        (inner.height / 3).clamp(8, 14)
+    } else {
+        0
+    };
+
+    let header_area;
+    let table_area;
+    let preview_area;
+    let footer_area;
+    if show_preview {
+        let [h, t, p, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(preview_height),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = Some(p);
+        footer_area = f_;
+    } else {
+        let [h, t, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = None;
+        footer_area = f_;
+    }
+
+    draw_header(f, header_area, app);
+    draw_table(f, table_area, app);
+    if let Some(p) = preview_area {
+        draw_chat_preview(f, p, app);
+    }
+    draw_footer(f, footer_area, app);
 }
 
 fn normalize_log_view_scroll(area: Rect, overlay: &mut Overlay) {
@@ -206,6 +244,7 @@ fn log_view_content_area(popup: Rect) -> Rect {
 
 fn draw_header(f: &mut Frame, area: Rect, app: &App) {
     let containers = &app.containers;
+    let workspace_count = containers.iter().filter(|c| !c.is_scratch).count();
     let awaiting = containers
         .iter()
         .filter(|c| c.state.needs_attention())
@@ -218,6 +257,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
         .iter()
         .filter(|c| matches!(c.state, SessionState::NoSession))
         .count();
+    let scratch = containers.iter().filter(|c| c.is_scratch).count();
 
     let mut spans = vec![
         Span::styled(
@@ -225,7 +265,7 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
-            format!("  ·  {} containers", containers.len()),
+            format!("  ·  {workspace_count} workspaces"),
             Style::default().fg(DIM),
         ),
     ];
@@ -247,24 +287,62 @@ fn draw_header(f: &mut Frame, area: Rect, app: &App) {
             Style::default().fg(GOLD),
         ));
     }
+    if scratch > 0 {
+        spans.push(Span::styled(
+            format!("  ·  {scratch} scratch"),
+            Style::default().fg(DIM),
+        ));
+    }
 
     f.render_widget(Line::from(spans), area);
 }
 
 fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
+    let scratch_count = app.scratch_indices().len();
+    let scratch_height = if scratch_count == 0 {
+        3
+    } else {
+        (scratch_count as u16 + 3).min(12)
+    };
+    let [workspace_area, scratch_area] =
+        Layout::vertical([Constraint::Min(5), Constraint::Length(scratch_height)]).areas(area);
+
+    draw_workspace_table(f, workspace_area, app);
+    draw_scratch_table(f, scratch_area, app);
+}
+
+fn agent_glyph(agent: AgentKind) -> &'static str {
+    match agent {
+        AgentKind::ClaudeCode => "◆",
+        AgentKind::Codex => "◇",
+        AgentKind::Pi => "π",
+        AgentKind::OpenCode => "◎",
+        AgentKind::Droid => "⬡",
+    }
+}
+
+fn draw_workspace_table(f: &mut Frame, area: Rect, app: &mut App) {
     let home = std::env::var("HOME").unwrap_or_default();
     let vigil_wt = if home.is_empty() {
         "/.vigil/worktrees/".to_string()
     } else {
         format!("{home}/.vigil/worktrees/")
     };
-    let selected = app.table_state.selected();
+    let workspace_indices = app.workspace_indices();
+    let selected = if app.section == DashboardSection::Workspaces {
+        app.table_state
+            .selected()
+            .and_then(|position| workspace_indices.get(position).copied())
+    } else {
+        None
+    };
 
     // Build ordered groups: preserve first-seen order of repos.
     let mut group_order: Vec<String> = Vec::new();
     let mut groups: std::collections::HashMap<String, Vec<usize>> =
         std::collections::HashMap::new();
-    for (i, c) in app.containers.iter().enumerate() {
+    for &i in &workspace_indices {
+        let c = &app.containers[i];
         let repo = crate::app::container_repo_group(c, &vigil_wt);
         if !groups.contains_key(&repo) {
             group_order.push(repo.clone());
@@ -273,7 +351,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     let mut rows: Vec<Row> = Vec::new();
-    let mut container_to_row: Vec<usize> = vec![0; app.containers.len()];
+    let mut container_to_row: HashMap<usize, usize> = HashMap::new();
     let message_width = last_message_column_width(area.width);
 
     for repo in &group_order {
@@ -304,7 +382,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
         ]));
 
         for &i in indices {
-            container_to_row[i] = rows.len();
+            container_to_row.insert(i, rows.len());
             let c = &app.containers[i];
 
             let (dot, dot_style) = state_dot(&c.state);
@@ -333,7 +411,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                 .unwrap_or_else(|| "-".into());
 
             let msg = match &c.state {
-                SessionState::NoSession => format!("↵ launch {}", c.agent.display_name()),
+                SessionState::NoSession => format!("↵ start {}", c.agent.display_name()),
                 _ => truncate(
                     &sanitize_for_display(c.last_user_message.as_deref().unwrap_or("-")),
                     LAST_MESSAGE_MAX_CHARS,
@@ -361,6 +439,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
             let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
             let (bg_icon, bg_style) = bg_task_dot(&c.background_processes);
+            let display_name = c.display_name.as_deref().unwrap_or(&c.id);
 
             rows.push(
                 Row::new(vec![
@@ -368,7 +447,7 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
                     Cell::from(Span::styled(dot, dot_style)),
                     Cell::from(state_str),
                     Cell::from(Span::styled(bg_icon, bg_style)),
-                    Cell::from(c.id.clone()),
+                    Cell::from(display_name.to_string()),
                     Cell::from(Span::styled(pr_icon, pr_style)),
                     Cell::from(branch),
                     Cell::from(age),
@@ -383,8 +462,9 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
 
     // Remap container selection index → table row index for rendering.
     let mut render_state = app.table_state.clone();
+    render_state.select(None);
     if let Some(ci) = selected {
-        if let Some(&ri) = container_to_row.get(ci) {
+        if let Some(&ri) = container_to_row.get(&ci) {
             render_state.select(Some(ri));
         }
     }
@@ -419,9 +499,105 @@ fn draw_table(f: &mut Frame, area: Rect, app: &mut App) {
     let table = Table::new(rows, widths)
         .header(header)
         .column_spacing(0)
-        .block(Block::default());
+        .block(
+            Block::default()
+                .title(" WORKSPACES ")
+                .borders(Borders::TOP)
+                .border_style(Style::default().fg(DIM)),
+        );
 
     f.render_stateful_widget(table, area, &mut render_state);
+}
+
+fn draw_scratch_table(f: &mut Frame, area: Rect, app: &mut App) {
+    let block = Block::default()
+        .title(" SCRATCH CHATS  ·  s to focus  ·  c to create ")
+        .borders(Borders::TOP | Borders::BOTTOM)
+        .border_style(Style::default().fg(PURPLE));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let scratch_indices = app.scratch_indices();
+    if scratch_indices.is_empty() {
+        let hint = Paragraph::new(Line::from(vec![
+            Span::styled("  No scratch chats yet. ", Style::default().fg(DIM)),
+            Span::styled("Press c", Style::default().fg(ACCENT)),
+            Span::styled(" to start one.", Style::default().fg(DIM)),
+        ]));
+        f.render_widget(hint, inner);
+        return;
+    }
+
+    let selected = if app.section == DashboardSection::Scratch {
+        app.scratch_table_state
+            .selected()
+            .and_then(|position| scratch_indices.get(position).copied())
+    } else {
+        None
+    };
+    let message_width = inner.width.saturating_sub(1 + 2 + 24 + 20 + 10) as usize;
+    let mut rows = Vec::with_capacity(scratch_indices.len());
+    for &index in &scratch_indices {
+        let chat = &app.containers[index];
+        let (dot, dot_style) = state_dot(&chat.state);
+        let state = state_label(&chat.state);
+        let title = chat.display_name.as_deref().unwrap_or(&chat.id);
+        let message = match &chat.state {
+            SessionState::NoSession => format!("↵ start {}", chat.agent.display_name()),
+            _ => truncate(
+                &sanitize_for_display(chat.last_user_message.as_deref().unwrap_or("-")),
+                LAST_MESSAGE_MAX_CHARS,
+            ),
+        };
+        let message = wrap_str(&message, message_width.max(1));
+        let agent = agent_glyph(chat.agent);
+        let bar = if selected == Some(index) {
+            Cell::from(" ").style(Style::default().bg(ACCENT))
+        } else {
+            Cell::from(" ")
+        };
+        rows.push(
+            Row::new(vec![
+                bar,
+                Cell::from(Span::styled(dot, dot_style)),
+                Cell::from(state),
+                Cell::from(title.to_string()),
+                Cell::from(message.join("\n")),
+                Cell::from(Span::styled(
+                    format!(" {agent}"),
+                    Style::default().fg(PURPLE),
+                )),
+            ])
+            .height(message.len().max(1) as u16)
+            .style(state_style(&chat.state)),
+        );
+    }
+
+    let widths = [
+        Constraint::Length(1),
+        Constraint::Length(2),
+        Constraint::Length(20),
+        Constraint::Length(24),
+        Constraint::Fill(1),
+        Constraint::Length(10),
+    ];
+    let header = Row::new(["", "", "STATE", "TITLE", "LAST MESSAGE", " AGENT"])
+        .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD));
+    let table = Table::new(rows, widths)
+        .header(header)
+        .column_spacing(0)
+        .block(Block::default());
+    let mut render_state = app.scratch_table_state.clone();
+    render_state.select(None);
+    if let Some(index) = selected {
+        if let Some(position) = scratch_indices
+            .iter()
+            .position(|candidate| *candidate == index)
+        {
+            render_state.select(Some(position));
+        }
+    }
+    f.render_stateful_widget(table, inner, &mut render_state);
 }
 
 fn last_message_column_width(table_width: u16) -> usize {
@@ -437,6 +613,10 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let mut spans = vec![
         Span::styled("↑↓ jk", Style::default().fg(DIM)),
         Span::raw(" navigate  "),
+        Span::styled("w", Style::default().fg(DIM)),
+        Span::raw(" workspaces  "),
+        Span::styled("s", Style::default().fg(DIM)),
+        Span::raw(" scratch  "),
         Span::styled("↵", Style::default().fg(DIM)),
         Span::raw(" attach/launch  "),
         Span::styled("i", Style::default().fg(DIM)),
@@ -459,7 +639,12 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
         spans.push(Span::styled("A", Style::default().fg(DIM)));
         spans.push(Span::raw(" open  "));
     }
-    if app.can_remove_selected() {
+    spans.push(Span::styled("c", Style::default().fg(DIM)));
+    spans.push(Span::raw(" chat  "));
+    if app.selected().is_some_and(|container| container.is_scratch) {
+        spans.push(Span::styled("R", Style::default().fg(DIM)));
+        spans.push(Span::raw(" delete  "));
+    } else if app.can_remove_selected() {
         spans.push(Span::styled("R", Style::default().fg(DIM)));
         spans.push(Span::raw(" remove  "));
     }
@@ -670,9 +855,19 @@ fn draw_log_view_overlay(
     recap: &Recap,
     recap_visible: bool,
     pr_url: Option<&str>,
+    pr_status: Option<&PrStatus>,
 ) {
     let popup = centered_rect(92, area.height.saturating_sub(4), area);
-    draw_log_view_panel(f, popup, container_id, events, lines, scroll, pr_url);
+    draw_log_view_panel(
+        f,
+        popup,
+        container_id,
+        events,
+        lines,
+        scroll,
+        pr_url,
+        pr_status,
+    );
     // Keep the corner clear until there's a recap to show, and honor the
     // user's hide toggle so it never permanently obscures the log text.
     if recap_visible && !matches!(recap, Recap::Idle) {
@@ -701,17 +896,16 @@ fn draw_log_response_overlay(
                 .map(|(events, lines)| (id, events, lines))
         })
         .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
-    let pr_url = container_id.and_then(|id| {
-        app.containers
-            .iter()
-            .find(|container| container.id == id)
-            .and_then(|container| container.pr_url.as_deref())
-    });
+    let container =
+        container_id.and_then(|id| app.containers.iter().find(|container| container.id == id));
+    let pr_url = container.and_then(|container| container.pr_url.as_deref());
+    let pr_status = container.and_then(|container| container.pr_status.as_ref());
 
-    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url);
+    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url, pr_status);
     draw_send_message_box(f, input_area, " Reply ", buf, note);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_log_view_panel(
     f: &mut Frame,
     popup: Rect,
@@ -720,6 +914,7 @@ fn draw_log_view_panel(
     lines: &[String],
     scroll: usize,
     pr_url: Option<&str>,
+    pr_status: Option<&PrStatus>,
 ) {
     f.render_widget(Clear, popup);
 
@@ -742,7 +937,7 @@ fn draw_log_view_panel(
                 Constraint::Length(1),
             ])
             .areas(inner);
-            draw_pr_link_box(f, pr_area, pr_url);
+            draw_pr_link_box(f, pr_area, pr_url, pr_status);
             [content, hint_area]
         } else {
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner)
@@ -829,10 +1024,18 @@ fn draw_log_view_panel(
     }
 }
 
-fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str) {
+fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str, pr_status: Option<&PrStatus>) {
     if area.width < 8 || area.height < 3 {
         return;
     }
+
+    // Mirror the main-view PR dot colors so the banner reads the same as the list.
+    let accent = match pr_status {
+        Some(PrStatus::InProgress) => GOLD,
+        Some(PrStatus::ReadyToMerge) => GREEN,
+        Some(PrStatus::Merged) => PURPLE,
+        None | Some(PrStatus::NoPr) => BLUE,
+    };
 
     let box_width = (pr_url.chars().count() as u16 + 4)
         .clamp(32, 68)
@@ -846,10 +1049,10 @@ fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str) {
     let block = Block::default()
         .title(Span::styled(
             " PR ",
-            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(BLUE));
+        .border_style(Style::default().fg(accent));
     let inner = block.inner(rect).inner(Margin {
         horizontal: 1,
         vertical: 0,
@@ -931,6 +1134,47 @@ fn draw_recap_box(f: &mut Frame, popup: Rect, recap: &Recap) {
     // Show the tail of the recap if it overflows the capped height.
     let start = wrapped.len().saturating_sub(inner_lines);
     let visible: Vec<Line> = wrapped.into_iter().skip(start).collect();
+    f.render_widget(Paragraph::new(visible), inner);
+}
+
+/// Render the transient startup greeting in the dashboard's top-right corner.
+fn draw_greeting_box(f: &mut Frame, area: Rect, greeting: &Greeting) {
+    if area.width < 24 || area.height < 5 {
+        return;
+    }
+
+    let box_width = area.width;
+    let text_width = box_width.saturating_sub(4) as usize;
+    let (body, color) = match greeting {
+        Greeting::Ready(text) => (text.clone(), Color::White),
+    };
+    let wrapped: Vec<Line> = wrap_str(&body, text_width)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(color))))
+        .collect();
+    let inner_lines = wrapped.len().clamp(1, 4) as u16;
+    let box_height = inner_lines + 2;
+    let rect = Rect {
+        x: area.x,
+        y: area.y + 1,
+        width: box_width,
+        height: box_height.min(area.height.saturating_sub(1)),
+    };
+
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .title(Span::styled(
+            " hello ",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(rect).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    f.render_widget(block, rect);
+    let visible: Vec<Line> = wrapped.into_iter().take(inner.height as usize).collect();
     f.render_widget(Paragraph::new(visible), inner);
 }
 
@@ -1056,7 +1300,10 @@ fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
 
     // Multi-repo workspaces get a per-repo PR glyph in the title.
     let mut title_spans = vec![Span::styled(
-        format!(" {} — chat preview ", c.id),
+        format!(
+            " {} — chat preview ",
+            c.display_name.as_deref().unwrap_or(&c.id)
+        ),
         Style::default().fg(MUTED),
     )];
     if !c.repos.is_empty() {
@@ -1156,6 +1403,82 @@ fn draw_dismiss_confirm_overlay(f: &mut Frame, area: Rect, container_id: &str) {
         ]),
     ];
 
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_new_scratch_chat_overlay(f: &mut Frame, area: Rect, title_buf: &str, current: AgentKind) {
+    let popup = centered_rect(65, 11, area);
+    f.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(" New Scratch Chat ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+
+    let mut agent_line = vec![Span::styled("  Agent  ", Style::default().fg(DIM))];
+    agent_line.extend(agent_picker_spans(current));
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Title  ", Style::default().fg(DIM)),
+            Span::raw(format!("{title_buf}▋")),
+        ]),
+        Line::from(""),
+        Line::from(agent_line),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("Tab/S-Tab", Style::default().fg(DIM)),
+            Span::raw(" cycle agent  "),
+            Span::styled("Enter", Style::default().fg(DIM)),
+            Span::raw(" create  "),
+            Span::styled("Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_scratch_delete_confirm_overlay(f: &mut Frame, area: Rect, app: &App, container_id: &str) {
+    let popup = centered_rect(58, 8, area);
+    f.render_widget(Clear, popup);
+    let title = app
+        .containers
+        .iter()
+        .find(|container| container.id == container_id)
+        .and_then(|container| container.display_name.as_deref())
+        .unwrap_or(container_id);
+    let block = Block::default()
+        .title(" Delete Scratch Chat ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(RED));
+    let inner = block.inner(popup);
+    f.render_widget(block, popup);
+    let lines = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  Delete "),
+            Span::styled(
+                title,
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" permanently?"),
+        ]),
+        Line::from(Span::styled(
+            "  This removes it from Vigil and deletes its temporary workspace.",
+            Style::default().fg(DIM),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled("y", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::raw(" confirm  "),
+            Span::styled("n / Esc", Style::default().fg(DIM)),
+            Span::raw(" cancel"),
+        ]),
+    ];
     f.render_widget(Paragraph::new(lines), inner);
 }
 
@@ -1654,6 +1977,27 @@ fn fmt_age(ts: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn greeting_is_centered_in_unused_right_margin() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        };
+        let dashboard = Rect {
+            x: 0,
+            y: 1,
+            width: 147,
+            height: 22,
+        };
+
+        let greeting = greeting_margin_area(area, dashboard).unwrap();
+
+        assert_eq!(greeting.x, 154);
+        assert_eq!(greeting.width, GREETING_MARGIN_WIDTH);
+    }
 
     #[test]
     fn sanitize_strips_ansi_color_sequences() {

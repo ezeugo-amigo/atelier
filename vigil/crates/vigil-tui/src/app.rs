@@ -18,16 +18,19 @@ use ratatui::{backend::CrosstermBackend, widgets::TableState, Terminal};
 use serde::{Deserialize, Serialize};
 use vigil_core::{
     aggregate_pr_status, process::cwd_snapshot, AgentAdapter, AgentKind, BackgroundProcess,
-    Container, LogEvent, PrStatus, ProbeResult, RepoStatus, SessionId,
+    Container, LogEvent, PrStatus, ProbeResult, RepoStatus, SessionId, SessionState,
 };
 
 use crate::archive::Archive;
+use crate::greeting::Greeting;
 use crate::recap::Recap;
+use crate::scratch::{ScratchChat, ScratchStore};
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
 const PR_REFRESH: Duration = Duration::from_secs(60);
 const BRANCH_REFRESH: Duration = Duration::from_secs(5);
+const GREETING_VISIBLE_FOR: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RepoScanCache {
@@ -68,7 +71,31 @@ fn launch_target(
         })
 }
 
+fn scratch_container(chat: &ScratchChat) -> Container {
+    Container {
+        id: chat.id.clone(),
+        display_name: Some(chat.title.clone()),
+        worktree_path: chat.workdir.clone(),
+        repo_root: chat.workdir.clone(),
+        agent: chat.agent,
+        branch: "scratch".to_string(),
+        created_at: chat.created_at,
+        state: SessionState::NoSession,
+        session_id: None,
+        last_activity: None,
+        last_user_message: None,
+        pr_status: None,
+        pr_url: None,
+        background_processes: Vec::new(),
+        repos: Vec::new(),
+        is_scratch: true,
+    }
+}
+
 pub(crate) fn container_repo_group(c: &Container, vigil_wt: &str) -> String {
+    if c.is_scratch {
+        return "scratch".to_string();
+    }
     // Multi-repo workspaces group under the joined repo names.
     if !c.repos.is_empty() {
         return c
@@ -104,6 +131,12 @@ fn probe_cache_key(id: &str, repo_root: &Path) -> String {
 pub enum MessageInputChunk {
     Text(String),
     Paste(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DashboardSection {
+    Workspaces,
+    Scratch,
 }
 
 pub enum Overlay {
@@ -156,12 +189,23 @@ pub enum Overlay {
     DefaultAgent {
         agent: AgentKind,
     },
+    /// Create a chat that is not backed by a Git worktree.
+    NewScratchChat {
+        title_buf: String,
+        agent: AgentKind,
+    },
+    ScratchDeleteConfirm {
+        container_id: String,
+    },
 }
 
 pub struct App {
     pub containers: Vec<Container>,
     pub table_state: TableState,
+    pub scratch_table_state: TableState,
+    pub section: DashboardSection,
     pub archive: Archive,
+    pub scratch: ScratchStore,
     pub overlay: Overlay,
     pub registry: Option<Registry>,
     last_refresh: Instant,
@@ -179,6 +223,16 @@ pub struct App {
     recap_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
     /// Whether the recap box is shown in the log view; persists across open/close.
     recap_visible: bool,
+    /// The one-shot startup greeting, shown briefly in the top-right corner.
+    greeting: Option<Greeting>,
+    /// Name used for the deferred model enhancement of the startup greeting.
+    greeting_name: Option<String>,
+    /// Receiver for the async startup greeting generation.
+    greeting_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
+    /// Whether the startup greeting card is currently visible.
+    greeting_visible: bool,
+    /// When the completed greeting card should disappear.
+    greeting_deadline: Option<Instant>,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
     /// Receiver for the background refresh job. The UI keeps rendering cached
@@ -190,6 +244,8 @@ pub struct App {
     /// After creating a new worktree, hold its path here so the next refresh
     /// can auto-select it once the background probe delivers the container.
     pending_select_path: Option<PathBuf>,
+    /// After creating a scratch chat, select it once the next refresh delivers it.
+    pending_select_id: Option<String>,
     /// Agent changes made in the UI that may not be reflected in an in-flight
     /// refresh snapshot yet.
     pending_agent_overrides: HashMap<String, AgentKind>,
@@ -204,7 +260,10 @@ impl App {
         Self {
             containers: Vec::new(),
             table_state,
+            scratch_table_state: TableState::default(),
+            section: DashboardSection::Workspaces,
             archive: Archive::load(),
+            scratch: ScratchStore::load(),
             overlay: Overlay::None,
             registry: Registry::load().ok(),
             last_refresh: Instant::now(),
@@ -213,12 +272,18 @@ impl App {
             recap: HashMap::new(),
             recap_rx: None,
             recap_visible: true,
+            greeting: None,
+            greeting_name: None,
+            greeting_rx: None,
+            greeting_visible: false,
+            greeting_deadline: None,
             pr_cache: HashMap::new(),
             branch_cache: HashMap::new(),
             scan_rx: None,
             refresh_rx: None,
             last_sent: HashMap::new(),
             pending_select_path: None,
+            pending_select_id: None,
             pending_agent_overrides: HashMap::new(),
             default_agent: crate::config::Config::load().default_agent(),
         }
@@ -237,13 +302,97 @@ impl App {
     }
 
     pub fn selected(&self) -> Option<&Container> {
-        self.table_state
-            .selected()
-            .and_then(|i| self.containers.get(i))
+        self.selected_container_index()
+            .and_then(|index| self.containers.get(index))
+    }
+
+    pub(crate) fn workspace_indices(&self) -> Vec<usize> {
+        self.containers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, container)| (!container.is_scratch).then_some(index))
+            .collect()
+    }
+
+    pub(crate) fn scratch_indices(&self) -> Vec<usize> {
+        self.containers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, container)| container.is_scratch.then_some(index))
+            .collect()
+    }
+
+    fn selected_container_index(&self) -> Option<usize> {
+        let indices = match self.section {
+            DashboardSection::Workspaces => self.workspace_indices(),
+            DashboardSection::Scratch => self.scratch_indices(),
+        };
+        let selected = match self.section {
+            DashboardSection::Workspaces => self.table_state.selected(),
+            DashboardSection::Scratch => self.scratch_table_state.selected(),
+        }?;
+        indices.get(selected).copied()
+    }
+
+    fn section_count(&self) -> usize {
+        match self.section {
+            DashboardSection::Workspaces => self.workspace_indices().len(),
+            DashboardSection::Scratch => self.scratch_indices().len(),
+        }
+    }
+
+    fn section_state_mut(&mut self) -> &mut TableState {
+        match self.section {
+            DashboardSection::Workspaces => &mut self.table_state,
+            DashboardSection::Scratch => &mut self.scratch_table_state,
+        }
+    }
+
+    pub fn focus_workspaces(&mut self) {
+        self.section = DashboardSection::Workspaces;
+        if self.table_state.selected().is_none() && !self.workspace_indices().is_empty() {
+            self.table_state.select(Some(0));
+        }
+    }
+
+    pub fn focus_scratch(&mut self) {
+        self.section = DashboardSection::Scratch;
+        if self.scratch_table_state.selected().is_none() && !self.scratch_indices().is_empty() {
+            self.scratch_table_state.select(Some(0));
+        }
+    }
+
+    fn clamp_section_selection(&mut self) {
+        let count = self.section_count();
+        let state = self.section_state_mut();
+        if count == 0 {
+            state.select(None);
+        } else {
+            let selected = state.selected().unwrap_or(0).min(count - 1);
+            state.select(Some(selected));
+        }
+    }
+
+    fn select_id_in_section(&mut self, id: &str, section: DashboardSection) {
+        self.section = section;
+        let indices = match section {
+            DashboardSection::Workspaces => self.workspace_indices(),
+            DashboardSection::Scratch => self.scratch_indices(),
+        };
+        let selection = indices
+            .iter()
+            .position(|index| self.containers[*index].id == id);
+        self.section_state_mut().select(selection);
     }
 
     pub fn overlay_is_none(&self) -> bool {
         matches!(self.overlay, Overlay::None)
+    }
+
+    pub fn visible_greeting(&self) -> Option<&Greeting> {
+        self.greeting_visible
+            .then(|| self.greeting.as_ref())
+            .flatten()
     }
 
     pub fn cached_log_data(&self, container_id: &str) -> Option<(&[LogEvent], &[String])> {
@@ -258,21 +407,22 @@ impl App {
     }
 
     fn next(&mut self) {
-        if self.containers.is_empty() {
+        let count = self.section_count();
+        if count == 0 {
             return;
         }
-        let i = self.table_state.selected().unwrap_or(0);
-        self.table_state
-            .select(Some((i + 1).min(self.containers.len() - 1)));
+        let i = self.section_state_mut().selected().unwrap_or(0);
+        self.section_state_mut()
+            .select(Some((i + 1).min(count - 1)));
     }
 
     fn prev(&mut self) {
-        let i = self.table_state.selected().unwrap_or(0);
-        self.table_state.select(Some(i.saturating_sub(1)));
+        let i = self.section_state_mut().selected().unwrap_or(0);
+        self.section_state_mut().select(Some(i.saturating_sub(1)));
     }
 
     pub fn cycle_selected_agent(&mut self) {
-        let Some(i) = self.table_state.selected() else {
+        let Some(i) = self.selected_container_index() else {
             return;
         };
         let Some(c) = self.containers.get_mut(i) else {
@@ -282,7 +432,9 @@ impl App {
         let next = Self::next_agent(c.agent);
         c.agent = next;
         self.pending_agent_overrides.insert(id.clone(), next);
-        if let Some(registry) = self.registry.as_mut() {
+        if c.is_scratch {
+            self.scratch.set_agent(&id, next).ok();
+        } else if let Some(registry) = self.registry.as_mut() {
             registry.update_agent(&id, next).ok();
         }
     }
@@ -346,6 +498,37 @@ impl App {
         });
     }
 
+    fn show_startup_greeting(&mut self) {
+        if self.greeting.is_some() {
+            return;
+        }
+
+        let name = crate::greeting::user_name();
+        self.greeting = Some(Greeting::Ready(crate::greeting::fallback(&name)));
+        self.greeting_name = Some(name);
+        self.greeting_visible = true;
+        self.greeting_deadline = Some(Instant::now() + GREETING_VISIBLE_FOR);
+    }
+
+    /// Start the optional model enhancement only after the first refresh has
+    /// delivered containers, so the startup happy path remains independent of
+    /// Claude's availability and latency.
+    fn request_greeting_model(&mut self) {
+        if self.greeting_rx.is_some() {
+            return;
+        }
+
+        let Some(name) = self.greeting_name.take() else {
+            return;
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.greeting_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = crate::greeting::generate(&name).await;
+            tx.send((name, result)).ok();
+        });
+    }
+
     fn open_dismiss_confirm(&mut self) {
         if let Some(c) = self.selected() {
             self.overlay = Overlay::DismissConfirm {
@@ -366,12 +549,7 @@ impl App {
             self.archive.dismiss_id(&container.id).ok();
             self.last_dismissed = Some(container);
             self.containers.remove(i);
-            let new_sel = i.min(self.containers.len().saturating_sub(1));
-            if self.containers.is_empty() {
-                self.table_state.select(None);
-            } else {
-                self.table_state.select(Some(new_sel));
-            }
+            self.clamp_section_selection();
         }
     }
 
@@ -380,8 +558,14 @@ impl App {
             return;
         };
         self.archive.restore_id(&container.id).ok();
+        let section = if container.is_scratch {
+            DashboardSection::Scratch
+        } else {
+            DashboardSection::Workspaces
+        };
+        let id = container.id.clone();
         self.containers.insert(0, container);
-        self.table_state.select(Some(0));
+        self.select_id_in_section(&id, section);
     }
 
     pub fn open_project_picker(&mut self) {
@@ -425,17 +609,68 @@ impl App {
         };
     }
 
+    fn open_new_scratch_chat(&mut self) {
+        self.overlay = Overlay::NewScratchChat {
+            title_buf: String::new(),
+            agent: self.default_agent,
+        };
+    }
+
+    fn cycle_scratch_agent(&mut self) {
+        if let Overlay::NewScratchChat { ref mut agent, .. } = self.overlay {
+            *agent = Self::next_agent(*agent);
+        }
+    }
+
+    fn cycle_scratch_agent_back(&mut self) {
+        if let Overlay::NewScratchChat { ref mut agent, .. } = self.overlay {
+            *agent = Self::prev_agent(*agent);
+        }
+    }
+
+    fn scratch_title_push(&mut self, c: char) {
+        if let Overlay::NewScratchChat {
+            ref mut title_buf, ..
+        } = self.overlay
+        {
+            title_buf.push(c);
+        }
+    }
+
+    fn scratch_title_backspace(&mut self) {
+        if let Overlay::NewScratchChat {
+            ref mut title_buf, ..
+        } = self.overlay
+        {
+            title_buf.pop();
+        }
+    }
+
+    fn confirm_new_scratch_chat(&mut self) -> Option<ScratchChat> {
+        let (title, agent) = match &self.overlay {
+            Overlay::NewScratchChat { title_buf, agent } => (title_buf.clone(), *agent),
+            _ => return None,
+        };
+        self.scratch.create(title, agent).ok()
+    }
+
     fn open_remove_confirm(&mut self) {
-        let entry = {
-            let c = match self.selected() {
-                Some(c) => c,
-                None => return,
+        let selected = match self.selected() {
+            Some(c) => c.clone(),
+            None => return,
+        };
+        if selected.is_scratch {
+            self.overlay = Overlay::ScratchDeleteConfirm {
+                container_id: selected.id,
             };
+            return;
+        }
+        let entry = {
             let reg = match self.registry.as_ref() {
                 Some(r) => r,
                 None => return,
             };
-            match reg.find_by_id(&c.id) {
+            match reg.find_by_id(&selected.id) {
                 Some(e) => e.clone(),
                 None => return,
             }
@@ -544,6 +779,27 @@ impl App {
             atelier_worktree::remove(&id, RemoveOptions { force: false }, registry).ok();
         }
     }
+
+    fn confirm_scratch_delete(&mut self) {
+        let id = match &self.overlay {
+            Overlay::ScratchDeleteConfirm { container_id } => container_id.clone(),
+            _ => return,
+        };
+        self.overlay = Overlay::None;
+        self.scratch.delete(&id).ok();
+        self.archive.restore_id(&id).ok();
+        self.last_sent.remove(&id);
+        self.log_cache.remove(&id);
+        self.recap.remove(&id);
+        if let Some(index) = self
+            .containers
+            .iter()
+            .position(|container| container.id == id)
+        {
+            self.containers.remove(index);
+            self.clamp_section_selection();
+        }
+    }
 }
 
 pub type AdapterMap = HashMap<AgentKind, Arc<dyn AgentAdapter>>;
@@ -586,6 +842,7 @@ async fn event_loop(
     adapters: AdapterMap,
 ) -> Result<()> {
     let mut app = App::new();
+    app.show_startup_greeting();
     refresh(&mut app, &adapters).await;
 
     loop {
@@ -608,6 +865,8 @@ async fn event_loop(
                             KeyCode::Char('q') | KeyCode::Esc => break,
                             KeyCode::Down | KeyCode::Char('j') => app.next(),
                             KeyCode::Up | KeyCode::Char('k') => app.prev(),
+                            KeyCode::Char('w') => app.focus_workspaces(),
+                            KeyCode::Char('s') => app.focus_scratch(),
                             KeyCode::Tab => app.cycle_selected_agent(),
                             KeyCode::Char('i') => {
                                 if let Some(c) = app.selected() {
@@ -622,6 +881,7 @@ async fn event_loop(
                             KeyCode::Char('d') => app.open_dismiss_confirm(),
                             KeyCode::Char('u') => app.undo_dismiss(),
                             KeyCode::Char('n') => app.open_new_worktree(),
+                            KeyCode::Char('c') => app.open_new_scratch_chat(),
                             KeyCode::Char('A') => {
                                 if app.registry.is_some() {
                                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -684,6 +944,42 @@ async fn event_loop(
                             }
                             KeyCode::Char(c) => {
                                 app.wt_name_push(c);
+                            }
+                            _ => {}
+                        }
+                    } else if matches!(app.overlay, Overlay::NewScratchChat { .. }) {
+                        match key.code {
+                            KeyCode::Esc => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Tab => {
+                                app.cycle_scratch_agent();
+                            }
+                            KeyCode::BackTab => {
+                                app.cycle_scratch_agent_back();
+                            }
+                            KeyCode::Backspace => {
+                                app.scratch_title_backspace();
+                            }
+                            KeyCode::Enter => {
+                                if let Some(chat) = app.confirm_new_scratch_chat() {
+                                    let id = chat.id.clone();
+                                    app.containers.push(scratch_container(&chat));
+                                    app.focus_scratch();
+                                    let scratch_position = app
+                                        .scratch_indices()
+                                        .iter()
+                                        .position(|index| app.containers[*index].id == id);
+                                    app.scratch_table_state.select(scratch_position);
+                                    app.overlay = Overlay::SendMessage {
+                                        input: Vec::new(),
+                                        container_id: Some(id),
+                                        return_to_log: false,
+                                    };
+                                }
+                            }
+                            KeyCode::Char(c) => {
+                                app.scratch_title_push(c);
                             }
                             _ => {}
                         }
@@ -759,6 +1055,16 @@ async fn event_loop(
                             }
                             KeyCode::Char('y') | KeyCode::Char('Y') => {
                                 app.confirm_remove();
+                            }
+                            _ => {}
+                        }
+                    } else if matches!(app.overlay, Overlay::ScratchDeleteConfirm { .. }) {
+                        match key.code {
+                            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                                app.overlay = Overlay::None;
+                            }
+                            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                app.confirm_scratch_delete();
                             }
                             _ => {}
                         }
@@ -914,10 +1220,10 @@ async fn event_loop(
                                         } else {
                                             unreachable!()
                                         };
-                                    let target = container_id
-                                        .as_ref()
-                                        .and_then(|id| app.containers.iter().find(|c| &c.id == id))
-                                        .or_else(|| app.selected());
+                                    let target = match container_id.as_ref() {
+                                        Some(id) => app.containers.iter().find(|c| &c.id == id),
+                                        None => app.selected(),
+                                    };
                                     let dir = target.map(|c| c.worktree_path.clone());
                                     let sid = target.and_then(|c| c.session_id.clone());
                                     let agent = target.map(|c| c.agent);
@@ -1070,11 +1376,13 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     app.registry = Registry::load().ok();
 
     let selected_id = app.selected().map(|c| c.id.clone());
+    let mut refresh_completed = false;
 
     if let Some(rx) = app.refresh_rx.as_mut() {
         match rx.try_recv() {
             Ok(result) => {
                 app.refresh_rx = None;
+                refresh_completed = true;
                 app.pr_cache = result.pr_cache;
                 app.branch_cache = result.branch_cache;
                 if let Some((id, events, lines)) = result.selected_log {
@@ -1084,12 +1392,17 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
                     result.containers,
                     &mut app.pending_agent_overrides,
                 );
+                ensure_scratch_rows(app);
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                 app.refresh_rx = None;
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
+    }
+
+    if refresh_completed {
+        app.request_greeting_model();
     }
 
     // Pick up a completed recap, if any, and cache it by container id.
@@ -1110,11 +1423,43 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         }
     }
 
+    // Pick up the optional model-enhanced startup greeting. The deterministic
+    // fallback remains visible if this request fails or takes too long.
+    if let Some(rx) = app.greeting_rx.as_mut() {
+        match rx.try_recv() {
+            Ok((name, result)) => {
+                app.greeting_rx = None;
+                if app.greeting_visible {
+                    if let Ok(text) = result {
+                        app.greeting = Some(Greeting::Ready(text));
+                    } else {
+                        app.greeting_name = Some(name);
+                    }
+                } else if result.is_err() {
+                    app.greeting_name = Some(name);
+                }
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                app.greeting_rx = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+    }
+
+    if app
+        .greeting_deadline
+        .map(|deadline| Instant::now() >= deadline)
+        .unwrap_or(false)
+    {
+        app.greeting_visible = false;
+        app.greeting_deadline = None;
+    }
+
     // Reconcile cached rows against the current registry/archive immediately. The
     // expensive part (adapter probing, PR lookups, logs) happens in the background;
     // this cheap diff keeps deleted/dismissed rows from hanging around while that
     // work is in flight.
-    let live_ids: std::collections::HashSet<String> = match &app.registry {
+    let mut live_ids: std::collections::HashSet<String> = match &app.registry {
         Some(reg) => reg
             .entries()
             .iter()
@@ -1123,19 +1468,27 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             .collect(),
         None => std::collections::HashSet::new(),
     };
+    live_ids.extend(
+        app.scratch
+            .chats()
+            .iter()
+            .filter(|chat| !app.archive.is_dismissed_id(&chat.id))
+            .map(|chat| chat.id.clone()),
+    );
     app.containers.retain(|c| live_ids.contains(&c.id));
     sort_containers(&mut app.containers);
 
     // If we're waiting to auto-select a freshly-created worktree, check if it
     // has now appeared in the container list (i.e. background probe completed).
-    let pending_id = app
-        .pending_select_path
-        .as_ref()
-        .and_then(|path| app.containers.iter().find(|c| &c.worktree_path == path))
-        .map(|c| c.id.clone());
-    if pending_id.is_some() {
-        app.pending_select_path = None;
-    }
+    let pending_id = app.pending_select_id.take().or_else(|| {
+        let pending_path_id = app
+            .pending_select_path
+            .as_ref()
+            .and_then(|path| app.containers.iter().find(|c| &c.worktree_path == path))
+            .map(|c| c.id.clone());
+        app.pending_select_path.take();
+        pending_path_id
+    });
     restore_selection(app, pending_id.or(selected_id));
 
     // Deliver scan results to ProjectPicker if ready.
@@ -1189,6 +1542,13 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
                 .collect(),
             None => vec![],
         };
+        let scratch_chats = app
+            .scratch
+            .chats()
+            .iter()
+            .filter(|chat| !app.archive.is_dismissed_id(&chat.id))
+            .cloned()
+            .collect();
         let adapters = adapters.clone();
         let pr_cache = app.pr_cache.clone();
         let branch_cache = app.branch_cache.clone();
@@ -1201,6 +1561,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
         tokio::spawn(async move {
             let result = build_refresh_result(
                 entries,
+                scratch_chats,
                 adapters,
                 pr_cache,
                 branch_cache,
@@ -1217,6 +1578,7 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
 
 async fn build_refresh_result(
     entries: Vec<WorktreeEntry>,
+    scratch_chats: Vec<ScratchChat>,
     adapters: AdapterMap,
     mut pr_cache: HashMap<String, (Option<PrProbe>, Instant)>,
     mut branch_cache: HashMap<String, (String, Instant)>,
@@ -1231,6 +1593,21 @@ async fn build_refresh_result(
             .or_else(|| adapters.values().next())
             .map(Arc::clone);
         handles.push(tokio::spawn(async move {
+            match adapter {
+                Some(a) => a.probe(&path).await,
+                None => ProbeResult::no_session(),
+            }
+        }));
+    }
+
+    let mut scratch_handles = Vec::with_capacity(scratch_chats.len());
+    for chat in &scratch_chats {
+        let path = chat.workdir.clone();
+        let adapter = adapters
+            .get(&chat.agent)
+            .or_else(|| adapters.values().next())
+            .map(Arc::clone);
+        scratch_handles.push(tokio::spawn(async move {
             match adapter {
                 Some(a) => a.probe(&path).await,
                 None => ProbeResult::no_session(),
@@ -1341,6 +1718,7 @@ async fn build_refresh_result(
         let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
         containers.push(Container {
             id: entry.id.clone(),
+            display_name: None,
             worktree_path: entry.worktree_path.clone(),
             repo_root: entry.repo_root.clone(),
             agent: entry.agent,
@@ -1363,7 +1741,18 @@ async fn build_refresh_result(
             } else {
                 repo_statuses
             },
+            is_scratch: false,
         });
+    }
+    for (chat, handle) in scratch_chats.iter().zip(scratch_handles) {
+        let probe = handle.await.unwrap_or_else(|_| ProbeResult::no_session());
+        let mut container = scratch_container(chat);
+        container.state = probe.state;
+        container.session_id = probe.session_id;
+        container.last_activity = probe.last_activity;
+        container.last_user_message = last_sent.get(&chat.id).cloned().or(probe.last_user_message);
+        container.background_processes = collect_background_processes(&cwd_procs, &chat.workdir);
+        containers.push(container);
     }
     sort_containers(&mut containers);
 
@@ -1398,17 +1787,51 @@ fn sort_containers(containers: &mut [Container]) {
     containers.sort_by_key(|c| group_index[&container_repo_group(c, &vigil_wt)]);
 }
 
-fn restore_selection(app: &mut App, selected_id: Option<String>) {
-    let new_sel = selected_id
-        .and_then(|id| app.containers.iter().position(|c| c.id == id))
-        .unwrap_or(app.table_state.selected().unwrap_or(0))
-        .min(app.containers.len().saturating_sub(1));
-
-    if app.containers.is_empty() {
-        app.table_state.select(None);
-    } else {
-        app.table_state.select(Some(new_sel));
+fn ensure_scratch_rows(app: &mut App) {
+    let active_chats: Vec<ScratchChat> = app
+        .scratch
+        .chats()
+        .iter()
+        .filter(|chat| !app.archive.is_dismissed_id(&chat.id))
+        .cloned()
+        .collect();
+    for chat in active_chats {
+        if !app
+            .containers
+            .iter()
+            .any(|container| container.id == chat.id)
+        {
+            app.containers.push(scratch_container(&chat));
+        }
     }
+    sort_containers(&mut app.containers);
+}
+
+fn restore_selection(app: &mut App, selected_id: Option<String>) {
+    if let Some(id) = selected_id {
+        if let Some(container) = app.containers.iter().find(|container| container.id == id) {
+            let section = if container.is_scratch {
+                DashboardSection::Scratch
+            } else {
+                DashboardSection::Workspaces
+            };
+            app.select_id_in_section(&id, section);
+            return;
+        }
+    }
+
+    if app.section == DashboardSection::Workspaces
+        && app.workspace_indices().is_empty()
+        && !app.scratch_indices().is_empty()
+    {
+        app.focus_scratch();
+    } else if app.section == DashboardSection::Scratch
+        && app.scratch_indices().is_empty()
+        && !app.workspace_indices().is_empty()
+    {
+        app.focus_workspaces();
+    }
+    app.clamp_section_selection();
 }
 
 fn apply_pending_agent_overrides(
@@ -1747,6 +2170,7 @@ mod tests {
     fn container(agent: AgentKind) -> Container {
         Container {
             id: "firm-hilbert".to_string(),
+            display_name: None,
             worktree_path: PathBuf::from("/tmp/firm-hilbert"),
             repo_root: PathBuf::from("/tmp/repo"),
             agent,
@@ -1760,6 +2184,7 @@ mod tests {
             pr_url: None,
             background_processes: Vec::new(),
             repos: Vec::new(),
+            is_scratch: false,
         }
     }
 

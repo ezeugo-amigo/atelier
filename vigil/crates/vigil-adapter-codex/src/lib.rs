@@ -13,6 +13,10 @@ use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, Tool
 
 pub struct CodexAdapter;
 
+/// Cap older messages so the log view stays lightweight while the newest
+/// message remains available in full.
+const PREVIOUS_MESSAGE_MAX_CHARS: usize = 2000;
+
 /// Locate the codex binary. Uses the standard `codex` from PATH, falling back
 /// to the Conductor-bundled binary if the PATH one is not present.
 fn codex_bin() -> std::ffi::OsString {
@@ -346,9 +350,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                     .and_then(|a| a.iter().find(|c| c["type"] == "input_text"))
                     .and_then(|c| c["text"].as_str())
                     .unwrap_or("")
-                    .chars()
-                    .take(2000)
-                    .collect();
+                    .to_string();
                 pending_user = Some((text, time));
             }
             Some("assistant") => {
@@ -362,7 +364,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                     .filter_map(|c| c["text"].as_str())
                     .collect();
                 if !texts.is_empty() {
-                    let text: String = texts.join("\n\n").chars().take(2000).collect();
+                    let text = texts.join("\n\n");
                     if let Some((user_text, user_time)) = pending_user.take() {
                         events.push(LogEvent::UserMessage {
                             text: user_text,
@@ -395,7 +397,32 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
 
     flush_agent(&mut events, &mut pending_agent);
     flush_pending(&mut events, &mut pending_user, &mut pending_tool_count);
+    cap_previous_messages(&mut events);
     events
+}
+
+fn cap_previous_messages(events: &mut [LogEvent]) {
+    let Some(last_message_index) = events.iter().rposition(is_message) else {
+        return;
+    };
+
+    for event in &mut events[..last_message_index] {
+        match event {
+            LogEvent::UserMessage { text, .. } | LogEvent::AgentMessage { text, .. } => {
+                if text.chars().count() > PREVIOUS_MESSAGE_MAX_CHARS {
+                    *text = text.chars().take(PREVIOUS_MESSAGE_MAX_CHARS).collect();
+                }
+            }
+            LogEvent::ToolGroup { .. } => {}
+        }
+    }
+}
+
+fn is_message(event: &LogEvent) -> bool {
+    matches!(
+        event,
+        LogEvent::UserMessage { .. } | LogEvent::AgentMessage { .. }
+    )
 }
 
 fn flush_agent(events: &mut Vec<LogEvent>, pending_agent: &mut Option<(String, Option<String>)>) {
@@ -530,5 +557,37 @@ mod tests {
         assert!(
             matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "alpha\n\nbeta")
         );
+    }
+
+    #[test]
+    fn caps_previous_messages_but_keeps_latest_message_complete() {
+        let previous_user = "u".repeat(PREVIOUS_MESSAGE_MAX_CHARS + 100);
+        let previous_agent = "a".repeat(PREVIOUS_MESSAGE_MAX_CHARS + 100);
+        let latest_agent = "z".repeat(PREVIOUS_MESSAGE_MAX_CHARS + 100);
+        let content = [
+            user_line(&previous_user, "2026-07-07T10:00:00Z"),
+            assistant_line(&[&previous_agent], "2026-07-07T10:00:05Z"),
+            user_line("follow-up", "2026-07-07T10:01:00Z"),
+            assistant_line(&[&latest_agent], "2026-07-07T10:01:05Z"),
+        ]
+        .join("\n");
+
+        let events = parse_conversation_events(&content);
+        assert_eq!(events.len(), 4);
+        assert!(matches!(
+            &events[0],
+            LogEvent::UserMessage { text, .. }
+                if text.chars().count() == PREVIOUS_MESSAGE_MAX_CHARS
+        ));
+        assert!(matches!(
+            &events[1],
+            LogEvent::AgentMessage { text, .. }
+                if text.chars().count() == PREVIOUS_MESSAGE_MAX_CHARS
+        ));
+        assert!(matches!(
+            &events[3],
+            LogEvent::AgentMessage { text, .. }
+                if text.chars().count() == PREVIOUS_MESSAGE_MAX_CHARS + 100
+        ));
     }
 }

@@ -20,9 +20,16 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
+import {
+  clampIndex,
+  findQuery,
+  findReducer,
+  initialFindState,
+} from "./lib/findState";
 import { parseUnifiedDiff } from "./lib/parseUnifiedDiff";
 import {
   emptyReviewState,
@@ -32,7 +39,15 @@ import {
   reviewSourceKey,
   type ReviewState,
 } from "./lib/reviewState";
+import {
+  applyFindHighlights,
+  buildSearchMatches,
+  filePath,
+  findHighlightCSS,
+  scrollMatchIntoView,
+} from "./lib/search";
 import type {
+  CommentSeverity,
   DiffFile,
   DiffLine,
   LoadSessionResponse,
@@ -57,6 +72,7 @@ type AppComment = {
   startKey: LineKey;
   endKey: LineKey;
   body: string;
+  severity: CommentSeverity;
   author: string;
   createdAt: string;
   updatedAt: string;
@@ -87,6 +103,14 @@ type DiffdeskAnnotation =
   | { kind: "comment"; comment: AppComment }
   | { kind: "composer"; rangeSize: number };
 
+const severityOptions: Array<{ value: CommentSeverity; label: string }> = [
+  { value: "note", label: "Note" },
+  { value: "question", label: "Question" },
+  { value: "suggestion", label: "Suggestion" },
+  { value: "issue", label: "Issue" },
+  { value: "blocking", label: "Blocking" },
+];
+
 type SidebarFolderGroup = {
   id: string;
   label: string;
@@ -95,38 +119,13 @@ type SidebarFolderGroup = {
   deletions: number;
 };
 
-type SearchMatch =
-  | {
-      kind: "file";
-      id: string;
-      fileId: string;
-      filePath: string;
-    }
-  | {
-      kind: "hunk";
-      id: string;
-      fileId: string;
-      filePath: string;
-      hunkIndex: number;
-      unifiedLineIndex: number;
-    }
-  | {
-      kind: "line";
-      id: string;
-      fileId: string;
-      filePath: string;
-      hunkIndex: number;
-      lineIndex: number;
-      lineKey: LineKey;
-      unifiedLineIndex: number;
-    };
-
 const outputFormat: OutputFormat = "markdown";
 
 export function App() {
   const [state, setState] = useState<LoadingState>({ kind: "loading" });
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [comments, setComments] = useState<AppComment[]>([]);
+  const [summary, setSummary] = useState("");
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [status, setStatus] = useState("Loading session…");
@@ -135,9 +134,7 @@ export function App() {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     new Set(),
   );
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchIndex, setSearchIndex] = useState(0);
+  const [find, dispatchFind] = useReducer(findReducer, initialFindState);
   const diffPaneRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -163,6 +160,10 @@ export function App() {
           rawDiff: response.rawDiff,
           files,
         });
+        setCollapsedFiles(
+          new Set(files.filter((file) => file.tooLarge).map((file) => file.id)),
+        );
+        setSummary(response.drafts?.summary ?? "");
         setComments(commentsFromDrafts(response.drafts?.comments ?? [], files));
         setViewedFiles(reviewedFiles);
         setCollapsedFiles(new Set(reviewedFiles));
@@ -187,7 +188,7 @@ export function App() {
       const reviewComments = commentsToReviewComments(comments, state.files);
       void invoke("save_drafts", {
         sessionId: state.session.sessionId,
-        summary: "",
+        summary,
         comments: reviewComments,
       }).then(
         () => setStatus(`Draft saved at ${new Date().toLocaleTimeString()}`),
@@ -195,7 +196,7 @@ export function App() {
       );
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [comments, state]);
+  }, [comments, state, summary]);
 
   const visibleFiles = useMemo(() => {
     if (state.kind !== "ready") return [];
@@ -204,25 +205,21 @@ export function App() {
       : state.files.filter((file) => file.id === selectedFileId);
   }, [selectedFileId, state]);
 
+  const query = findQuery(find);
   const searchMatches = useMemo(
-    () => buildSearchMatches(visibleFiles, searchQuery),
-    [searchQuery, visibleFiles],
+    () => buildSearchMatches(visibleFiles, query),
+    [query, visibleFiles],
   );
   const activeSearchIndex =
-    searchMatches.length === 0
-      ? 0
-      : Math.min(searchIndex, searchMatches.length - 1);
-  const activeSearchMatch = searchMatches[activeSearchIndex] ?? null;
+    find.kind === "open" ? clampIndex(find.matchIndex, searchMatches.length) : 0;
+  const activeSearchMatch =
+    find.kind === "open" ? (searchMatches[activeSearchIndex] ?? null) : null;
 
+  // Editing a file (or narrowing to one) can shrink the result set under a
+  // cursor that was valid a render ago.
   useEffect(() => {
-    if (searchMatches.length > 0 && searchIndex >= searchMatches.length) {
-      setSearchIndex(searchMatches.length - 1);
-    }
-  }, [searchIndex, searchMatches.length]);
-
-  useEffect(() => {
-    setSearchIndex(0);
-  }, [searchQuery, selectedFileId]);
+    dispatchFind({ type: "clampIndex", matchCount: searchMatches.length });
+  }, [searchMatches.length]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -231,31 +228,65 @@ export function App() {
         (event.metaKey || event.ctrlKey) &&
         !event.altKey
       ) {
+        // Writing a note outranks searching: stealing focus mid-sentence loses
+        // the user's place. The find bar's own input is not a note editor, so
+        // ⌘F inside it still reselects the query.
+        if (isNoteEditor(event.target)) return;
         event.preventDefault();
-        setSearchOpen(true);
+        dispatchFind({ type: "open" });
         return;
       }
 
-      if (searchOpen && event.key === "Escape") {
-        event.preventDefault();
-        setSearchOpen(false);
+      if (event.key === "Escape" && !isNoteEditor(event.target)) {
+        dispatchFind({ type: "close" });
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [searchOpen]);
+  }, []);
 
+  const focusToken = find.kind === "open" ? find.focusToken : null;
   useEffect(() => {
-    if (!searchOpen) return;
+    if (focusToken === null) return;
     window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     });
-  }, [searchOpen]);
+  }, [focusToken]);
 
+  // @pierre/diffs replaces its shadow DOM's innerHTML on every render, which
+  // invalidates the DOM ranges the highlights are built from. Repainting reads
+  // the current search through a ref so the callback identity can stay stable:
+  // it is handed to PatchDiff as an option, and a changing option forces a full
+  // re-render of the diff.
+  const findRef = useRef({ activeIndex: 0, matches: searchMatches, query });
+  findRef.current = { activeIndex: activeSearchIndex, matches: searchMatches, query };
+
+  const repaintHighlights = useCallback(() => {
+    const { activeIndex, matches, query: current } = findRef.current;
+    applyFindHighlights({
+      activeIndex,
+      matches,
+      pane: diffPaneRef.current,
+      query: current,
+    });
+  }, []);
+
+  const onFileRendered = useCallback(() => {
+    // onPostRender fires inside pierre's own layout effect, before the new nodes
+    // are laid out. Defer so ranges resolve against the settled tree.
+    window.requestAnimationFrame(repaintHighlights);
+  }, [repaintHighlights]);
+
+  // Expanding a collapsed file, painting, and scrolling all wait for the diff to
+  // re-render for this query, hence the double rAF.
   useEffect(() => {
-    if (activeSearchMatch === null || !searchOpen) return;
+    if (activeSearchMatch === null) {
+      repaintHighlights();
+      return;
+    }
+
     setCollapsedFiles((current) => {
       if (!current.has(activeSearchMatch.fileId)) return current;
       const next = new Set(current);
@@ -266,24 +297,25 @@ export function App() {
     let nextFrame = 0;
     const frame = window.requestAnimationFrame(() => {
       nextFrame = window.requestAnimationFrame(() => {
-        scrollSearchMatchIntoView(diffPaneRef.current, activeSearchMatch);
+        repaintHighlights();
+        scrollMatchIntoView(diffPaneRef.current, activeSearchMatch);
       });
     });
     return () => {
       window.cancelAnimationFrame(frame);
       window.cancelAnimationFrame(nextFrame);
     };
-  }, [activeSearchMatch, searchOpen]);
+  }, [
+    activeSearchIndex,
+    activeSearchMatch,
+    query,
+    repaintHighlights,
+    searchMatches,
+  ]);
 
   const stepSearch = useCallback(
     (direction: 1 | -1) => {
-      if (searchMatches.length === 0) return;
-      setSearchIndex((current) => {
-        const next = current + direction;
-        if (next < 0) return searchMatches.length - 1;
-        if (next >= searchMatches.length) return 0;
-        return next;
-      });
+      dispatchFind({ type: "step", direction, matchCount: searchMatches.length });
     },
     [searchMatches.length],
   );
@@ -355,7 +387,7 @@ export function App() {
   }, []);
 
   const submitComposer = useCallback(
-    (body: string) => {
+    (body: string, severity: CommentSeverity) => {
       if (composer === null || body.trim() === "") return;
       const now = new Date().toISOString();
       setComments((current) => [
@@ -367,6 +399,7 @@ export function App() {
           startKey: composer.startKey,
           endKey: composer.endKey,
           body: body.trim(),
+          severity,
           author: "you",
           createdAt: "just now",
           updatedAt: now,
@@ -377,20 +410,24 @@ export function App() {
     [composer],
   );
 
-  const editComment = useCallback((id: string, body: string) => {
-    setComments((current) =>
-      current.map((comment) =>
-        comment.id === id
-          ? {
-              ...comment,
-              body: body.trim(),
-              createdAt: "edited",
-              updatedAt: new Date().toISOString(),
-            }
-          : comment,
-      ),
-    );
-  }, []);
+  const editComment = useCallback(
+    (id: string, body: string, severity: CommentSeverity) => {
+      setComments((current) =>
+        current.map((comment) =>
+          comment.id === id
+            ? {
+                ...comment,
+                body: body.trim(),
+                severity,
+                createdAt: "edited",
+                updatedAt: new Date().toISOString(),
+              }
+            : comment,
+        ),
+      );
+    },
+    [],
+  );
 
   const deleteComment = useCallback((id: string) => {
     setComments((current) => current.filter((comment) => comment.id !== id));
@@ -408,12 +445,22 @@ export function App() {
   }, [comments.length, submitted]);
 
   const submitReview = useCallback(async () => {
-    if (state.kind !== "ready" || comments.length === 0) return;
+    if (
+      state.kind !== "ready" ||
+      (comments.length === 0 && summary.trim() === "")
+    )
+      return;
     setSubmitted(true);
     setComposer(null);
-    setStatus(`Sending ${comments.length} notes to agent…`);
+    setStatus(
+      comments.length > 0
+        ? `Sending ${comments.length} notes to agent…`
+        : "Sending review to agent…",
+    );
     const payload: SubmitPayload = {
-      summary: `Please address the ${comments.length} inline review note${comments.length === 1 ? "" : "s"} below.`,
+      summary:
+        summary.trim() ||
+        `Please address the ${comments.length} inline review note${comments.length === 1 ? "" : "s"} below.`,
       comments: commentsToReviewComments(comments, state.files),
       format: outputFormat,
     };
@@ -431,7 +478,7 @@ export function App() {
       setSubmitted(false);
       setStatus(`Submit failed: ${stringifyError(error)}`);
     }
-  }, [comments, state]);
+  }, [comments, state, summary]);
 
   if (state.kind === "loading") {
     return (
@@ -458,6 +505,7 @@ export function App() {
     <div className="desktop-bg">
       <div className="window">
         <TitleBar
+          canSend={comments.length > 0 || summary.trim() !== ""}
           session={state.session}
           noteCount={comments.length}
           submitted={submitted}
@@ -488,7 +536,7 @@ export function App() {
               <div className="diff-pane__tools">
                 <button
                   className="tool-icon-btn"
-                  onClick={() => setSearchOpen(true)}
+                  onClick={() => dispatchFind({ type: "open" })}
                   title="Search diff"
                   type="button"
                 >
@@ -508,29 +556,45 @@ export function App() {
               </div>
             </div>
 
-            {searchOpen ? (
+            {find.kind === "open" ? (
               <FindBar
                 inputRef={searchInputRef}
                 matchCount={searchMatches.length}
                 matchIndex={activeSearchIndex}
-                onChange={setSearchQuery}
-                onClose={() => setSearchOpen(false)}
+                onChange={(value) =>
+                  dispatchFind({ type: "setQuery", query: value })
+                }
+                onClose={() => dispatchFind({ type: "close" })}
                 onNext={() => stepSearch(1)}
                 onPrevious={() => stepSearch(-1)}
-                query={searchQuery}
+                query={find.query}
               />
             ) : null}
+
+            <div className="review-summary">
+              <div className="review-summary__head">
+                <label className="type-mono" htmlFor="review-summary">
+                  Review summary
+                </label>
+                <span className="type-support">
+                  Optional context for the agent
+                </span>
+              </div>
+              <textarea
+                className="review-summary__textarea"
+                disabled={submitted}
+                id="review-summary"
+                onChange={(event) => setSummary(event.target.value)}
+                placeholder="Describe the overall outcome you want from this review."
+                value={summary}
+              />
+            </div>
 
             {visibleFiles.length === 0 ? (
               <EmptyDiff />
             ) : (
               visibleFiles.map((file) => (
                 <FileDiff
-                  activeSearchMatch={
-                    activeSearchMatch?.fileId === file.id
-                      ? activeSearchMatch
-                      : null
-                  }
                   key={file.id}
                   collapsed={collapsedFiles.has(file.id)}
                   comments={comments}
@@ -541,6 +605,7 @@ export function App() {
                   onCancelComposer={() => setComposer(null)}
                   onDeleteComment={deleteComment}
                   onEditComment={editComment}
+                  onRendered={onFileRendered}
                   onToggleCollapsed={toggleCollapsed}
                   onToggleViewed={toggleViewed}
                   onSelectRange={(file, startKey, endKey) => {
@@ -562,8 +627,9 @@ export function App() {
                 <div className="agent-receipt__head">
                   <Sparkles size={15} />
                   <span className="type-card-title">
-                    {comments.length} note{comments.length === 1 ? "" : "s"}{" "}
-                    sent to agent
+                    {comments.length > 0
+                      ? `${comments.length} note${comments.length === 1 ? "" : "s"} sent to agent`
+                      : "Review sent to agent"}
                   </span>
                 </div>
                 <div className="type-body agent-receipt__body">
@@ -588,12 +654,14 @@ export function App() {
 }
 
 function TitleBar({
+  canSend,
   noteCount,
   onClear,
   onSend,
   session,
   submitted,
 }: {
+  canSend: boolean;
   noteCount: number;
   onClear: () => void;
   onSend: () => void;
@@ -631,15 +699,16 @@ function TitleBar({
               Clear all
             </button>
             <button
-              className={`btn-send${noteCount === 0 ? " is-disabled" : ""}`}
-              disabled={noteCount === 0}
+              className={`btn-send${!canSend ? " is-disabled" : ""}`}
+              disabled={!canSend}
               onClick={onSend}
               type="button"
             >
               <Sparkles size={13} />
               <span>
-                Send {noteCount > 0 ? `${noteCount} ` : ""}note
-                {noteCount === 1 ? "" : "s"} to agent
+                {noteCount > 0
+                  ? `Send ${noteCount} note${noteCount === 1 ? "" : "s"} to agent`
+                  : "Send review to agent"}
               </span>
               <span aria-hidden="true">→</span>
             </button>
@@ -895,7 +964,6 @@ function Sidebar({
 }
 
 function FileDiff({
-  activeSearchMatch,
   collapsed,
   comments,
   composer,
@@ -904,13 +972,13 @@ function FileDiff({
   onCancelComposer,
   onDeleteComment,
   onEditComment,
+  onRendered,
   onSelectRange,
   onSubmitComposer,
   onToggleCollapsed,
   onToggleViewed,
   viewed,
 }: {
-  activeSearchMatch: SearchMatch | null;
   collapsed: boolean;
   comments: AppComment[];
   composer: ComposerState | null;
@@ -918,9 +986,10 @@ function FileDiff({
   locked: boolean;
   onCancelComposer: () => void;
   onDeleteComment: (id: string) => void;
-  onEditComment: (id: string, body: string) => void;
+  onEditComment: (id: string, body: string, severity: CommentSeverity) => void;
+  onRendered: () => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
-  onSubmitComposer: (body: string) => void;
+  onSubmitComposer: (body: string, severity: CommentSeverity) => void;
   onToggleCollapsed: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   viewed: boolean;
@@ -956,22 +1025,10 @@ function FileDiff({
     return result;
   }, [comments, composerKeys, file]);
 
-  const searchSelectedLines = useMemo<SelectedLineRange | null>(() => {
-    if (activeSearchMatch?.kind === "line") {
-      return selectedLineRangeForKeys(
-        file,
-        activeSearchMatch.lineKey,
-        activeSearchMatch.lineKey,
-      );
-    }
-    return null;
-  }, [activeSearchMatch, file]);
-
   const selectedLines = useMemo<SelectedLineRange | null>(() => {
-    if (searchSelectedLines !== null) return searchSelectedLines;
     if (composerKeys === null) return null;
     return selectedLineRangeForKeys(file, composerKeys.start, composerKeys.end);
-  }, [composerKeys, file, searchSelectedLines]);
+  }, [composerKeys, file]);
 
   return (
     <section
@@ -1009,6 +1066,27 @@ function FileDiff({
         </span>
       </header>
 
+      {file.tooLarge ? (
+        <div className="large-diff-notice">
+          <div>
+            <div className="type-mono">Large diff</div>
+            <div className="type-support">
+              {file.additions + file.deletions} changed lines. The diff starts
+              collapsed to keep the review responsive.
+            </div>
+          </div>
+          {collapsed ? (
+            <button
+              className="btn btn--ghost"
+              onClick={() => onToggleCollapsed(file.id)}
+              type="button"
+            >
+              Render diff
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {collapsed ? null : (
         <div className="pierre-diff">
           <PatchDiff<DiffdeskAnnotation>
@@ -1034,7 +1112,9 @@ function FileDiff({
                     comment={comment}
                     locked={locked}
                     onDelete={() => onDeleteComment(comment.id)}
-                    onEdit={(body) => onEditComment(comment.id, body)}
+                    onEdit={(body, severity) =>
+                      onEditComment(comment.id, body, severity)
+                    }
                   />
                 </div>
               );
@@ -1048,19 +1128,19 @@ function FileDiff({
               lineHoverHighlight: "both",
               onLineSelected: (range) => {
                 if (range === null || locked) return;
-                if (
-                  searchSelectedLines !== null &&
-                  sameSelectedLineRange(range, searchSelectedLines)
-                ) {
-                  return;
-                }
                 const keys = keysForSelectedLineRange(file, range);
                 if (keys === null) return;
                 onSelectRange(file, keys[0], keys[1]);
               },
+              // Find highlights are painted as CSS custom highlights over ranges
+              // in this shadow root. Every render replaces the code's innerHTML
+              // and invalidates those ranges, so they are repainted here.
+              onPostRender: onRendered,
               overflow: "scroll",
               theme: "pierre-light",
               themeType: "light",
+              // ::highlight() rules only apply inside the tree that owns them.
+              unsafeCSS: findHighlightCSS,
             }}
           />
         </div>
@@ -1075,13 +1155,14 @@ function Composer({
   rangeSize,
 }: {
   onCancel: () => void;
-  onSubmit: (body: string) => void;
+  onSubmit: (body: string, severity: CommentSeverity) => void;
   rangeSize: number;
 }) {
   // Draft text is kept local so each keystroke re-renders only this composer,
   // not the top-level App and every diff renderer below it. The text is lifted
   // to App state only on submit.
   const [draft, setDraft] = useState("");
+  const [severity, setSeverity] = useState<CommentSeverity>("suggestion");
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => textAreaRef.current?.focus(), []);
   const isEmpty = draft.trim() === "";
@@ -1095,6 +1176,23 @@ function Composer({
           ⌘↵ to add · Esc to cancel
         </span>
       </div>
+      <label className="severity-field">
+        <span className="type-mono">Severity</span>
+        <select
+          aria-label="Comment severity"
+          className="severity-select"
+          onChange={(event) =>
+            setSeverity(event.target.value as CommentSeverity)
+          }
+          value={severity}
+        >
+          {severityOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <textarea
         className="comment__textarea"
         onChange={(event) => setDraft(event.target.value)}
@@ -1105,7 +1203,7 @@ function Composer({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            onSubmit(draft);
+            onSubmit(draft, severity);
           }
         }}
         placeholder="What should the agent change?"
@@ -1119,7 +1217,7 @@ function Composer({
         <button
           className={`btn btn--primary${isEmpty ? " is-disabled" : ""}`}
           disabled={isEmpty}
-          onClick={() => onSubmit(draft)}
+          onClick={() => onSubmit(draft, severity)}
           type="button"
         >
           Add note
@@ -1138,11 +1236,15 @@ function CommentBubble({
   comment: AppComment;
   locked: boolean;
   onDelete: () => void;
-  onEdit: (body: string) => void;
+  onEdit: (body: string, severity: CommentSeverity) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
-  useEffect(() => setDraft(comment.body), [comment.body]);
+  const [severity, setSeverity] = useState<CommentSeverity>(comment.severity);
+  useEffect(() => {
+    setDraft(comment.body);
+    setSeverity(comment.severity);
+  }, [comment.body, comment.severity]);
 
   if (editing) {
     return (
@@ -1151,6 +1253,23 @@ function CommentBubble({
           <span className="comment__author">{comment.author}</span>
           <span className="type-mono comment__when">Editing</span>
         </div>
+        <label className="severity-field">
+          <span className="type-mono">Severity</span>
+          <select
+            aria-label="Comment severity"
+            className="severity-select"
+            onChange={(event) =>
+              setSeverity(event.target.value as CommentSeverity)
+            }
+            value={severity}
+          >
+            {severityOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <textarea
           className="comment__textarea"
           onChange={(event) => setDraft(event.target.value)}
@@ -1168,7 +1287,7 @@ function CommentBubble({
             className={`btn btn--primary${draft.trim() === "" ? " is-disabled" : ""}`}
             disabled={draft.trim() === ""}
             onClick={() => {
-              onEdit(draft);
+              onEdit(draft, severity);
               setEditing(false);
             }}
             type="button"
@@ -1185,6 +1304,11 @@ function CommentBubble({
       <div className="comment__head">
         <span className="comment__author">{comment.author}</span>
         <span className="type-mono comment__when">{comment.createdAt}</span>
+        <span
+          className={`type-badge severity-badge severity-${comment.severity}`}
+        >
+          {comment.severity}
+        </span>
         {locked ? <span className="type-badge is-product">Queued</span> : null}
         {!locked ? (
           <div className="comment__row-actions">
@@ -1225,113 +1349,14 @@ function EmptyDiff() {
   );
 }
 
-function buildSearchMatches(files: DiffFile[], query: string): SearchMatch[] {
-  const needle = query.trim().toLocaleLowerCase();
-  if (needle === "") return [];
-
-  return files.flatMap((file) => {
-    const path = filePath(file);
-    const matches: SearchMatch[] = [];
-    const hunkStarts = unifiedLineStarts(file);
-    const pathText = [
-      path,
-      file.displayPath,
-      file.oldPath ?? "",
-      file.newPath ?? "",
-    ]
-      .join("\n")
-      .toLocaleLowerCase();
-
-    if (pathText.includes(needle)) {
-      matches.push({
-        kind: "file",
-        id: `${file.id}:file-path`,
-        fileId: file.id,
-        filePath: path,
-      });
-    }
-
-    file.hunks.forEach((hunk, hunkIndex) => {
-      const hunkStart = hunkStarts[hunkIndex] ?? 0;
-      if (hunk.header.toLocaleLowerCase().includes(needle)) {
-        matches.push({
-          kind: "hunk",
-          id: `${file.id}:hunk-${hunkIndex}`,
-          fileId: file.id,
-          filePath: path,
-          hunkIndex,
-          unifiedLineIndex: hunkStart,
-        });
-      }
-
-      let renderedLineOffset = 0;
-      hunk.lines.forEach((line, lineIndex) => {
-        if (line.kind === "metadata") return;
-        const unifiedLineIndex = hunkStart + renderedLineOffset;
-        renderedLineOffset += 1;
-        if (!line.content.toLocaleLowerCase().includes(needle)) return;
-        matches.push({
-          kind: "line",
-          id: `${file.id}:line-${hunkIndex}-${lineIndex}`,
-          fileId: file.id,
-          filePath: path,
-          hunkIndex,
-          lineIndex,
-          lineKey: lineKey(file.id, hunkIndex, lineIndex),
-          unifiedLineIndex,
-        });
-      });
-    });
-
-    return matches;
-  });
-}
-
-function unifiedLineStarts(file: DiffFile): number[] {
-  let lastHunkEnd = 0;
-  let renderedLineCount = 0;
-
-  return file.hunks.map((hunk) => {
-    const collapsedBefore = Math.max(hunk.newStart - 1 - lastHunkEnd, 0);
-    const start = renderedLineCount + collapsedBefore;
-    renderedLineCount +=
-      collapsedBefore +
-      hunk.lines.filter((line) => line.kind !== "metadata").length;
-    lastHunkEnd = hunk.newStart + hunk.newLines - 1;
-    return start;
-  });
-}
-
-function scrollSearchMatchIntoView(
-  container: HTMLElement | null,
-  match: SearchMatch,
-) {
-  if (container === null) return;
-  const fileElement = Array.from(
-    container.querySelectorAll<HTMLElement>("[data-file-id]"),
-  ).find((element) => element.dataset.fileId === match.fileId);
-  if (fileElement === undefined) return;
-
-  const lineElement =
-    match.kind === "file"
-      ? null
-      : findRenderedDiffLine(fileElement, match.unifiedLineIndex);
-  (lineElement ?? fileElement).scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-    inline: "nearest",
-  });
-}
-
-function findRenderedDiffLine(
-  fileElement: HTMLElement,
-  unifiedLineIndex: number,
-): HTMLElement | null {
-  const prefix = `${unifiedLineIndex},`;
+/**
+ * True when the event target is a note textarea. Global shortcuts defer to it so
+ * ⌘F and Escape do not yank the user out of a note they are writing.
+ */
+function isNoteEditor(target: EventTarget | null): boolean {
   return (
-    Array.from(
-      fileElement.querySelectorAll<HTMLElement>("[data-line-index]"),
-    ).find((element) => element.dataset.lineIndex?.startsWith(prefix)) ?? null
+    target instanceof HTMLElement &&
+    target.classList.contains("comment__textarea")
   );
 }
 
@@ -1358,6 +1383,7 @@ function commentsFromDrafts(
         startKey: key,
         endKey: key,
         body: comment.body,
+        severity: comment.severity ?? "suggestion",
         author: "you",
         createdAt: "draft",
         updatedAt: comment.updatedAt,
@@ -1384,7 +1410,7 @@ function commentsToReviewComments(
       id: comment.id,
       createdAt: comment.updatedAt,
       updatedAt: new Date().toISOString(),
-      severity: "suggestion",
+      severity: comment.severity,
       body: comment.body,
       anchor: {
         kind: comment.startKey === comment.endKey ? "line" : "range",
@@ -1468,18 +1494,6 @@ function selectedLineRangeForKeys(
     end: end.lineNumber,
     endSide: end.side,
   };
-}
-
-function sameSelectedLineRange(
-  left: SelectedLineRange,
-  right: SelectedLineRange,
-): boolean {
-  return (
-    left.start === right.start &&
-    left.end === right.end &&
-    left.side === right.side &&
-    (left.endSide ?? left.side) === (right.endSide ?? right.side)
-  );
 }
 
 function keysForSelectedLineRange(
@@ -1579,10 +1593,6 @@ function rangeContext(
     .filter((item) => keys.has(item.key))
     .map(({ line }) => line.content)
     .join("\n");
-}
-
-function filePath(file: DiffFile): string {
-  return file.newPath ?? file.oldPath ?? file.displayPath;
 }
 
 function groupFilesByTopLevelFolder(files: DiffFile[]): SidebarFolderGroup[] {
