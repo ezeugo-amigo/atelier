@@ -1,8 +1,10 @@
 use diffdesk_core::{
-    app_session_id_from_env_or_args, cancel_review as core_cancel_review, help_text, load_drafts,
-    load_session as core_load_session, read_input_diff, save_drafts as core_save_drafts,
-    submit_review as core_submit_review, DraftFile, ReviewComment, SessionFile, SubmitPayload,
-    SubmitResult,
+    app_session_id_from_env_or_args, cancel_review as core_cancel_review,
+    flush_review_state as core_flush_review_state, help_text, load_drafts,
+    load_review_state as core_load_review_state, load_session as core_load_session,
+    read_input_diff, save_drafts as core_save_drafts, save_file_review as core_save_file_review,
+    submit_review as core_submit_review, DraftFile, ReviewComment, ReviewStateFile, SessionFile,
+    SubmitPayload, SubmitResult,
 };
 use serde::Serialize;
 use std::env;
@@ -44,6 +46,22 @@ fn load_session(session_id: String) -> Result<LoadSessionResponse, String> {
 }
 
 #[tauri::command]
+fn load_review_state() -> Result<ReviewStateFile, String> {
+    core_load_review_state().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_file_review(
+    source_key: String,
+    file_key: String,
+    fingerprint: String,
+    reviewed: bool,
+) -> Result<(), String> {
+    core_save_file_review(&source_key, &file_key, &fingerprint, reviewed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn save_drafts(
     session_id: String,
     summary: String,
@@ -60,6 +78,7 @@ fn submit_review(
     payload: SubmitPayload,
 ) -> Result<SubmitResult, String> {
     let result = core_submit_review(&session_id, payload).map_err(|error| error.to_string())?;
+    let _ = core_flush_review_state();
     if let Ok(mut completed) = state.completed.lock() {
         *completed = true;
     }
@@ -74,6 +93,7 @@ fn cancel_review(
     session_id: String,
 ) -> Result<(), String> {
     core_cancel_review(&session_id).map_err(|error| error.to_string())?;
+    let _ = core_flush_review_state();
     if let Ok(mut completed) = state.completed.lock() {
         *completed = true;
     }
@@ -106,6 +126,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             current_session_id,
             load_session,
+            load_review_state,
+            save_file_review,
             save_drafts,
             submit_review,
             cancel_review
@@ -118,6 +140,7 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
+                let _ = core_flush_review_state();
                 let state = window.state::<AppState>();
                 let completed = state.completed.lock().map(|value| *value).unwrap_or(false);
                 if !completed {

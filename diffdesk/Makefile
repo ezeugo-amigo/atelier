@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
-PNPM ?= corepack pnpm
+PNPM ?= pnpm
 ROOT := $(CURDIR)
 VITE_URL ?= http://127.0.0.1:1420
 

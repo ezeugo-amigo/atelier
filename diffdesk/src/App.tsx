@@ -24,6 +24,14 @@ import {
   useState,
 } from "react";
 import { parseUnifiedDiff } from "./lib/parseUnifiedDiff";
+import {
+  emptyReviewState,
+  loadReviewedFiles,
+  reviewFileFingerprint,
+  reviewFileKey,
+  reviewSourceKey,
+  type ReviewState,
+} from "./lib/reviewState";
 import type {
   DiffFile,
   DiffLine,
@@ -140,7 +148,15 @@ export function App() {
         const response = await invoke<LoadSessionResponse>("load_session", {
           sessionId,
         });
+        const reviewState = await invoke<ReviewState>("load_review_state").catch(
+          () => emptyReviewState(),
+        );
         const files = parseUnifiedDiff(response.rawDiff);
+        const reviewedFiles = loadReviewedFiles(
+          response.session,
+          files,
+          reviewState,
+        );
         setState({
           kind: "ready",
           session: response.session,
@@ -148,10 +164,14 @@ export function App() {
           files,
         });
         setComments(commentsFromDrafts(response.drafts?.comments ?? [], files));
+        setViewedFiles(reviewedFiles);
+        setCollapsedFiles(new Set(reviewedFiles));
         setStatus(
           files.length === 0
             ? "No changed files in this diff"
-            : `${files.length} files loaded`,
+            : reviewedFiles.size === 0
+              ? `${files.length} files loaded`
+              : `${files.length} files loaded · ${reviewedFiles.size} already reviewed`,
         );
       } catch (error) {
         setState({ kind: "error", message: stringifyError(error) });
@@ -292,8 +312,28 @@ export function App() {
         else next.delete(fileId);
         return next;
       });
+      if (state.kind === "ready") {
+        const file = state.files.find((item) => item.id === fileId);
+        if (file !== undefined) {
+          void invoke("save_file_review", {
+            sourceKey: reviewSourceKey(state.session.source),
+            fileKey: reviewFileKey(file),
+            fingerprint: reviewFileFingerprint(file),
+            reviewed: willView,
+          }).then(
+            () =>
+              setStatus(
+                willView
+                  ? "Viewed state saved"
+                  : "Viewed state cleared",
+              ),
+            (error) =>
+              setStatus(`Review state save failed: ${stringifyError(error)}`),
+          );
+        }
+      }
     },
-    [viewedFiles],
+    [state, viewedFiles],
   );
 
   const toggleCollapsed = useCallback((fileId: string) => {
