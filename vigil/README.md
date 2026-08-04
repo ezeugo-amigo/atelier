@@ -60,6 +60,20 @@ Wrappers run from the worktree directory with `WORKTREE` and `VIGIL_AGENT` set.
 For example, the global `ucode` wrapper launches Codex as
 `ucode codex ...` and Claude Code as `ucode claude ...`.
 
+## Scratch chats
+
+Press `c` from the dashboard to start a conversation without creating a Git
+repository or worktree. Choose a title and agent, then enter the opening
+message. Scratch chats use a temporary local workspace and reuse the normal
+Vigil controls for attach (`↵`), send (`i`), logs (`l`), and dismissal (`d`).
+The dashboard renders them in a separate `SCRATCH CHATS` panel; use `w` and
+`s` to focus workspaces or scratch chats, then `j`/`k` to navigate within the
+focused panel.
+
+Press `R` on a scratch chat to permanently delete its Vigil record and
+temporary workspace. Scratch metadata is stored under the platform's local
+application data directory in `vigil/chats`.
+
 ## Status
 
 Architecture sketch. No working code yet. The Cargo workspace skeleton is
