@@ -59,7 +59,7 @@ fn time_of_day() -> &'static str {
 
 fn prompt_for(name: &str) -> String {
     format!(
-        "You are Vigil, a calm and capable coding-session assistant. Write one warm, concise startup greeting for the developer named {name:?}. Address them by name, use a natural {time} salutation when it fits, and mention that Vigil is online and keeping watch over their coding sessions. Return exactly one sentence, with no markdown, quotation marks, preamble, or question.",
+        "Come up with one short, clean coding-related joke and use it to greet the developer named {name:?}. Address them by name, use a natural {time} salutation when it fits, and keep the result warm and concise. Return exactly two sentences, with no markdown, quotation marks, preamble, or question.",
         time = time_of_day(),
     )
 }
@@ -148,9 +148,10 @@ mod tests {
     }
 
     #[test]
-    fn prompt_names_the_person_and_vigil() {
+    fn prompt_names_the_person_and_requests_a_joke() {
         let prompt = prompt_for("Ada Lovelace");
         assert!(prompt.contains("Ada Lovelace"));
-        assert!(prompt.contains("Vigil"));
+        assert!(prompt.contains("coding-related joke"));
+        assert!(!prompt.contains("You are Vigil"));
     }
 }
