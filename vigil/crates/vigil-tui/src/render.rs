@@ -713,8 +713,8 @@ fn draw_log_response_overlay(
                 .map(|(events, lines)| (id, events, lines))
         })
         .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
-    let container = container_id
-        .and_then(|id| app.containers.iter().find(|container| container.id == id));
+    let container =
+        container_id.and_then(|id| app.containers.iter().find(|container| container.id == id));
     let pr_url = container.and_then(|container| container.pr_url.as_deref());
     let pr_status = container.and_then(|container| container.pr_status.as_ref());
 
