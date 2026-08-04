@@ -20,10 +20,24 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
+import {
+  clampIndex,
+  findQuery,
+  findReducer,
+  initialFindState,
+} from "./lib/findState";
 import { parseUnifiedDiff } from "./lib/parseUnifiedDiff";
+import {
+  applyFindHighlights,
+  buildSearchMatches,
+  filePath,
+  findHighlightCSS,
+  scrollMatchIntoView,
+} from "./lib/search";
 import type {
   CommentSeverity,
   DiffFile,
@@ -97,32 +111,6 @@ type SidebarFolderGroup = {
   deletions: number;
 };
 
-type SearchMatch =
-  | {
-      kind: "file";
-      id: string;
-      fileId: string;
-      filePath: string;
-    }
-  | {
-      kind: "hunk";
-      id: string;
-      fileId: string;
-      filePath: string;
-      hunkIndex: number;
-      unifiedLineIndex: number;
-    }
-  | {
-      kind: "line";
-      id: string;
-      fileId: string;
-      filePath: string;
-      hunkIndex: number;
-      lineIndex: number;
-      lineKey: LineKey;
-      unifiedLineIndex: number;
-    };
-
 const outputFormat: OutputFormat = "markdown";
 
 export function App() {
@@ -138,9 +126,7 @@ export function App() {
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     new Set(),
   );
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchIndex, setSearchIndex] = useState(0);
+  const [find, dispatchFind] = useReducer(findReducer, initialFindState);
   const diffPaneRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -199,25 +185,21 @@ export function App() {
       : state.files.filter((file) => file.id === selectedFileId);
   }, [selectedFileId, state]);
 
+  const query = findQuery(find);
   const searchMatches = useMemo(
-    () => buildSearchMatches(visibleFiles, searchQuery),
-    [searchQuery, visibleFiles],
+    () => buildSearchMatches(visibleFiles, query),
+    [query, visibleFiles],
   );
   const activeSearchIndex =
-    searchMatches.length === 0
-      ? 0
-      : Math.min(searchIndex, searchMatches.length - 1);
-  const activeSearchMatch = searchMatches[activeSearchIndex] ?? null;
+    find.kind === "open" ? clampIndex(find.matchIndex, searchMatches.length) : 0;
+  const activeSearchMatch =
+    find.kind === "open" ? (searchMatches[activeSearchIndex] ?? null) : null;
 
+  // Editing a file (or narrowing to one) can shrink the result set under a
+  // cursor that was valid a render ago.
   useEffect(() => {
-    if (searchMatches.length > 0 && searchIndex >= searchMatches.length) {
-      setSearchIndex(searchMatches.length - 1);
-    }
-  }, [searchIndex, searchMatches.length]);
-
-  useEffect(() => {
-    setSearchIndex(0);
-  }, [searchQuery, selectedFileId]);
+    dispatchFind({ type: "clampIndex", matchCount: searchMatches.length });
+  }, [searchMatches.length]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -226,31 +208,65 @@ export function App() {
         (event.metaKey || event.ctrlKey) &&
         !event.altKey
       ) {
+        // Writing a note outranks searching: stealing focus mid-sentence loses
+        // the user's place. The find bar's own input is not a note editor, so
+        // ⌘F inside it still reselects the query.
+        if (isNoteEditor(event.target)) return;
         event.preventDefault();
-        setSearchOpen(true);
+        dispatchFind({ type: "open" });
         return;
       }
 
-      if (searchOpen && event.key === "Escape") {
-        event.preventDefault();
-        setSearchOpen(false);
+      if (event.key === "Escape" && !isNoteEditor(event.target)) {
+        dispatchFind({ type: "close" });
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [searchOpen]);
+  }, []);
 
+  const focusToken = find.kind === "open" ? find.focusToken : null;
   useEffect(() => {
-    if (!searchOpen) return;
+    if (focusToken === null) return;
     window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     });
-  }, [searchOpen]);
+  }, [focusToken]);
 
+  // @pierre/diffs replaces its shadow DOM's innerHTML on every render, which
+  // invalidates the DOM ranges the highlights are built from. Repainting reads
+  // the current search through a ref so the callback identity can stay stable:
+  // it is handed to PatchDiff as an option, and a changing option forces a full
+  // re-render of the diff.
+  const findRef = useRef({ activeIndex: 0, matches: searchMatches, query });
+  findRef.current = { activeIndex: activeSearchIndex, matches: searchMatches, query };
+
+  const repaintHighlights = useCallback(() => {
+    const { activeIndex, matches, query: current } = findRef.current;
+    applyFindHighlights({
+      activeIndex,
+      matches,
+      pane: diffPaneRef.current,
+      query: current,
+    });
+  }, []);
+
+  const onFileRendered = useCallback(() => {
+    // onPostRender fires inside pierre's own layout effect, before the new nodes
+    // are laid out. Defer so ranges resolve against the settled tree.
+    window.requestAnimationFrame(repaintHighlights);
+  }, [repaintHighlights]);
+
+  // Expanding a collapsed file, painting, and scrolling all wait for the diff to
+  // re-render for this query, hence the double rAF.
   useEffect(() => {
-    if (activeSearchMatch === null || !searchOpen) return;
+    if (activeSearchMatch === null) {
+      repaintHighlights();
+      return;
+    }
+
     setCollapsedFiles((current) => {
       if (!current.has(activeSearchMatch.fileId)) return current;
       const next = new Set(current);
@@ -261,24 +277,25 @@ export function App() {
     let nextFrame = 0;
     const frame = window.requestAnimationFrame(() => {
       nextFrame = window.requestAnimationFrame(() => {
-        scrollSearchMatchIntoView(diffPaneRef.current, activeSearchMatch);
+        repaintHighlights();
+        scrollMatchIntoView(diffPaneRef.current, activeSearchMatch);
       });
     });
     return () => {
       window.cancelAnimationFrame(frame);
       window.cancelAnimationFrame(nextFrame);
     };
-  }, [activeSearchMatch, searchOpen]);
+  }, [
+    activeSearchIndex,
+    activeSearchMatch,
+    query,
+    repaintHighlights,
+    searchMatches,
+  ]);
 
   const stepSearch = useCallback(
     (direction: 1 | -1) => {
-      if (searchMatches.length === 0) return;
-      setSearchIndex((current) => {
-        const next = current + direction;
-        if (next < 0) return searchMatches.length - 1;
-        if (next >= searchMatches.length) return 0;
-        return next;
-      });
+      dispatchFind({ type: "step", direction, matchCount: searchMatches.length });
     },
     [searchMatches.length],
   );
@@ -479,7 +496,7 @@ export function App() {
               <div className="diff-pane__tools">
                 <button
                   className="tool-icon-btn"
-                  onClick={() => setSearchOpen(true)}
+                  onClick={() => dispatchFind({ type: "open" })}
                   title="Search diff"
                   type="button"
                 >
@@ -499,16 +516,18 @@ export function App() {
               </div>
             </div>
 
-            {searchOpen ? (
+            {find.kind === "open" ? (
               <FindBar
                 inputRef={searchInputRef}
                 matchCount={searchMatches.length}
                 matchIndex={activeSearchIndex}
-                onChange={setSearchQuery}
-                onClose={() => setSearchOpen(false)}
+                onChange={(value) =>
+                  dispatchFind({ type: "setQuery", query: value })
+                }
+                onClose={() => dispatchFind({ type: "close" })}
                 onNext={() => stepSearch(1)}
                 onPrevious={() => stepSearch(-1)}
-                query={searchQuery}
+                query={find.query}
               />
             ) : null}
 
@@ -536,11 +555,6 @@ export function App() {
             ) : (
               visibleFiles.map((file) => (
                 <FileDiff
-                  activeSearchMatch={
-                    activeSearchMatch?.fileId === file.id
-                      ? activeSearchMatch
-                      : null
-                  }
                   key={file.id}
                   collapsed={collapsedFiles.has(file.id)}
                   comments={comments}
@@ -551,6 +565,7 @@ export function App() {
                   onCancelComposer={() => setComposer(null)}
                   onDeleteComment={deleteComment}
                   onEditComment={editComment}
+                  onRendered={onFileRendered}
                   onToggleCollapsed={toggleCollapsed}
                   onToggleViewed={toggleViewed}
                   onSelectRange={(file, startKey, endKey) => {
@@ -909,7 +924,6 @@ function Sidebar({
 }
 
 function FileDiff({
-  activeSearchMatch,
   collapsed,
   comments,
   composer,
@@ -918,13 +932,13 @@ function FileDiff({
   onCancelComposer,
   onDeleteComment,
   onEditComment,
+  onRendered,
   onSelectRange,
   onSubmitComposer,
   onToggleCollapsed,
   onToggleViewed,
   viewed,
 }: {
-  activeSearchMatch: SearchMatch | null;
   collapsed: boolean;
   comments: AppComment[];
   composer: ComposerState | null;
@@ -933,6 +947,7 @@ function FileDiff({
   onCancelComposer: () => void;
   onDeleteComment: (id: string) => void;
   onEditComment: (id: string, body: string, severity: CommentSeverity) => void;
+  onRendered: () => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
   onSubmitComposer: (body: string, severity: CommentSeverity) => void;
   onToggleCollapsed: (fileId: string) => void;
@@ -970,22 +985,10 @@ function FileDiff({
     return result;
   }, [comments, composerKeys, file]);
 
-  const searchSelectedLines = useMemo<SelectedLineRange | null>(() => {
-    if (activeSearchMatch?.kind === "line") {
-      return selectedLineRangeForKeys(
-        file,
-        activeSearchMatch.lineKey,
-        activeSearchMatch.lineKey,
-      );
-    }
-    return null;
-  }, [activeSearchMatch, file]);
-
   const selectedLines = useMemo<SelectedLineRange | null>(() => {
-    if (searchSelectedLines !== null) return searchSelectedLines;
     if (composerKeys === null) return null;
     return selectedLineRangeForKeys(file, composerKeys.start, composerKeys.end);
-  }, [composerKeys, file, searchSelectedLines]);
+  }, [composerKeys, file]);
 
   return (
     <section
@@ -1085,19 +1088,19 @@ function FileDiff({
               lineHoverHighlight: "both",
               onLineSelected: (range) => {
                 if (range === null || locked) return;
-                if (
-                  searchSelectedLines !== null &&
-                  sameSelectedLineRange(range, searchSelectedLines)
-                ) {
-                  return;
-                }
                 const keys = keysForSelectedLineRange(file, range);
                 if (keys === null) return;
                 onSelectRange(file, keys[0], keys[1]);
               },
+              // Find highlights are painted as CSS custom highlights over ranges
+              // in this shadow root. Every render replaces the code's innerHTML
+              // and invalidates those ranges, so they are repainted here.
+              onPostRender: onRendered,
               overflow: "scroll",
               theme: "pierre-light",
               themeType: "light",
+              // ::highlight() rules only apply inside the tree that owns them.
+              unsafeCSS: findHighlightCSS,
             }}
           />
         </div>
@@ -1306,113 +1309,14 @@ function EmptyDiff() {
   );
 }
 
-function buildSearchMatches(files: DiffFile[], query: string): SearchMatch[] {
-  const needle = query.trim().toLocaleLowerCase();
-  if (needle === "") return [];
-
-  return files.flatMap((file) => {
-    const path = filePath(file);
-    const matches: SearchMatch[] = [];
-    const hunkStarts = unifiedLineStarts(file);
-    const pathText = [
-      path,
-      file.displayPath,
-      file.oldPath ?? "",
-      file.newPath ?? "",
-    ]
-      .join("\n")
-      .toLocaleLowerCase();
-
-    if (pathText.includes(needle)) {
-      matches.push({
-        kind: "file",
-        id: `${file.id}:file-path`,
-        fileId: file.id,
-        filePath: path,
-      });
-    }
-
-    file.hunks.forEach((hunk, hunkIndex) => {
-      const hunkStart = hunkStarts[hunkIndex] ?? 0;
-      if (hunk.header.toLocaleLowerCase().includes(needle)) {
-        matches.push({
-          kind: "hunk",
-          id: `${file.id}:hunk-${hunkIndex}`,
-          fileId: file.id,
-          filePath: path,
-          hunkIndex,
-          unifiedLineIndex: hunkStart,
-        });
-      }
-
-      let renderedLineOffset = 0;
-      hunk.lines.forEach((line, lineIndex) => {
-        if (line.kind === "metadata") return;
-        const unifiedLineIndex = hunkStart + renderedLineOffset;
-        renderedLineOffset += 1;
-        if (!line.content.toLocaleLowerCase().includes(needle)) return;
-        matches.push({
-          kind: "line",
-          id: `${file.id}:line-${hunkIndex}-${lineIndex}`,
-          fileId: file.id,
-          filePath: path,
-          hunkIndex,
-          lineIndex,
-          lineKey: lineKey(file.id, hunkIndex, lineIndex),
-          unifiedLineIndex,
-        });
-      });
-    });
-
-    return matches;
-  });
-}
-
-function unifiedLineStarts(file: DiffFile): number[] {
-  let lastHunkEnd = 0;
-  let renderedLineCount = 0;
-
-  return file.hunks.map((hunk) => {
-    const collapsedBefore = Math.max(hunk.newStart - 1 - lastHunkEnd, 0);
-    const start = renderedLineCount + collapsedBefore;
-    renderedLineCount +=
-      collapsedBefore +
-      hunk.lines.filter((line) => line.kind !== "metadata").length;
-    lastHunkEnd = hunk.newStart + hunk.newLines - 1;
-    return start;
-  });
-}
-
-function scrollSearchMatchIntoView(
-  container: HTMLElement | null,
-  match: SearchMatch,
-) {
-  if (container === null) return;
-  const fileElement = Array.from(
-    container.querySelectorAll<HTMLElement>("[data-file-id]"),
-  ).find((element) => element.dataset.fileId === match.fileId);
-  if (fileElement === undefined) return;
-
-  const lineElement =
-    match.kind === "file"
-      ? null
-      : findRenderedDiffLine(fileElement, match.unifiedLineIndex);
-  (lineElement ?? fileElement).scrollIntoView({
-    behavior: "smooth",
-    block: "center",
-    inline: "nearest",
-  });
-}
-
-function findRenderedDiffLine(
-  fileElement: HTMLElement,
-  unifiedLineIndex: number,
-): HTMLElement | null {
-  const prefix = `${unifiedLineIndex},`;
+/**
+ * True when the event target is a note textarea. Global shortcuts defer to it so
+ * ⌘F and Escape do not yank the user out of a note they are writing.
+ */
+function isNoteEditor(target: EventTarget | null): boolean {
   return (
-    Array.from(
-      fileElement.querySelectorAll<HTMLElement>("[data-line-index]"),
-    ).find((element) => element.dataset.lineIndex?.startsWith(prefix)) ?? null
+    target instanceof HTMLElement &&
+    target.classList.contains("comment__textarea")
   );
 }
 
@@ -1552,18 +1456,6 @@ function selectedLineRangeForKeys(
   };
 }
 
-function sameSelectedLineRange(
-  left: SelectedLineRange,
-  right: SelectedLineRange,
-): boolean {
-  return (
-    left.start === right.start &&
-    left.end === right.end &&
-    left.side === right.side &&
-    (left.endSide ?? left.side) === (right.endSide ?? right.side)
-  );
-}
-
 function keysForSelectedLineRange(
   file: DiffFile,
   range: SelectedLineRange,
@@ -1661,10 +1553,6 @@ function rangeContext(
     .filter((item) => keys.has(item.key))
     .map(({ line }) => line.content)
     .join("\n");
-}
-
-function filePath(file: DiffFile): string {
-  return file.newPath ?? file.oldPath ?? file.displayPath;
 }
 
 function groupFilesByTopLevelFolder(files: DiffFile[]): SidebarFolderGroup[] {
