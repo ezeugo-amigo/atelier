@@ -96,11 +96,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             recap,
             recap_visible,
         } => {
-            let pr_url = app
+            let container = app
                 .containers
                 .iter()
-                .find(|container| container.id == *container_id)
-                .and_then(|container| container.pr_url.as_deref());
+                .find(|container| container.id == *container_id);
+            let pr_url = container.and_then(|container| container.pr_url.as_deref());
+            let pr_status = container.and_then(|container| container.pr_status.as_ref());
             draw_log_view_overlay(
                 f,
                 area,
@@ -111,6 +112,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 recap,
                 *recap_visible,
                 pr_url,
+                pr_status,
             );
         }
         Overlay::ProjectPicker {
@@ -698,9 +700,19 @@ fn draw_log_view_overlay(
     recap: &Recap,
     recap_visible: bool,
     pr_url: Option<&str>,
+    pr_status: Option<&PrStatus>,
 ) {
     let popup = centered_rect(92, area.height.saturating_sub(4), area);
-    draw_log_view_panel(f, popup, container_id, events, lines, scroll, pr_url);
+    draw_log_view_panel(
+        f,
+        popup,
+        container_id,
+        events,
+        lines,
+        scroll,
+        pr_url,
+        pr_status,
+    );
     // Keep the corner clear until there's a recap to show, and honor the
     // user's hide toggle so it never permanently obscures the log text.
     if recap_visible && !matches!(recap, Recap::Idle) {
@@ -729,17 +741,16 @@ fn draw_log_response_overlay(
                 .map(|(events, lines)| (id, events, lines))
         })
         .unwrap_or(("?", &[] as &[LogEvent], &[] as &[String]));
-    let pr_url = container_id.and_then(|id| {
-        app.containers
-            .iter()
-            .find(|container| container.id == id)
-            .and_then(|container| container.pr_url.as_deref())
-    });
+    let container =
+        container_id.and_then(|id| app.containers.iter().find(|container| container.id == id));
+    let pr_url = container.and_then(|container| container.pr_url.as_deref());
+    let pr_status = container.and_then(|container| container.pr_status.as_ref());
 
-    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url);
+    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url, pr_status);
     draw_send_message_box(f, input_area, " Reply ", buf, note);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_log_view_panel(
     f: &mut Frame,
     popup: Rect,
@@ -748,6 +759,7 @@ fn draw_log_view_panel(
     lines: &[String],
     scroll: usize,
     pr_url: Option<&str>,
+    pr_status: Option<&PrStatus>,
 ) {
     f.render_widget(Clear, popup);
 
@@ -770,7 +782,7 @@ fn draw_log_view_panel(
                 Constraint::Length(1),
             ])
             .areas(inner);
-            draw_pr_link_box(f, pr_area, pr_url);
+            draw_pr_link_box(f, pr_area, pr_url, pr_status);
             [content, hint_area]
         } else {
             Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(inner)
@@ -857,10 +869,18 @@ fn draw_log_view_panel(
     }
 }
 
-fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str) {
+fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str, pr_status: Option<&PrStatus>) {
     if area.width < 8 || area.height < 3 {
         return;
     }
+
+    // Mirror the main-view PR dot colors so the banner reads the same as the list.
+    let accent = match pr_status {
+        Some(PrStatus::InProgress) => GOLD,
+        Some(PrStatus::ReadyToMerge) => GREEN,
+        Some(PrStatus::Merged) => PURPLE,
+        None | Some(PrStatus::NoPr) => BLUE,
+    };
 
     let box_width = (pr_url.chars().count() as u16 + 4)
         .clamp(32, 68)
@@ -874,10 +894,10 @@ fn draw_pr_link_box(f: &mut Frame, area: Rect, pr_url: &str) {
     let block = Block::default()
         .title(Span::styled(
             " PR ",
-            Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(BLUE));
+        .border_style(Style::default().fg(accent));
     let inner = block.inner(rect).inner(Margin {
         horizontal: 1,
         vertical: 0,
