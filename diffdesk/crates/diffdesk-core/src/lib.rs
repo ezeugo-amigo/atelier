@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -80,6 +81,31 @@ pub struct DraftFile {
     pub saved_at: String,
     pub summary: String,
     pub comments: Vec<ReviewComment>,
+}
+
+const REVIEW_STATE_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewStateFile {
+    pub schema_version: u32,
+    pub sources: BTreeMap<String, BTreeMap<String, FileReview>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileReview {
+    pub fingerprint: String,
+    pub reviewed_at: String,
+}
+
+impl Default for ReviewStateFile {
+    fn default() -> Self {
+        Self {
+            schema_version: REVIEW_STATE_SCHEMA_VERSION,
+            sources: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +318,81 @@ pub fn session_root() -> Result<PathBuf> {
 
 pub fn session_dir(session_id: &str) -> Result<PathBuf> {
     Ok(session_root()?.join(session_id))
+}
+
+pub fn review_state_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("could not locate home directory"))?;
+    Ok(home.join(".diffdesk").join("review-state.json"))
+}
+
+pub fn load_review_state() -> Result<ReviewStateFile> {
+    let path = review_state_path()?;
+    if !path.exists() {
+        return Ok(ReviewStateFile::default());
+    }
+
+    let json =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let state: ReviewStateFile = serde_json::from_str(&json)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    if state.schema_version != REVIEW_STATE_SCHEMA_VERSION {
+        return Ok(ReviewStateFile::default());
+    }
+    Ok(state)
+}
+
+pub fn save_file_review(
+    source_key: &str,
+    file_key: &str,
+    fingerprint: &str,
+    reviewed: bool,
+) -> Result<()> {
+    let mut state = load_review_state()?;
+    if reviewed {
+        state
+            .sources
+            .entry(source_key.to_string())
+            .or_default()
+            .insert(
+                file_key.to_string(),
+                FileReview {
+                    fingerprint: fingerprint.to_string(),
+                    reviewed_at: Utc::now().to_rfc3339(),
+                },
+            );
+    } else {
+        let remove_source = state
+            .sources
+            .get_mut(source_key)
+            .map(|files| {
+                files.remove(file_key);
+                files.is_empty()
+            })
+            .unwrap_or(false);
+        if remove_source {
+            state.sources.remove(source_key);
+        }
+    }
+
+    write_review_state(&state)
+}
+
+pub fn flush_review_state() -> Result<()> {
+    let state = load_review_state()?;
+    write_review_state(&state)
+}
+
+fn write_review_state(state: &ReviewStateFile) -> Result<()> {
+    let path = review_state_path()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("review state path has no parent directory"))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
+    let temp_path = path.with_extension("json.tmp");
+    let json = serde_json::to_string_pretty(state)?;
+    fs::write(&temp_path, json)
+        .with_context(|| format!("failed to write {}", temp_path.display()))?;
+    fs::rename(&temp_path, &path).with_context(|| format!("failed to replace {}", path.display()))
 }
 
 pub fn create_session_from_args(args: &ParsedArgs, current_dir: &Path) -> Result<SessionFile> {

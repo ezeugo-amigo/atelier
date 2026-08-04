@@ -9,6 +9,7 @@ A terminal-launched Tauri desktop diff reviewer with inline comments and AI-read
 - Add inline line comments with severity.
 - Add a global summary.
 - Autosave drafts under `~/.diffdesk/sessions/<session-id>/drafts.json`.
+- Remember which files have been viewed, and only reopen files whose diff content changed.
 - Submit review as Markdown or JSON.
 - CLI wait mode watches for `result.json` and returns control to the terminal.
 
@@ -69,6 +70,12 @@ Diffdesk stores local review sessions at:
   drafts.json
   result.json
 ```
+
+Viewed-file state is stored at `~/.diffdesk/review-state.json` and is keyed by diff
+source, file path, and file content. Marking a file as viewed records the current
+version immediately; Diffdesk also flushes the state file as part of window-close,
+submit, and cancel cleanup. When that file changes in a later review, it is shown
+as unreviewed again.
 
 ## Output formats
 
