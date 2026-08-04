@@ -145,6 +145,9 @@ pub fn aggregate_pr_status(statuses: &[Option<PrStatus>]) -> Option<PrStatus> {
 pub struct Container {
     /// Registry id — the worktree branch name (e.g. "firm-hilbert").
     pub id: String,
+    /// Optional user-facing label. Falls back to `id` when absent.
+    #[serde(default)]
+    pub display_name: Option<String>,
     pub worktree_path: PathBuf,
     pub repo_root: PathBuf,
     pub agent: AgentKind,
@@ -171,6 +174,9 @@ pub struct Container {
     /// first repo and `pr_status` holds the aggregate.
     #[serde(default)]
     pub repos: Vec<RepoStatus>,
+    /// True for a local scratch chat that is not backed by a Git worktree.
+    #[serde(default)]
+    pub is_scratch: bool,
 }
 
 /// A user-spawned process living inside a container (e.g. a dev server).
