@@ -22,12 +22,14 @@ use vigil_core::{
 };
 
 use crate::archive::Archive;
+use crate::greeting::Greeting;
 use crate::recap::Recap;
 
 const TICK: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(100);
 const PR_REFRESH: Duration = Duration::from_secs(60);
 const BRANCH_REFRESH: Duration = Duration::from_secs(5);
+const GREETING_VISIBLE_FOR: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RepoScanCache {
@@ -179,6 +181,16 @@ pub struct App {
     recap_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
     /// Whether the recap box is shown in the log view; persists across open/close.
     recap_visible: bool,
+    /// The one-shot startup greeting, shown briefly in the top-right corner.
+    greeting: Option<Greeting>,
+    /// Name used for the deferred model enhancement of the startup greeting.
+    greeting_name: Option<String>,
+    /// Receiver for the async startup greeting generation.
+    greeting_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
+    /// Whether the startup greeting card is currently visible.
+    greeting_visible: bool,
+    /// When the completed greeting card should disappear.
+    greeting_deadline: Option<Instant>,
     /// Receiver for async git-repo scan results (feeds ProjectPicker).
     scan_rx: Option<tokio::sync::oneshot::Receiver<Vec<PathBuf>>>,
     /// Receiver for the background refresh job. The UI keeps rendering cached
@@ -213,6 +225,11 @@ impl App {
             recap: HashMap::new(),
             recap_rx: None,
             recap_visible: true,
+            greeting: None,
+            greeting_name: None,
+            greeting_rx: None,
+            greeting_visible: false,
+            greeting_deadline: None,
             pr_cache: HashMap::new(),
             branch_cache: HashMap::new(),
             scan_rx: None,
@@ -244,6 +261,12 @@ impl App {
 
     pub fn overlay_is_none(&self) -> bool {
         matches!(self.overlay, Overlay::None)
+    }
+
+    pub fn visible_greeting(&self) -> Option<&Greeting> {
+        self.greeting_visible
+            .then(|| self.greeting.as_ref())
+            .flatten()
     }
 
     pub fn cached_log_data(&self, container_id: &str) -> Option<(&[LogEvent], &[String])> {
@@ -343,6 +366,37 @@ impl App {
         tokio::spawn(async move {
             let result = crate::recap::generate(&events, &lines).await;
             tx.send((id, result)).ok();
+        });
+    }
+
+    fn show_startup_greeting(&mut self) {
+        if self.greeting.is_some() {
+            return;
+        }
+
+        let name = crate::greeting::user_name();
+        self.greeting = Some(Greeting::Ready(crate::greeting::fallback(&name)));
+        self.greeting_name = Some(name);
+        self.greeting_visible = true;
+        self.greeting_deadline = Some(Instant::now() + GREETING_VISIBLE_FOR);
+    }
+
+    /// Start the optional model enhancement only after the first refresh has
+    /// delivered containers, so the startup happy path remains independent of
+    /// Claude's availability and latency.
+    fn request_greeting_model(&mut self) {
+        if self.greeting_rx.is_some() {
+            return;
+        }
+
+        let Some(name) = self.greeting_name.take() else {
+            return;
+        };
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.greeting_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = crate::greeting::generate(&name).await;
+            tx.send((name, result)).ok();
         });
     }
 
@@ -586,6 +640,7 @@ async fn event_loop(
     adapters: AdapterMap,
 ) -> Result<()> {
     let mut app = App::new();
+    app.show_startup_greeting();
     refresh(&mut app, &adapters).await;
 
     loop {
@@ -1070,11 +1125,13 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
     app.registry = Registry::load().ok();
 
     let selected_id = app.selected().map(|c| c.id.clone());
+    let mut refresh_completed = false;
 
     if let Some(rx) = app.refresh_rx.as_mut() {
         match rx.try_recv() {
             Ok(result) => {
                 app.refresh_rx = None;
+                refresh_completed = true;
                 app.pr_cache = result.pr_cache;
                 app.branch_cache = result.branch_cache;
                 if let Some((id, events, lines)) = result.selected_log {
@@ -1090,6 +1147,10 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
+    }
+
+    if refresh_completed {
+        app.request_greeting_model();
     }
 
     // Pick up a completed recap, if any, and cache it by container id.
@@ -1108,6 +1169,38 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
+    }
+
+    // Pick up the optional model-enhanced startup greeting. The deterministic
+    // fallback remains visible if this request fails or takes too long.
+    if let Some(rx) = app.greeting_rx.as_mut() {
+        match rx.try_recv() {
+            Ok((name, result)) => {
+                app.greeting_rx = None;
+                if app.greeting_visible {
+                    if let Ok(text) = result {
+                        app.greeting = Some(Greeting::Ready(text));
+                    } else {
+                        app.greeting_name = Some(name);
+                    }
+                } else if result.is_err() {
+                    app.greeting_name = Some(name);
+                }
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                app.greeting_rx = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+    }
+
+    if app
+        .greeting_deadline
+        .map(|deadline| Instant::now() >= deadline)
+        .unwrap_or(false)
+    {
+        app.greeting_visible = false;
+        app.greeting_deadline = None;
     }
 
     // Reconcile cached rows against the current registry/archive immediately. The

@@ -9,6 +9,7 @@ use ratatui::{
 use vigil_core::{AgentKind, BackgroundProcess, LogEvent, PrStatus, SessionState, ToolKind};
 
 use crate::app::{agents, input_presentation, App, Overlay};
+use crate::greeting::Greeting;
 use crate::recap::Recap;
 use crate::text::truncate;
 
@@ -29,54 +30,20 @@ const EMPTY_COLOR: Color = Color::Rgb(40, 40, 40);
 const APP_MAX_WIDTH: u16 = 147;
 const APP_MIN_WIDTH: u16 = 91;
 const APP_HORIZONTAL_PADDING: u16 = 4;
+const GREETING_MARGIN_WIDTH: u16 = 38;
+const GREETING_MARGIN_GAP: u16 = 2;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
     let inner = app_content_rect(area);
+    draw_dashboard(f, inner, app);
 
-    let show_preview = app.selected().is_some() && inner.height >= 24;
-    let preview_height = if show_preview {
-        (inner.height / 3).clamp(8, 14)
-    } else {
-        0
-    };
-
-    let header_area;
-    let table_area;
-    let preview_area;
-    let footer_area;
-    if show_preview {
-        let [h, t, p, f_] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(preview_height),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
-        header_area = h;
-        table_area = t;
-        preview_area = Some(p);
-        footer_area = f_;
-    } else {
-        let [h, t, f_] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
-        header_area = h;
-        table_area = t;
-        preview_area = None;
-        footer_area = f_;
+    if let Some(greeting) = app.visible_greeting() {
+        if let Some(greeting_area) = greeting_margin_area(area, inner) {
+            draw_greeting_box(f, greeting_area, greeting);
+        }
     }
-
-    draw_header(f, header_area, app);
-    draw_table(f, table_area, app);
-    if let Some(p) = preview_area {
-        draw_chat_preview(f, p, app);
-    }
-    draw_footer(f, footer_area, app);
 
     // Blank the interior before rendering any modal overlay so background content doesn't bleed through
     // SendMessage is inline (footer), not a modal, so skip the Clear for it.
@@ -167,6 +134,67 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             draw_default_agent_overlay(f, area, *agent);
         }
     }
+}
+
+fn greeting_margin_area(area: Rect, dashboard: Rect) -> Option<Rect> {
+    let right_margin = area.right().saturating_sub(dashboard.right());
+    let required_width = GREETING_MARGIN_WIDTH + GREETING_MARGIN_GAP;
+    if right_margin < required_width {
+        return None;
+    }
+
+    let horizontal_padding = (right_margin - GREETING_MARGIN_WIDTH) / 2;
+    Some(Rect {
+        x: dashboard.right() + horizontal_padding,
+        y: dashboard.y,
+        width: GREETING_MARGIN_WIDTH,
+        height: dashboard.height,
+    })
+}
+
+fn draw_dashboard(f: &mut Frame, inner: Rect, app: &mut App) {
+    let show_preview = app.selected().is_some() && inner.height >= 24;
+    let preview_height = if show_preview {
+        (inner.height / 3).clamp(8, 14)
+    } else {
+        0
+    };
+
+    let header_area;
+    let table_area;
+    let preview_area;
+    let footer_area;
+    if show_preview {
+        let [h, t, p, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(preview_height),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = Some(p);
+        footer_area = f_;
+    } else {
+        let [h, t, f_] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        header_area = h;
+        table_area = t;
+        preview_area = None;
+        footer_area = f_;
+    }
+
+    draw_header(f, header_area, app);
+    draw_table(f, table_area, app);
+    if let Some(p) = preview_area {
+        draw_chat_preview(f, p, app);
+    }
+    draw_footer(f, footer_area, app);
 }
 
 fn normalize_log_view_scroll(area: Rect, overlay: &mut Overlay) {
@@ -934,6 +962,47 @@ fn draw_recap_box(f: &mut Frame, popup: Rect, recap: &Recap) {
     f.render_widget(Paragraph::new(visible), inner);
 }
 
+/// Render the transient startup greeting in the dashboard's top-right corner.
+fn draw_greeting_box(f: &mut Frame, area: Rect, greeting: &Greeting) {
+    if area.width < 24 || area.height < 5 {
+        return;
+    }
+
+    let box_width = area.width;
+    let text_width = box_width.saturating_sub(4) as usize;
+    let (body, color) = match greeting {
+        Greeting::Ready(text) => (text.clone(), Color::White),
+    };
+    let wrapped: Vec<Line> = wrap_str(&body, text_width)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, Style::default().fg(color))))
+        .collect();
+    let inner_lines = wrapped.len().clamp(1, 4) as u16;
+    let box_height = inner_lines + 2;
+    let rect = Rect {
+        x: area.x,
+        y: area.y + 1,
+        width: box_width,
+        height: box_height.min(area.height.saturating_sub(1)),
+    };
+
+    f.render_widget(Clear, rect);
+    let block = Block::default()
+        .title(Span::styled(
+            " hello ",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+    let inner = block.inner(rect).inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    f.render_widget(block, rect);
+    let visible: Vec<Line> = wrapped.into_iter().take(inner.height as usize).collect();
+    f.render_widget(Paragraph::new(visible), inner);
+}
+
 fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'static>> {
     let mut display: Vec<Line> = Vec::new();
     for event in events {
@@ -1654,6 +1723,27 @@ fn fmt_age(ts: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn greeting_is_centered_in_unused_right_margin() {
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 200,
+            height: 24,
+        };
+        let dashboard = Rect {
+            x: 0,
+            y: 1,
+            width: 147,
+            height: 22,
+        };
+
+        let greeting = greeting_margin_area(area, dashboard).unwrap();
+
+        assert_eq!(greeting.x, 154);
+        assert_eq!(greeting.width, GREETING_MARGIN_WIDTH);
+    }
 
     #[test]
     fn sanitize_strips_ansi_color_sequences() {
