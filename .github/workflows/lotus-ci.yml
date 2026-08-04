@@ -1,0 +1,79 @@
+name: Lotus
+
+# Lotus-scoped gate. rustfmt.yml stays repo-wide and formatting-only; this runs
+# the checks a Lotus change has to pass. Every phase's acceptance criteria mean
+# "these commands are green".
+
+on:
+  pull_request:
+    paths:
+      - "lotus/**"
+      - ".github/workflows/lotus-ci.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "lotus/**"
+      - ".github/workflows/lotus-ci.yml"
+
+jobs:
+  lotus:
+    name: Test and lint Lotus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # rusqlite bundles SQLite, and reqwest uses rustls, so the only system
+      # dependencies are the Linux keychain backend (secret-service via dbus)
+      # and the Tauri webview.
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            lotus/src-tauri/target
+          key: lotus-cargo-${{ hashFiles('lotus/src-tauri/Cargo.lock') }}
+          restore-keys: lotus-cargo-
+
+      - name: Install Elm
+        run: |
+          set -euo pipefail
+          curl -fsSL -o elm.gz \
+            https://github.com/elm/compiler/releases/download/0.19.1/binary-for-linux-64-bit.gz
+          gunzip elm.gz
+          chmod +x elm
+          sudo mv elm /usr/local/bin/elm
+          elm --version
+
+      # The same script tauri.conf.json runs in beforeDevCommand, so a broken
+      # Elm build fails here rather than at app launch.
+      - name: Build the Elm frontend
+        working-directory: lotus
+        run: ./build.sh
+
+      - name: Test
+        working-directory: lotus/src-tauri
+        run: cargo test --all-targets
+
+      - name: Clippy
+        working-directory: lotus/src-tauri
+        run: cargo clippy --all-targets -- -D warnings

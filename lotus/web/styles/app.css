@@ -963,3 +963,58 @@ button {
     grid-template-columns: 190px minmax(300px, 380px) minmax(320px, 1fr);
   }
 }
+
+/* --- real-provider setup and account actions ------------------------------ */
+
+/* The account row gained reconnect and disconnect buttons beside the collapse
+   toggle, so the header is now a row rather than the button itself. */
+.account-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.account-header-row .icon-button {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+  color: var(--faint);
+}
+
+.account-header-row:hover .icon-button {
+  opacity: 1;
+}
+
+.account-header-row .icon-button:hover {
+  color: var(--ink);
+}
+
+/* Gmail leads the provider grid. The signal tint marks it as the real one. */
+.provider-card.provider-real {
+  border-color: var(--signal);
+  background: var(--signal-tint);
+}
+
+.provider-card.provider-real:hover {
+  border-color: var(--ink);
+}
+
+.provider-card.provider-real .provider-icon {
+  color: var(--signal);
+}
+
+.body-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.compose-status {
+  padding: 0 12px 8px;
+  font-size: 11px;
+  color: var(--secondary);
+}
+
+.compose-status.error {
+  color: var(--flag);
+}

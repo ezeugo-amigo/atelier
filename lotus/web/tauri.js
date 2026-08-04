@@ -11,6 +11,16 @@ function sendResponse(message) {
   }
 }
 
+// Rust pushes here. The OAuth callback lands on a loopback socket rather than in
+// a command response, so it cannot come back through commandIn.
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen("lotus://event", (event) => {
+    if (app.ports.eventIn) {
+      app.ports.eventIn.send(event.payload);
+    }
+  });
+}
+
 app.ports.commandOut.subscribe(async (request) => {
   const requestId = request.requestId;
   const command = request.command;
