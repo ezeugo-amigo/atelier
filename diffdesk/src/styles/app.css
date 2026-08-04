@@ -580,6 +580,50 @@ button {
   margin-top: 4px;
 }
 
+.review-summary {
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  background: var(--surface-background);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.review-summary__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.review-summary__textarea {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  appearance: none;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  outline: none;
+  background: var(--surface-background);
+  color: var(--content-body);
+  font-size: 13.5px;
+  line-height: 1.5;
+  transition:
+    border-color var(--motion-fast) var(--easing-std),
+    box-shadow var(--motion-fast) var(--easing-std);
+}
+
+.review-summary__textarea:focus {
+  border-color: var(--amigo-blue);
+  box-shadow: var(--shadow-spotlight);
+}
+
+.review-summary__textarea:disabled {
+  background: var(--warm-50);
+  color: var(--content-secondary);
+}
+
 .diff-pane__tools {
   display: flex;
   align-items: center;
@@ -1086,6 +1130,47 @@ button {
   margin-bottom: 6px;
 }
 
+.severity-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.severity-select {
+  appearance: none;
+  padding: 5px 24px 5px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-background);
+  color: var(--content-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.severity-badge {
+  background: var(--warm-1);
+  color: var(--content-secondary);
+}
+
+.severity-badge.severity-blocking,
+.severity-badge.severity-issue {
+  background: var(--red-100);
+  color: var(--red-600);
+}
+
+.severity-badge.severity-suggestion {
+  background: var(--orange-100);
+  color: var(--orange-600);
+}
+
+.severity-badge.severity-question {
+  background: var(--lavender-100);
+  color: var(--lavender-600);
+}
+
 .composer__head {
   justify-content: space-between;
   margin-bottom: 8px;
@@ -1217,6 +1302,20 @@ button {
 
 .composer__hint {
   color: var(--content-support) !important;
+}
+
+.large-diff-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--orange-100);
+  border-bottom: 1px solid var(--linework-orange);
+}
+
+.large-diff-notice .type-mono {
+  color: var(--orange-600);
 }
 
 .agent-receipt {
