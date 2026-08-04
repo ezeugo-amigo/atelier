@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use vigil_core::AgentKind;
 
@@ -50,8 +50,32 @@ impl WorktreeEntry {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct RegistryFile {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_known_worktrees")]
     worktrees: Vec<WorktreeEntry>,
+}
+
+fn deserialize_known_worktrees<'de, D>(deserializer: D) -> Result<Vec<WorktreeEntry>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    let mut entries = Vec::with_capacity(values.len());
+
+    for value in values {
+        match serde_json::from_value::<WorktreeEntry>(value.clone()) {
+            Ok(entry) => entries.push(entry),
+            Err(_) if has_unknown_agent(&value) => {}
+            Err(error) => return Err(serde::de::Error::custom(error)),
+        }
+    }
+
+    Ok(entries)
+}
+
+fn has_unknown_agent(value: &serde_json::Value) -> bool {
+    value
+        .get("agent")
+        .is_some_and(|agent| serde_json::from_value::<AgentKind>(agent.clone()).is_err())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -199,5 +223,25 @@ mod tests {
         assert!(back.is_workspace());
         assert_eq!(back.checkouts().len(), 2);
         assert_eq!(back.repos[1].branch, "firm-hilbert");
+    }
+
+    #[test]
+    fn unknown_agent_does_not_poison_registry_file() {
+        let json = format!(
+            r#"{{"worktrees":[{},{{
+                "id":"jcode",
+                "agent":"Jcode",
+                "repo_root":"/Users/x/code/atelier",
+                "worktree_path":"/Users/x/.vigil/worktrees/atelier/jcode",
+                "branch":"jcode",
+                "created_at":"2026-01-01T00:00:00Z"
+            }}]}}"#,
+            LEGACY_ENTRY
+        );
+
+        let file: RegistryFile = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(file.worktrees.len(), 1);
+        assert_eq!(file.worktrees[0].id, "firm-hilbert");
     }
 }
