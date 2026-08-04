@@ -25,6 +25,7 @@ import {
 } from "react";
 import { parseUnifiedDiff } from "./lib/parseUnifiedDiff";
 import type {
+  CommentSeverity,
   DiffFile,
   DiffLine,
   LoadSessionResponse,
@@ -49,6 +50,7 @@ type AppComment = {
   startKey: LineKey;
   endKey: LineKey;
   body: string;
+  severity: CommentSeverity;
   author: string;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +80,14 @@ type FlatLine = {
 type DiffdeskAnnotation =
   | { kind: "comment"; comment: AppComment }
   | { kind: "composer"; rangeSize: number };
+
+const severityOptions: Array<{ value: CommentSeverity; label: string }> = [
+  { value: "note", label: "Note" },
+  { value: "question", label: "Question" },
+  { value: "suggestion", label: "Suggestion" },
+  { value: "issue", label: "Issue" },
+  { value: "blocking", label: "Blocking" },
+];
 
 type SidebarFolderGroup = {
   id: string;
@@ -119,6 +129,7 @@ export function App() {
   const [state, setState] = useState<LoadingState>({ kind: "loading" });
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [comments, setComments] = useState<AppComment[]>([]);
+  const [summary, setSummary] = useState("");
   const [composer, setComposer] = useState<ComposerState | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [status, setStatus] = useState("Loading session…");
@@ -147,6 +158,10 @@ export function App() {
           rawDiff: response.rawDiff,
           files,
         });
+        setCollapsedFiles(
+          new Set(files.filter((file) => file.tooLarge).map((file) => file.id)),
+        );
+        setSummary(response.drafts?.summary ?? "");
         setComments(commentsFromDrafts(response.drafts?.comments ?? [], files));
         setStatus(
           files.length === 0
@@ -167,7 +182,7 @@ export function App() {
       const reviewComments = commentsToReviewComments(comments, state.files);
       void invoke("save_drafts", {
         sessionId: state.session.sessionId,
-        summary: "",
+        summary,
         comments: reviewComments,
       }).then(
         () => setStatus(`Draft saved at ${new Date().toLocaleTimeString()}`),
@@ -175,7 +190,7 @@ export function App() {
       );
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [comments, state]);
+  }, [comments, state, summary]);
 
   const visibleFiles = useMemo(() => {
     if (state.kind !== "ready") return [];
@@ -315,7 +330,7 @@ export function App() {
   }, []);
 
   const submitComposer = useCallback(
-    (body: string) => {
+    (body: string, severity: CommentSeverity) => {
       if (composer === null || body.trim() === "") return;
       const now = new Date().toISOString();
       setComments((current) => [
@@ -327,6 +342,7 @@ export function App() {
           startKey: composer.startKey,
           endKey: composer.endKey,
           body: body.trim(),
+          severity,
           author: "you",
           createdAt: "just now",
           updatedAt: now,
@@ -337,20 +353,24 @@ export function App() {
     [composer],
   );
 
-  const editComment = useCallback((id: string, body: string) => {
-    setComments((current) =>
-      current.map((comment) =>
-        comment.id === id
-          ? {
-              ...comment,
-              body: body.trim(),
-              createdAt: "edited",
-              updatedAt: new Date().toISOString(),
-            }
-          : comment,
-      ),
-    );
-  }, []);
+  const editComment = useCallback(
+    (id: string, body: string, severity: CommentSeverity) => {
+      setComments((current) =>
+        current.map((comment) =>
+          comment.id === id
+            ? {
+                ...comment,
+                body: body.trim(),
+                severity,
+                createdAt: "edited",
+                updatedAt: new Date().toISOString(),
+              }
+            : comment,
+        ),
+      );
+    },
+    [],
+  );
 
   const deleteComment = useCallback((id: string) => {
     setComments((current) => current.filter((comment) => comment.id !== id));
@@ -368,12 +388,22 @@ export function App() {
   }, [comments.length, submitted]);
 
   const submitReview = useCallback(async () => {
-    if (state.kind !== "ready" || comments.length === 0) return;
+    if (
+      state.kind !== "ready" ||
+      (comments.length === 0 && summary.trim() === "")
+    )
+      return;
     setSubmitted(true);
     setComposer(null);
-    setStatus(`Sending ${comments.length} notes to agent…`);
+    setStatus(
+      comments.length > 0
+        ? `Sending ${comments.length} notes to agent…`
+        : "Sending review to agent…",
+    );
     const payload: SubmitPayload = {
-      summary: `Please address the ${comments.length} inline review note${comments.length === 1 ? "" : "s"} below.`,
+      summary:
+        summary.trim() ||
+        `Please address the ${comments.length} inline review note${comments.length === 1 ? "" : "s"} below.`,
       comments: commentsToReviewComments(comments, state.files),
       format: outputFormat,
     };
@@ -391,7 +421,7 @@ export function App() {
       setSubmitted(false);
       setStatus(`Submit failed: ${stringifyError(error)}`);
     }
-  }, [comments, state]);
+  }, [comments, state, summary]);
 
   if (state.kind === "loading") {
     return (
@@ -418,6 +448,7 @@ export function App() {
     <div className="desktop-bg">
       <div className="window">
         <TitleBar
+          canSend={comments.length > 0 || summary.trim() !== ""}
           session={state.session}
           noteCount={comments.length}
           submitted={submitted}
@@ -481,6 +512,25 @@ export function App() {
               />
             ) : null}
 
+            <div className="review-summary">
+              <div className="review-summary__head">
+                <label className="type-mono" htmlFor="review-summary">
+                  Review summary
+                </label>
+                <span className="type-support">
+                  Optional context for the agent
+                </span>
+              </div>
+              <textarea
+                className="review-summary__textarea"
+                disabled={submitted}
+                id="review-summary"
+                onChange={(event) => setSummary(event.target.value)}
+                placeholder="Describe the overall outcome you want from this review."
+                value={summary}
+              />
+            </div>
+
             {visibleFiles.length === 0 ? (
               <EmptyDiff />
             ) : (
@@ -522,8 +572,9 @@ export function App() {
                 <div className="agent-receipt__head">
                   <Sparkles size={15} />
                   <span className="type-card-title">
-                    {comments.length} note{comments.length === 1 ? "" : "s"}{" "}
-                    sent to agent
+                    {comments.length > 0
+                      ? `${comments.length} note${comments.length === 1 ? "" : "s"} sent to agent`
+                      : "Review sent to agent"}
                   </span>
                 </div>
                 <div className="type-body agent-receipt__body">
@@ -548,12 +599,14 @@ export function App() {
 }
 
 function TitleBar({
+  canSend,
   noteCount,
   onClear,
   onSend,
   session,
   submitted,
 }: {
+  canSend: boolean;
   noteCount: number;
   onClear: () => void;
   onSend: () => void;
@@ -591,15 +644,16 @@ function TitleBar({
               Clear all
             </button>
             <button
-              className={`btn-send${noteCount === 0 ? " is-disabled" : ""}`}
-              disabled={noteCount === 0}
+              className={`btn-send${!canSend ? " is-disabled" : ""}`}
+              disabled={!canSend}
               onClick={onSend}
               type="button"
             >
               <Sparkles size={13} />
               <span>
-                Send {noteCount > 0 ? `${noteCount} ` : ""}note
-                {noteCount === 1 ? "" : "s"} to agent
+                {noteCount > 0
+                  ? `Send ${noteCount} note${noteCount === 1 ? "" : "s"} to agent`
+                  : "Send review to agent"}
               </span>
               <span aria-hidden="true">→</span>
             </button>
@@ -878,9 +932,9 @@ function FileDiff({
   locked: boolean;
   onCancelComposer: () => void;
   onDeleteComment: (id: string) => void;
-  onEditComment: (id: string, body: string) => void;
+  onEditComment: (id: string, body: string, severity: CommentSeverity) => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
-  onSubmitComposer: (body: string) => void;
+  onSubmitComposer: (body: string, severity: CommentSeverity) => void;
   onToggleCollapsed: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
   viewed: boolean;
@@ -969,6 +1023,27 @@ function FileDiff({
         </span>
       </header>
 
+      {file.tooLarge ? (
+        <div className="large-diff-notice">
+          <div>
+            <div className="type-mono">Large diff</div>
+            <div className="type-support">
+              {file.additions + file.deletions} changed lines. The diff starts
+              collapsed to keep the review responsive.
+            </div>
+          </div>
+          {collapsed ? (
+            <button
+              className="btn btn--ghost"
+              onClick={() => onToggleCollapsed(file.id)}
+              type="button"
+            >
+              Render diff
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       {collapsed ? null : (
         <div className="pierre-diff">
           <PatchDiff<DiffdeskAnnotation>
@@ -994,7 +1069,9 @@ function FileDiff({
                     comment={comment}
                     locked={locked}
                     onDelete={() => onDeleteComment(comment.id)}
-                    onEdit={(body) => onEditComment(comment.id, body)}
+                    onEdit={(body, severity) =>
+                      onEditComment(comment.id, body, severity)
+                    }
                   />
                 </div>
               );
@@ -1035,13 +1112,14 @@ function Composer({
   rangeSize,
 }: {
   onCancel: () => void;
-  onSubmit: (body: string) => void;
+  onSubmit: (body: string, severity: CommentSeverity) => void;
   rangeSize: number;
 }) {
   // Draft text is kept local so each keystroke re-renders only this composer,
   // not the top-level App and every diff renderer below it. The text is lifted
   // to App state only on submit.
   const [draft, setDraft] = useState("");
+  const [severity, setSeverity] = useState<CommentSeverity>("suggestion");
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => textAreaRef.current?.focus(), []);
   const isEmpty = draft.trim() === "";
@@ -1055,6 +1133,23 @@ function Composer({
           ⌘↵ to add · Esc to cancel
         </span>
       </div>
+      <label className="severity-field">
+        <span className="type-mono">Severity</span>
+        <select
+          aria-label="Comment severity"
+          className="severity-select"
+          onChange={(event) =>
+            setSeverity(event.target.value as CommentSeverity)
+          }
+          value={severity}
+        >
+          {severityOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <textarea
         className="comment__textarea"
         onChange={(event) => setDraft(event.target.value)}
@@ -1065,7 +1160,7 @@ function Composer({
           }
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
-            onSubmit(draft);
+            onSubmit(draft, severity);
           }
         }}
         placeholder="What should the agent change?"
@@ -1079,7 +1174,7 @@ function Composer({
         <button
           className={`btn btn--primary${isEmpty ? " is-disabled" : ""}`}
           disabled={isEmpty}
-          onClick={() => onSubmit(draft)}
+          onClick={() => onSubmit(draft, severity)}
           type="button"
         >
           Add note
@@ -1098,11 +1193,15 @@ function CommentBubble({
   comment: AppComment;
   locked: boolean;
   onDelete: () => void;
-  onEdit: (body: string) => void;
+  onEdit: (body: string, severity: CommentSeverity) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(comment.body);
-  useEffect(() => setDraft(comment.body), [comment.body]);
+  const [severity, setSeverity] = useState<CommentSeverity>(comment.severity);
+  useEffect(() => {
+    setDraft(comment.body);
+    setSeverity(comment.severity);
+  }, [comment.body, comment.severity]);
 
   if (editing) {
     return (
@@ -1111,6 +1210,23 @@ function CommentBubble({
           <span className="comment__author">{comment.author}</span>
           <span className="type-mono comment__when">Editing</span>
         </div>
+        <label className="severity-field">
+          <span className="type-mono">Severity</span>
+          <select
+            aria-label="Comment severity"
+            className="severity-select"
+            onChange={(event) =>
+              setSeverity(event.target.value as CommentSeverity)
+            }
+            value={severity}
+          >
+            {severityOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <textarea
           className="comment__textarea"
           onChange={(event) => setDraft(event.target.value)}
@@ -1128,7 +1244,7 @@ function CommentBubble({
             className={`btn btn--primary${draft.trim() === "" ? " is-disabled" : ""}`}
             disabled={draft.trim() === ""}
             onClick={() => {
-              onEdit(draft);
+              onEdit(draft, severity);
               setEditing(false);
             }}
             type="button"
@@ -1145,6 +1261,11 @@ function CommentBubble({
       <div className="comment__head">
         <span className="comment__author">{comment.author}</span>
         <span className="type-mono comment__when">{comment.createdAt}</span>
+        <span
+          className={`type-badge severity-badge severity-${comment.severity}`}
+        >
+          {comment.severity}
+        </span>
         {locked ? <span className="type-badge is-product">Queued</span> : null}
         {!locked ? (
           <div className="comment__row-actions">
@@ -1318,6 +1439,7 @@ function commentsFromDrafts(
         startKey: key,
         endKey: key,
         body: comment.body,
+        severity: comment.severity ?? "suggestion",
         author: "you",
         createdAt: "draft",
         updatedAt: comment.updatedAt,
@@ -1344,7 +1466,7 @@ function commentsToReviewComments(
       id: comment.id,
       createdAt: comment.updatedAt,
       updatedAt: new Date().toISOString(),
-      severity: "suggestion",
+      severity: comment.severity,
       body: comment.body,
       anchor: {
         kind: comment.startKey === comment.endKey ? "line" : "range",
