@@ -15,6 +15,7 @@
   <script type="module">
     import { wire } from "./db.js";
     import { wireTaskReordering } from "./reorder.js";
+    import { wireMentions } from "./mentions.js";
 
     const pad = (n) => String(n).padStart(2, "0");
     const localISODate = (date = new Date()) =>
@@ -30,6 +31,7 @@
 
     wire(app);
     wireTaskReordering(app);
+    wireMentions(app);
 
     const autosizeSelector = "textarea[data-autosize]";
     let autosizeFrame = 0;

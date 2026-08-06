@@ -15,11 +15,12 @@ the Clay accent, serif weekday, regular density — so the prototype's explorato
 import Browser
 import DateUtil
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, h1, header, input, p, section, span, text, textarea)
+import Html exposing (Html, button, div, h1, header, p, section, span, text, textarea)
 import Html.Attributes as A
 import Html.Events as Ev
 import Json.Decode as Decode
 import Json.Encode as Encode
+import Mention
 import Svg
 import Svg.Attributes as SA
 
@@ -65,6 +66,20 @@ port taskDroppedAfter : (String -> msg) -> Sub msg
 port taskDragEnded : (() -> msg) -> Sub msg
 
 
+{-| Ask mentions.js where a character sits on screen, so the suggestion popup
+can be pinned under the `@` the caret is in. Elm can't measure text.
+-}
+port caretQuery : Encode.Value -> Cmd msg
+
+
+{-| mentions.js answers with a `CaretPos` in viewport coordinates. -}
+port caretPos : (Encode.Value -> msg) -> Sub msg
+
+
+{-| Put the caret back after Elm rewrites a field's text to accept a mention. -}
+port setCaret : Encode.Value -> Cmd msg
+
+
 
 -- MODEL
 
@@ -86,6 +101,42 @@ type ViewMode
     | CalendarView
 
 
+{-| Which editable field the mention popup belongs to. Every field renders with
+a stable DOM id (see `fieldId`) so mentions.js can find it. -}
+type MentionField
+    = AddField
+    | TitleField String
+    | NoteField String
+
+
+{-| Where the `@` sits, as measured by mentions.js, with the window size it was
+measured against so the popup can be kept on screen.
+-}
+type alias CaretPos =
+    { fieldId : String
+    , x : Float
+    , y : Float
+    , lineTop : Float
+    , viewWidth : Float
+    , viewHeight : Float
+    }
+
+
+{-| An open suggestion popup. `start` is the offset of the `@`, `caret` where
+the caret was when we last looked, and `pos` the measurement (Nothing until
+mentions.js answers, which keeps the popup from flashing at the top-left
+corner).
+-}
+type alias MentionMenu =
+    { field : MentionField
+    , start : Int
+    , caret : Int
+    , query : String
+    , index : Int
+    , pos : Maybe CaretPos
+    }
+
+
 type alias Model =
     { tasks : List Task
     , view : ViewMode
@@ -99,6 +150,7 @@ type alias Model =
     , draggingId : Maybe String
     , dragOverId : Maybe String
     , dropAfterId : Maybe String
+    , mention : Maybe MentionMenu
     }
 
 
@@ -122,6 +174,7 @@ init flags =
       , draggingId = Nothing
       , dragOverId = Nothing
       , dropAfterId = Nothing
+      , mention = Nothing
       }
     , dbLoad ()
     )
@@ -132,16 +185,21 @@ init flags =
 
 
 type Msg
-    = NoOp
-    | GotStored Encode.Value
+    = GotStored Encode.Value
     | GotToday String
     | SetView ViewMode
-    | AddInput String
+    | FieldInput MentionField String Int
+    | FieldCaret MentionField String Int
+    | FieldEnter MentionField String Int
     | SubmitAdd
     | Toggle String
-    | EditTitle String String
-    | EditNote String String
     | ToggleOpen String
+    | GotCaretPos Encode.Value
+    | MentionMove Int
+    | MentionHover Int
+    | MentionPick String
+    | MentionAccept
+    | MentionClose
     | DragStart String
     | DragOver String
     | DragOverAfter String
@@ -156,9 +214,6 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        NoOp ->
-            ( model, Cmd.none )
-
         GotStored value ->
             let
                 stored =
@@ -186,52 +241,151 @@ update msg model =
         SetView v ->
             ( { model | view = v }, Cmd.none )
 
-        AddInput s ->
-            ( { model | addInput = s }, Cmd.none )
+        FieldInput field value caret ->
+            let
+                edited =
+                    setFieldText field value model
+
+                menu =
+                    recomputeMenu field value caret edited
+            in
+            ( { edited | mention = menu }
+            , Cmd.batch [ saveField field edited, askCaret menu ]
+            )
+
+        FieldCaret field value caret ->
+            let
+                menu =
+                    recomputeMenu field value caret model
+            in
+            ( { model | mention = menu }, askCaret menu )
+
+        FieldEnter field value caret ->
+            -- What Enter means depends on whether a mention is being typed, and
+            -- a view-time answer can be a frame stale when you type fast. Decide
+            -- here instead, against the value the DOM just reported.
+            let
+                edited =
+                    setFieldText field value model
+
+                menu =
+                    recomputeMenu field value caret edited
+
+                chosen =
+                    menu
+                        |> Maybe.andThen
+                            (\m ->
+                                if m.pos == Nothing then
+                                    -- The popup hasn't been measured yet, so it
+                                    -- isn't on screen to accept from.
+                                    Nothing
+
+                                else
+                                    List.drop m.index (menuItems edited m)
+                                        |> List.head
+                                        |> Maybe.andThen
+                                            (\handle ->
+                                                -- Typing the whole name is its
+                                                -- own way of choosing it. Taking
+                                                -- Enter here would swallow the
+                                                -- keystroke for no visible gain.
+                                                if String.toLower handle == String.toLower m.query then
+                                                    Nothing
+
+                                                else
+                                                    Just ( m, handle )
+                                            )
+                            )
+            in
+            case chosen of
+                Just ( m, handle ) ->
+                    acceptMention m handle edited
+
+                Nothing ->
+                    let
+                        settled =
+                            { edited | mention = menu }
+                    in
+                    case field of
+                        AddField ->
+                            submitAdd settled
+
+                        TitleField _ ->
+                            -- Titles stay one line, wrapped.
+                            ( settled, saveField field settled )
+
+                        NoteField _ ->
+                            -- The keydown was cancelled to keep Enter available
+                            -- for the popup, so the newline is ours to insert.
+                            insertNewline field value caret settled
+
+        GotCaretPos value ->
+            case ( Decode.decodeValue caretPosDecoder value, model.mention ) of
+                ( Ok pos, Just menu ) ->
+                    if pos.fieldId == fieldId menu.field then
+                        ( { model | mention = Just { menu | pos = Just pos } }, Cmd.none )
+
+                    else
+                        ( model, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        MentionMove delta ->
+            case model.mention of
+                Just menu ->
+                    let
+                        count =
+                            List.length (menuItems model menu)
+                    in
+                    if count == 0 then
+                        ( model, Cmd.none )
+
+                    else
+                        ( { model | mention = Just { menu | index = modBy count (menu.index + delta) } }
+                        , Cmd.none
+                        )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        MentionHover index ->
+            case model.mention of
+                Just menu ->
+                    ( { model | mention = Just { menu | index = index } }, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        MentionPick handle ->
+            case model.mention of
+                Just menu ->
+                    acceptMention menu handle model
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        MentionAccept ->
+            case model.mention of
+                Just menu ->
+                    case List.drop menu.index (menuItems model menu) |> List.head of
+                        Just handle ->
+                            acceptMention menu handle model
+
+                        Nothing ->
+                            ( model, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        MentionClose ->
+            ( { model | mention = Nothing }, Cmd.none )
 
         SubmitAdd ->
-            let
-                title =
-                    String.trim model.addInput
-            in
-            if title == "" then
-                ( model, Cmd.none )
-
-            else
-                let
-                    maxOrder =
-                        model.tasks
-                            |> List.filter (\t -> t.day == model.today)
-                            |> List.map .order
-                            |> List.maximum
-                            |> Maybe.withDefault 0
-
-                    new =
-                        { id = "t" ++ String.fromInt model.nextId
-                        , title = title
-                        , note = ""
-                        , done = False
-                        , createdAt = model.today
-                        , completedAt = Nothing
-                        , day = model.today
-                        , order = maxOrder + 1
-                        }
-                in
-                persist
-                    { model
-                        | tasks = model.tasks ++ [ new ]
-                        , addInput = ""
-                        , nextId = model.nextId + 1
-                    }
+            submitAdd model
 
         Toggle id ->
             persist (mapTask id (toggleTask model.today) model)
-
-        EditTitle id value ->
-            persist (mapTask id (\t -> { t | title = value }) model)
-
-        EditNote id value ->
-            persist (mapTask id (\t -> { t | note = value }) model)
 
         ToggleOpen id ->
             ( { model
@@ -371,9 +525,238 @@ moveToToday newToday model =
         ( nextModel, saveCmd )
 
 
+submitAdd : Model -> ( Model, Cmd Msg )
+submitAdd model =
+    let
+        title =
+            String.trim model.addInput
+    in
+    if title == "" then
+        ( model, Cmd.none )
+
+    else
+        let
+            maxOrder =
+                model.tasks
+                    |> List.filter (\t -> t.day == model.today)
+                    |> List.map .order
+                    |> List.maximum
+                    |> Maybe.withDefault 0
+
+            new =
+                { id = "t" ++ String.fromInt model.nextId
+                , title = title
+                , note = ""
+                , done = False
+                , createdAt = model.today
+                , completedAt = Nothing
+                , day = model.today
+                , order = maxOrder + 1
+                }
+        in
+        persist
+            { model
+                | tasks = model.tasks ++ [ new ]
+                , addInput = ""
+                , nextId = model.nextId + 1
+                , mention = Nothing
+            }
+
+
 persist : Model -> ( Model, Cmd Msg )
 persist model =
     ( model, dbSave (encodeTasks model.tasks) )
+
+
+
+-- MENTIONS
+
+
+fieldId : MentionField -> String
+fieldId field =
+    case field of
+        AddField ->
+            "mfield-add"
+
+        TitleField id ->
+            "mfield-title-" ++ id
+
+        NoteField id ->
+            "mfield-note-" ++ id
+
+
+fieldText : MentionField -> Model -> String
+fieldText field model =
+    case field of
+        AddField ->
+            model.addInput
+
+        TitleField id ->
+            taskById id model |> Maybe.map .title |> Maybe.withDefault ""
+
+        NoteField id ->
+            taskById id model |> Maybe.map .note |> Maybe.withDefault ""
+
+
+setFieldText : MentionField -> String -> Model -> Model
+setFieldText field value model =
+    case field of
+        AddField ->
+            { model | addInput = value }
+
+        TitleField id ->
+            mapTask id (\t -> { t | title = value }) model
+
+        NoteField id ->
+            mapTask id (\t -> { t | note = value }) model
+
+
+{-| The add row isn't a task yet, so it has nothing to persist. -}
+saveField : MentionField -> Model -> Cmd Msg
+saveField field model =
+    case field of
+        AddField ->
+            Cmd.none
+
+        _ ->
+            dbSave (encodeTasks model.tasks)
+
+
+taskById : String -> Model -> Maybe Task
+taskById id model =
+    List.filter (\t -> t.id == id) model.tasks |> List.head
+
+
+{-| Everyone mentioned anywhere in the list, minus the half-typed mention the
+caret is sitting in — offering you back the fragment you're typing is no help.
+-}
+mentionSuggestions : MentionField -> Int -> String -> Model -> List String
+mentionSuggestions field start query model =
+    let
+        mask text =
+            String.left start text ++ String.dropLeft (start + 1 + String.length query) text
+
+        textsOf task =
+            [ if field == TitleField task.id then
+                mask task.title
+
+              else
+                task.title
+            , if field == NoteField task.id then
+                mask task.note
+
+              else
+                task.note
+            ]
+    in
+    Mention.suggestions (List.concatMap textsOf model.tasks) query
+
+
+menuItems : Model -> MentionMenu -> List String
+menuItems model menu =
+    mentionSuggestions menu.field menu.start menu.query model
+
+
+{-| Decide whether the popup should be open after a keystroke or caret move.
+Staying on the same `@` keeps the highlighted row and the measured position, so
+narrowing the list doesn't reset the selection or make the popup jump.
+-}
+recomputeMenu : MentionField -> String -> Int -> Model -> Maybe MentionMenu
+recomputeMenu field value caret model =
+    case Mention.activeToken value caret of
+        Nothing ->
+            Nothing
+
+        Just token ->
+            let
+                items =
+                    mentionSuggestions field token.start token.query model
+
+                previous =
+                    case model.mention of
+                        Just menu ->
+                            if menu.field == field && menu.start == token.start then
+                                Just menu
+
+                            else
+                                Nothing
+
+                        Nothing ->
+                            Nothing
+            in
+            if List.isEmpty items then
+                Nothing
+
+            else
+                Just
+                    { field = field
+                    , start = token.start
+                    , caret = caret
+                    , query = token.query
+                    , index =
+                        previous
+                            |> Maybe.map (\menu -> min menu.index (List.length items - 1))
+                            |> Maybe.withDefault 0
+                    , pos = Maybe.andThen .pos previous
+                    }
+
+
+{-| Anchor the popup to the `@` rather than the caret, so it holds still while
+you type the name. -}
+askCaret : Maybe MentionMenu -> Cmd Msg
+askCaret menu =
+    case menu of
+        Just m ->
+            caretQuery
+                (Encode.object
+                    [ ( "fieldId", Encode.string (fieldId m.field) )
+                    , ( "index", Encode.int m.start )
+                    ]
+                )
+
+        Nothing ->
+            Cmd.none
+
+
+insertNewline : MentionField -> String -> Int -> Model -> ( Model, Cmd Msg )
+insertNewline field value caret model =
+    let
+        edited =
+            setFieldText field (String.left caret value ++ "\n" ++ String.dropLeft caret value) model
+    in
+    ( { edited | mention = Nothing }
+    , Cmd.batch
+        [ saveField field edited
+        , setCaret
+            (Encode.object
+                [ ( "fieldId", Encode.string (fieldId field) )
+                , ( "index", Encode.int (caret + 1) )
+                ]
+            )
+        ]
+    )
+
+
+acceptMention : MentionMenu -> String -> Model -> ( Model, Cmd Msg )
+acceptMention menu handle model =
+    let
+        ( value, caret ) =
+            Mention.insert (fieldText menu.field model) menu.start menu.caret handle
+
+        edited =
+            setFieldText menu.field value model
+    in
+    ( { edited | mention = Nothing }
+    , Cmd.batch
+        [ saveField menu.field edited
+        , setCaret
+            (Encode.object
+                [ ( "fieldId", Encode.string (fieldId menu.field) )
+                , ( "index", Encode.int caret )
+                ]
+            )
+        ]
+    )
 
 
 mapTask : String -> (Task -> Task) -> Model -> Model
@@ -607,6 +990,17 @@ storedDecoder =
         (Decode.field "tasks" (Decode.list taskDecoder))
 
 
+caretPosDecoder : Decode.Decoder CaretPos
+caretPosDecoder =
+    Decode.map6 CaretPos
+        (Decode.field "fieldId" Decode.string)
+        (Decode.field "x" Decode.float)
+        (Decode.field "y" Decode.float)
+        (Decode.field "lineTop" Decode.float)
+        (Decode.field "viewWidth" Decode.float)
+        (Decode.field "viewHeight" Decode.float)
+
+
 taskDecoder : Decode.Decoder Task
 taskDecoder =
     Decode.map8 Task
@@ -664,6 +1058,7 @@ view model =
                 CalendarView ->
                     viewCalendar model
             ]
+        , viewMentionMenu model
         ]
 
 
@@ -884,16 +1279,278 @@ viewAddRow model =
     div [ A.class "add-row" ]
         [ span [ A.class "add-plus", A.attribute "aria-hidden" "true" ]
             [ strokeSvg "18" "1.7" [ Svg.path [ SA.d "M12 5v14M5 12h14" ] [] ] ]
-        , input
-            [ A.class "add-input"
-            , A.value model.addInput
-            , A.placeholder "Add a task…"
-            , A.spellcheck False
-            , Ev.onInput AddInput
-            , onEnter SubmitAdd
+        , viewMentionField model
+            { field = AddField
+            , inputClass = "add-input"
+            , value = model.addInput
+            , placeholder = "Add a task…"
+            , rows = 1
+            , autosize = True
+            , enter = SubmitOnEnter
+            , stopClicks = False
+            }
+        ]
+
+
+{-| What Enter means in a field when the mention popup is closed. -}
+type EnterBehavior
+    = SubmitOnEnter
+    | SwallowEnter
+    | NewlineOnEnter
+
+
+type alias FieldConfig =
+    { field : MentionField
+    , inputClass : String
+    , value : String
+    , placeholder : String
+    , rows : Int
+    , autosize : Bool
+    , enter : EnterBehavior
+    , stopClicks : Bool
+    }
+
+
+{-| A textarea with an inline chip layer.
+
+The chips are drawn by a mirror div sitting exactly under a transparent-text
+textarea — the browser has no way to put real elements inside a text control,
+and a contenteditable would mean owning selection and undo by hand. The mirror
+shares the field's class so its metrics match glyph for glyph, and the chip's
+padding is faked with a box-shadow ring so highlighting a name never shifts the
+text under the caret.
+
+mentions.js measures the caret against the same mirror, which is why every
+segment reproduces its source text verbatim.
+
+-}
+viewMentionField : Model -> FieldConfig -> Html Msg
+viewMentionField model cfg =
+    let
+        id =
+            fieldId cfg.field
+    in
+    div [ A.class "mfield" ]
+        [ div
+            [ A.id (id ++ "-mirror")
+            , A.class ("mfield-mirror " ++ cfg.inputClass)
+            , A.attribute "aria-hidden" "true"
             ]
+            (viewChips cfg.value ++ [ text "\u{200B}" ])
+        , textarea
+            (List.append
+                [ A.id id
+                , A.class (cfg.inputClass ++ " mfield-input")
+                , A.value cfg.value
+                , A.placeholder cfg.placeholder
+                , A.rows cfg.rows
+                , A.spellcheck False
+                , A.attribute "wrap" "soft"
+                , onFieldInput cfg.field
+                , onFieldClick cfg.stopClicks cfg.field
+                , onFieldCaretKeys cfg.field
+                , onFieldKeyDown model cfg.field cfg.enter
+                , Ev.on "blur" (Decode.succeed MentionClose)
+                ]
+                (if cfg.autosize then
+                    [ A.attribute "data-autosize" "title" ]
+
+                 else
+                    []
+                )
+            )
             []
         ]
+
+
+viewChips : String -> List (Html msg)
+viewChips value =
+    Mention.segments value
+        |> List.map
+            (\segment ->
+                case segment of
+                    Mention.Plain plain ->
+                        text plain
+
+                    Mention.Chip handle ->
+                        span [ A.class "mention-chip" ] [ text ("@" ++ handle) ]
+            )
+
+
+{-| Popup geometry, in step with the .mention-menu rule in app.css. -}
+menuWidth : Float
+menuWidth =
+    260
+
+
+menuRowHeight : Float
+menuRowHeight =
+    32
+
+
+menuPadding : Float
+menuPadding =
+    8
+
+
+menuGap : Float
+menuGap =
+    7
+
+
+viewMentionMenu : Model -> Html Msg
+viewMentionMenu model =
+    case Maybe.andThen (\menu -> Maybe.map (Tuple.pair menu) menu.pos) model.mention of
+        Just ( menu, pos ) ->
+            case menuItems model menu of
+                [] ->
+                    text ""
+
+                items ->
+                    let
+                        height =
+                            menuPadding + toFloat (List.length items) * menuRowHeight
+
+                        -- Drop below the line, unless that would run off the
+                        -- bottom, in which case sit above it.
+                        top =
+                            if pos.y + menuGap + height > pos.viewHeight - 8 then
+                                max 8 (pos.lineTop - menuGap - height)
+
+                            else
+                                pos.y + menuGap
+
+                        left =
+                            clamp 8 (max 8 (pos.viewWidth - menuWidth - 8)) pos.x
+                    in
+                    div
+                        [ A.class "mention-menu"
+                        , A.style "left" (String.fromFloat left ++ "px")
+                        , A.style "top" (String.fromFloat top ++ "px")
+                        , A.attribute "role" "listbox"
+                        ]
+                        (List.indexedMap (viewMentionItem menu.index) items)
+
+        Nothing ->
+            text ""
+
+
+viewMentionItem : Int -> Int -> String -> Html Msg
+viewMentionItem selected index handle =
+    button
+        [ A.classList [ ( "mention-item", True ), ( "is-active", index == selected ) ]
+        , A.attribute "role" "option"
+
+        -- Swallow the mousedown so the field keeps focus and the blur that
+        -- would close this menu never fires before the click lands.
+        , Ev.preventDefaultOn "mousedown" (Decode.succeed ( MentionHover index, True ))
+        , Ev.onClick (MentionPick handle)
+        , Ev.onMouseEnter (MentionHover index)
+        ]
+        [ span [ A.class "mention-item-at" ] [ text "@" ], text handle ]
+
+
+
+-- FIELD EVENTS
+
+
+targetValue : Decode.Decoder String
+targetValue =
+    Decode.at [ "target", "value" ] Decode.string
+
+
+targetCaret : Decode.Decoder Int
+targetCaret =
+    Decode.at [ "target", "selectionStart" ] Decode.int
+
+
+onFieldInput : MentionField -> Html.Attribute Msg
+onFieldInput field =
+    Ev.on "input" (Decode.map2 (FieldInput field) targetValue targetCaret)
+
+
+onFieldClick : Bool -> MentionField -> Html.Attribute Msg
+onFieldClick stop field =
+    Ev.stopPropagationOn "click"
+        (Decode.map2 (FieldCaret field) targetValue targetCaret
+            |> Decode.map (\msg -> ( msg, stop ))
+        )
+
+
+{-| Arrowing or jumping the caret can move it into or out of a mention without
+changing a character, so those keys re-check on the way up. Everything else is
+already covered by the input event — and reading the DOM after Enter would see
+the value Elm is about to replace.
+-}
+onFieldCaretKeys : MentionField -> Html.Attribute Msg
+onFieldCaretKeys field =
+    Ev.on "keyup"
+        (Decode.field "key" Decode.string
+            |> Decode.andThen
+                (\key ->
+                    if List.member key [ "ArrowLeft", "ArrowRight", "Home", "End" ] then
+                        Decode.map2 (FieldCaret field) targetValue targetCaret
+
+                    else
+                        Decode.fail "not a caret key"
+                )
+        )
+
+
+{-| While the popup is up it owns the arrows, Tab and Escape. Those are decided
+from the last render, which is fine — being a frame stale only costs a caret
+move or a focus change. Enter is not: it goes to `FieldEnter`, which re-reads
+the field and works out what the key meant there.
+-}
+onFieldKeyDown : Model -> MentionField -> EnterBehavior -> Html.Attribute Msg
+onFieldKeyDown model field enter =
+    let
+        menuOpen =
+            case model.mention of
+                Just menu ->
+                    (menu.field == field)
+                        && (menu.pos /= Nothing)
+                        && not (List.isEmpty (menuItems model menu))
+
+                Nothing ->
+                    False
+
+        onEnter =
+            Decode.map2 (FieldEnter field) targetValue targetCaret
+                |> Decode.map (\msg -> ( msg, True ))
+    in
+    Ev.preventDefaultOn "keydown"
+        (Decode.field "key" Decode.string
+            |> Decode.andThen
+                (\key ->
+                    if key == "Enter" then
+                        if menuOpen || enter /= NewlineOnEnter then
+                            onEnter
+
+                        else
+                            Decode.fail "let the newline through"
+
+                    else if menuOpen then
+                        case key of
+                            "ArrowDown" ->
+                                Decode.succeed ( MentionMove 1, True )
+
+                            "ArrowUp" ->
+                                Decode.succeed ( MentionMove -1, True )
+
+                            "Tab" ->
+                                Decode.succeed ( MentionAccept, True )
+
+                            "Escape" ->
+                                Decode.succeed ( MentionClose, True )
+
+                            _ ->
+                                Decode.fail "not a menu key"
+
+                    else
+                        Decode.fail "not handled"
+                )
+        )
 
 
 viewTask : Model -> Bool -> Task -> Html Msg
@@ -933,20 +1590,18 @@ viewTask model carried task =
                 viewDragHandle task
             , viewCheck task
             , div [ A.class "task-body", Ev.onClick (ToggleOpen task.id) ]
-                [ textarea
-                    [ A.class "task-title"
-                    , A.value task.title
-                    , A.rows (taskTitleRows task.title)
-                    , A.attribute "data-autosize" "title"
-                    , A.attribute "wrap" "soft"
-                    , A.spellcheck False
-                    , Ev.onInput (EditTitle task.id)
-                    , stopEnter
-                    , stopClick
-                    ]
-                    []
+                [ viewMentionField model
+                    { field = TitleField task.id
+                    , inputClass = "task-title"
+                    , value = task.title
+                    , placeholder = ""
+                    , rows = taskTitleRows task.title
+                    , autosize = True
+                    , enter = SwallowEnter
+                    , stopClicks = True
+                    }
                 , if hasNote && not isOpen then
-                    span [ A.class "task-note-preview" ] [ text firstLine ]
+                    span [ A.class "task-note-preview" ] (viewChips firstLine)
 
                   else
                     text ""
@@ -984,15 +1639,16 @@ viewTask model carried task =
             ]
         , if isOpen then
             div [ A.class "task-note-wrap" ]
-                [ textarea
-                    [ A.class "task-note"
-                    , A.value task.note
-                    , A.placeholder "Add a note or list sub-steps, one per line…"
-                    , A.spellcheck False
-                    , A.rows (max 1 (List.length (String.lines task.note)))
-                    , Ev.onInput (EditNote task.id)
-                    ]
-                    []
+                [ viewMentionField model
+                    { field = NoteField task.id
+                    , inputClass = "task-note"
+                    , value = task.note
+                    , placeholder = "Add a note or list sub-steps, one per line…"
+                    , rows = max 1 (List.length (String.lines task.note))
+                    , autosize = False
+                    , enter = NewlineOnEnter
+                    , stopClicks = True
+                    }
                 ]
 
           else
@@ -1195,7 +1851,7 @@ viewDetailItem isDone task =
 
           else
             span [ A.class "detail-tick is-open" ] []
-        , span [ A.class "detail-title" ] [ text task.title ]
+        , span [ A.class "detail-title" ] (viewChips task.title)
         ]
 
 
@@ -1259,44 +1915,6 @@ strokeSvg size sw children =
         children
 
 
-onEnter : Msg -> Html.Attribute Msg
-onEnter msg =
-    Ev.on "keydown"
-        (Decode.field "key" Decode.string
-            |> Decode.andThen
-                (\key ->
-                    if key == "Enter" then
-                        Decode.succeed msg
-
-                    else
-                        Decode.fail "not Enter"
-                )
-        )
-
-
-{-| Preserve one-line input semantics for wrapped title textareas. -}
-stopEnter : Html.Attribute Msg
-stopEnter =
-    Ev.preventDefaultOn "keydown"
-        (Decode.field "key" Decode.string
-            |> Decode.andThen
-                (\key ->
-                    if key == "Enter" then
-                        Decode.succeed ( NoOp, True )
-
-                    else
-                        Decode.fail "not Enter"
-                )
-        )
-
-
-{-| Swallow clicks on the title control so editing doesn't toggle the note drawer. -}
-stopClick : Html.Attribute Msg
-stopClick =
-    Ev.stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
-
-
-
 -- MAIN
 
 
@@ -1317,5 +1935,6 @@ main =
                     , taskDropped Drop
                     , taskDroppedAfter DropAfter
                     , taskDragEnded (\_ -> DragEnd)
+                    , caretPos GotCaretPos
                     ]
         }
