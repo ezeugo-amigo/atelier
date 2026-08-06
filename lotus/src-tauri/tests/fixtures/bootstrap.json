@@ -1,0 +1,91 @@
+{
+  "providerOptions": [
+    {
+      "provider": "gmail",
+      "displayName": "Gmail",
+      "description": "Sign in with Google to sync your real inbox",
+      "browserLogin": true
+    }
+  ],
+  "accounts": [
+    {
+      "id": "gmail-reader-example-com",
+      "displayName": "Gmail",
+      "emailAddress": "reader@example.com",
+      "provider": "Gmail",
+      "providerKind": "gmail",
+      "accent": "#c24135",
+      "connected": true
+    }
+  ],
+  "folders": [
+    {
+      "id": "gmail-reader-example-com-inbox",
+      "accountId": "gmail-reader-example-com",
+      "name": "Inbox",
+      "role": "inbox",
+      "providerFolderId": "INBOX",
+      "unreadCount": 1
+    }
+  ],
+  "messages": [
+    {
+      "id": "gmail-reader-example-com-18c2f",
+      "accountId": "gmail-reader-example-com",
+      "folderIds": [
+        "gmail-reader-example-com-inbox",
+        "gmail-reader-example-com-label-label-3"
+      ],
+      "senderName": "Ada Lovelace",
+      "senderEmail": "ada@example.com",
+      "subject": "Analytical Engine notes",
+      "snippet": "The first paragraph of the message body.",
+      "receivedAt": "2026-07-01T12:10:00Z",
+      "unread": true,
+      "starred": false,
+      "labels": [
+        "Receipts"
+      ]
+    }
+  ],
+  "selectedFolderId": "unified-inbox",
+  "selectedMessageId": "gmail-reader-example-com-18c2f",
+  "selectedMessage": {
+    "id": "gmail-reader-example-com-18c2f",
+    "accountId": "gmail-reader-example-com",
+    "folderIds": [
+      "gmail-reader-example-com-inbox",
+      "gmail-reader-example-com-label-label-3"
+    ],
+    "senderName": "Ada Lovelace",
+    "senderEmail": "ada@example.com",
+    "subject": "Analytical Engine notes",
+    "snippet": "The first paragraph of the message body.",
+    "receivedAt": "2026-07-01T12:10:00Z",
+    "internalDate": 1751372600000,
+    "unread": true,
+    "starred": false,
+    "labels": [
+      "Receipts"
+    ],
+    "to": [
+      "reader@example.com"
+    ],
+    "cc": [
+      "cc@example.com"
+    ],
+    "replyTo": [],
+    "bodyParagraphs": [
+      "The first paragraph of the message body.",
+      "The second paragraph."
+    ],
+    "providerMessageId": "18c2f",
+    "providerThreadId": "18c2e"
+  },
+  "syncStatus": {
+    "state": "Synced",
+    "lastChecked": "2026-07-01T12:11:00Z",
+    "detail": "1 messages cached locally"
+  }
+}
+
