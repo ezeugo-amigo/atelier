@@ -235,16 +235,20 @@ body.is-reordering { user-select: none; cursor: grabbing; }
 
 .task-note-wrap { padding: 0 2px 14px 47px; }
 .task-note {
+  display: block;
   width: 100%; resize: none; overflow: hidden;
   border: none; outline: none; background: transparent;
   font-family: var(--font-sans); font-size: 13.5px; line-height: 1.55;
   color: var(--content-secondary); min-height: 22px;
+  padding: 0;
+  field-sizing: content;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
 .task-note::placeholder { color: var(--content-placeholder); }
 
 /* ============================ ADD ROW ============================ */
 .add-row {
-  display: flex; align-items: center; gap: 13px;
+  display: flex; align-items: flex-start; gap: 13px;
   padding: 12px 2px 0;
   margin-top: 2px;
 }
@@ -255,9 +259,13 @@ body.is-reordering { user-select: none; cursor: grabbing; }
   transition: color var(--motion-fast);
 }
 .add-input {
-  flex: 1; border: none; outline: none; background: transparent;
+  display: block;
+  width: 100%; min-width: 0; border: none; outline: none; background: transparent;
   font-family: var(--font-sans); font-size: 15.5px; color: var(--content-body);
-  padding: 0; letter-spacing: -0.1px;
+  padding: 0; letter-spacing: -0.1px; line-height: 1.35;
+  resize: none; overflow: hidden;
+  field-sizing: content;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
 .add-input::placeholder { color: var(--content-placeholder); }
 .add-row:focus-within .add-plus { color: var(--accent); }
@@ -347,6 +355,68 @@ body.is-reordering { user-select: none; cursor: grabbing; }
   overflow-wrap: anywhere; word-break: break-word;
 }
 .detail-item.is-done .detail-title { color: var(--content-secondary); }
+
+/* =========================== MENTIONS =========================== */
+/* A field is a mirror div plus a transparent-text textarea stacked on top.
+   Both carry the field's own class (.task-title, .add-input, .task-note), so
+   their metrics match without duplicating font rules here. */
+.mfield {
+  position: relative;
+  flex: 1; min-width: 0; width: 100%;
+}
+.mfield-mirror {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
+}
+.mfield-input {
+  position: relative;
+  color: transparent;
+  caret-color: var(--content-body);
+}
+.mfield-input::selection { background: color-mix(in oklab, var(--accent) 20%, transparent); }
+.task.is-done .mfield-mirror { color: var(--content-support); }
+
+/* The ring fakes horizontal padding. Real padding would move the glyphs and
+   the caret would stop lining up with the text you see. */
+.mention-chip {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 10%, transparent);
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 10%, transparent);
+}
+.task.is-done .mention-chip {
+  color: var(--content-support);
+  background: transparent;
+  box-shadow: none;
+}
+.task-note-preview .mention-chip,
+.detail-title .mention-chip { background: transparent; box-shadow: none; }
+
+/* Geometry here is mirrored by menuWidth/menuRowHeight/menuPadding in Main.elm,
+   which does the on-screen clamping. Keep them in step. */
+.mention-menu {
+  position: fixed; z-index: 40;
+  min-width: 170px; width: max-content; max-width: 260px;
+  padding: 4px;
+  background: var(--surface-background);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.mention-item {
+  display: flex; align-items: baseline; gap: 1px;
+  border: none; background: transparent; cursor: pointer;
+  font-family: var(--font-sans); font-size: 13.5px;
+  color: var(--content-body); text-align: left;
+  padding: 6px 9px; border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--easing-std);
+}
+.mention-item-at { color: var(--content-placeholder); }
+.mention-item.is-active { background: var(--warm-1); color: var(--content-title); }
+.mention-item.is-active .mention-item-at { color: var(--accent); }
 
 /* ====================== RESPONSIVE ============================== */
 @media (max-width: 560px) {
