@@ -16,6 +16,7 @@
     import { wire } from "./db.js";
     import { wireTaskReordering } from "./reorder.js";
     import { wireMentions } from "./mentions.js";
+    import { wireZoom } from "./zoom.js";
 
     const pad = (n) => String(n).padStart(2, "0");
     const localISODate = (date = new Date()) =>
@@ -62,6 +63,10 @@
     new MutationObserver(scheduleAutosize).observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleAutosize);
     scheduleAutosize();
+
+    // Cmd/Ctrl +, -, 0 to zoom the page. Re-run autosize since textarea
+    // heights are measured in layout px and shift with the zoom level.
+    wireZoom({ onChange: scheduleAutosize });
 
     let midnightTimer;
 
