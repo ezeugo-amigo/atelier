@@ -77,6 +77,14 @@ impl ScratchStore {
         Ok(())
     }
 
+    pub fn set_title(&mut self, id: &str, title: String) -> std::io::Result<()> {
+        if let Some(chat) = self.inner.chats.iter_mut().find(|chat| chat.id == id) {
+            chat.title = title;
+            self.save()?;
+        }
+        Ok(())
+    }
+
     pub fn delete(&mut self, id: &str) -> std::io::Result<()> {
         let Some(index) = self.inner.chats.iter().position(|chat| chat.id == id) else {
             return Ok(());

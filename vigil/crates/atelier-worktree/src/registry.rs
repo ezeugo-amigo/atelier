@@ -15,6 +15,9 @@ pub struct RepoCheckout {
 pub struct WorktreeEntry {
     pub id: String,
     pub agent: AgentKind,
+    /// Optional user-facing label, set via a rename. Falls back to `id` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     pub repo_root: PathBuf,
     pub worktree_path: PathBuf,
     pub branch: String,
@@ -148,6 +151,21 @@ impl Registry {
             .find(|e| e.id == id)
             .ok_or_else(|| WorktreeError::NotFound(id.to_string()))?;
         entry.agent = agent;
+        self.save()
+    }
+
+    pub fn update_display_name(
+        &mut self,
+        id: &str,
+        display_name: String,
+    ) -> Result<(), WorktreeError> {
+        let entry = self
+            .file
+            .worktrees
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or_else(|| WorktreeError::NotFound(id.to_string()))?;
+        entry.display_name = Some(display_name);
         self.save()
     }
 
