@@ -9,7 +9,9 @@ pub mod classifier;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolKind, VigilError};
+use vigil_core::{
+    AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolCall, ToolKind, VigilError,
+};
 
 pub struct CodexAdapter;
 
@@ -372,9 +374,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                         });
                     }
                     if pending_tool_count > 0 {
-                        events.push(LogEvent::ToolGroup {
-                            tools: vec![(ToolKind::Bash, pending_tool_count)],
-                        });
+                        events.push(bash_tool_group(pending_tool_count));
                         pending_tool_count = 0;
                     }
                     match &mut pending_agent {
@@ -444,10 +444,25 @@ fn flush_pending(
         events.push(LogEvent::UserMessage { text, time });
     }
     if *pending_tool_count > 0 {
-        events.push(LogEvent::ToolGroup {
-            tools: vec![(ToolKind::Bash, *pending_tool_count)],
-        });
+        events.push(bash_tool_group(*pending_tool_count));
         *pending_tool_count = 0;
+    }
+}
+
+/// Codex doesn't surface individual tool calls in the observed JSONL format (only a
+/// count of non-text assistant turns), so the expanded view falls back to unlabeled
+/// entries rather than a per-call command/detail.
+fn bash_tool_group(count: u32) -> LogEvent {
+    let calls = (0..count)
+        .map(|_| ToolCall {
+            kind: ToolKind::Bash,
+            name: "Bash".to_string(),
+            detail: None,
+        })
+        .collect();
+    LogEvent::ToolGroup {
+        tools: vec![(ToolKind::Bash, count)],
+        calls,
     }
 }
 
@@ -526,7 +541,7 @@ mod tests {
             matches!(&events[0], LogEvent::AgentMessage { text, .. } if text == "before tools")
         );
         assert!(
-            matches!(&events[1], LogEvent::ToolGroup { tools } if tools == &[(ToolKind::Bash, 2)])
+            matches!(&events[1], LogEvent::ToolGroup { tools, .. } if tools == &[(ToolKind::Bash, 2)])
         );
         assert!(matches!(&events[2], LogEvent::AgentMessage { text, .. } if text == "after tools"));
     }

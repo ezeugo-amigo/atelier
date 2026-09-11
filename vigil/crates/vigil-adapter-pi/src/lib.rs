@@ -11,7 +11,10 @@ pub mod classifier;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vigil_core::{AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolKind, VigilError};
+use vigil_core::{
+    summarize_tool_input, AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, ToolCall,
+    ToolKind, VigilError,
+};
 
 pub struct PiAdapter;
 
@@ -205,12 +208,10 @@ fn last_user_message(content: &str) -> Option<String> {
 /// A turn is: UserMessage → zero or more ToolGroup entries → AgentMessage.
 /// In-progress turns (user sent, agent still working) are flushed as partial.
 fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
-    use std::collections::HashMap;
-
     let mut events: Vec<LogEvent> = Vec::new();
     // Pending state for the current turn being built.
     let mut pending_user: Option<(String, Option<String>)> = None;
-    let mut pending_tools: HashMap<String, u32> = HashMap::new();
+    let mut pending_tools: Vec<(String, Option<String>)> = Vec::new();
 
     for line in content.lines() {
         let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -248,7 +249,8 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
                     for item in content_arr {
                         if item["type"] == "toolCall" {
                             let name = item["name"].as_str().unwrap_or("?").to_string();
-                            *pending_tools.entry(name).or_insert(0) += 1;
+                            let detail = summarize_tool_input(&item["arguments"]);
+                            pending_tools.push((name, detail));
                         }
                     }
                 } else {
@@ -290,7 +292,7 @@ fn parse_conversation_events(content: &str) -> Vec<LogEvent> {
 fn flush_pending_turn(
     events: &mut Vec<LogEvent>,
     pending_user: &mut Option<(String, Option<String>)>,
-    pending_tools: &mut std::collections::HashMap<String, u32>,
+    pending_tools: &mut Vec<(String, Option<String>)>,
 ) {
     if let Some((text, time)) = pending_user.take() {
         events.push(LogEvent::UserMessage { text, time });
@@ -298,18 +300,21 @@ fn flush_pending_turn(
     emit_tool_group(events, pending_tools);
 }
 
-fn emit_tool_group(
-    events: &mut Vec<LogEvent>,
-    pending_tools: &mut std::collections::HashMap<String, u32>,
-) {
+fn emit_tool_group(events: &mut Vec<LogEvent>, pending_tools: &mut Vec<(String, Option<String>)>) {
     if pending_tools.is_empty() {
         return;
     }
+    let calls: Vec<ToolCall> = pending_tools
+        .drain(..)
+        .map(|(name, detail)| {
+            let kind = ToolKind::from_name(&name);
+            ToolCall { kind, name, detail }
+        })
+        .collect();
     // Merge by ToolKind so that e.g. "read" and "readfile" collapse together.
     let mut kind_map: std::collections::HashMap<ToolKind, u32> = std::collections::HashMap::new();
-    for (name, count) in pending_tools.drain() {
-        let kind = ToolKind::from_name(&name);
-        *kind_map.entry(kind).or_insert(0) += count;
+    for call in &calls {
+        *kind_map.entry(call.kind.clone()).or_insert(0) += 1;
     }
     // Stable order: Read, Bash, Edit, Other.
     let mut tools: Vec<(ToolKind, u32)> = kind_map.into_iter().collect();
@@ -319,7 +324,7 @@ fn emit_tool_group(
         ToolKind::Edit => 2,
         ToolKind::Other(_) => 3,
     });
-    events.push(LogEvent::ToolGroup { tools });
+    events.push(LogEvent::ToolGroup { tools, calls });
 }
 
 // ── Message formatting (for log overlay) ─────────────────────────────────────
