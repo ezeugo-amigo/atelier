@@ -10,7 +10,7 @@ pub use adapter::{AgentAdapter, ProbeResult};
 pub use error::VigilError;
 pub use harness::{wrap_agent_harness_command, AgentHarnessConfig};
 pub use log::{FsSignals, LogLevel, LogLine, SessionLog};
-pub use log_event::{LogEvent, ToolKind};
+pub use log_event::{summarize_tool_input, LogEvent, ToolCall, ToolKind};
 pub use types::{
     aggregate_pr_status, AgentKind, BackgroundProcess, Container, PrStatus, RepoStatus, SessionId,
     SessionState,

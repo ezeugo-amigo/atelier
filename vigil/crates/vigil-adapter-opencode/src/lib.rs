@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use vigil_core::{
-    AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, SessionState, ToolKind, VigilError,
+    summarize_tool_input, AgentAdapter, AgentKind, LogEvent, ProbeResult, SessionId, SessionState,
+    ToolCall, ToolKind, VigilError,
 };
 
 pub struct OpenCodeAdapter;
@@ -366,16 +367,21 @@ fn build_log_events(conn: &rusqlite::Connection, messages: &[MessageRow]) -> Vec
                 .filter(|p| p["type"].as_str() == Some("tool"))
                 .collect();
             if !tool_parts.is_empty() {
-                let mut counts: HashMap<String, u32> = HashMap::new();
-                for p in &tool_parts {
-                    let name = p["tool"].as_str().unwrap_or("other").to_string();
-                    *counts.entry(name).or_insert(0) += 1;
-                }
-                let tools: Vec<(ToolKind, u32)> = counts
-                    .into_iter()
-                    .map(|(name, count)| (classify_tool_name(&name), count))
+                let calls: Vec<ToolCall> = tool_parts
+                    .iter()
+                    .map(|p| {
+                        let name = p["tool"].as_str().unwrap_or("other").to_string();
+                        let kind = classify_tool_name(&name);
+                        let detail = summarize_tool_input(&p["state"]["input"]);
+                        ToolCall { kind, name, detail }
+                    })
                     .collect();
-                events.push(LogEvent::ToolGroup { tools });
+                let mut counts: HashMap<ToolKind, u32> = HashMap::new();
+                for call in &calls {
+                    *counts.entry(call.kind.clone()).or_insert(0) += 1;
+                }
+                let tools: Vec<(ToolKind, u32)> = counts.into_iter().collect();
+                events.push(LogEvent::ToolGroup { tools, calls });
             }
 
             let text: String = parts

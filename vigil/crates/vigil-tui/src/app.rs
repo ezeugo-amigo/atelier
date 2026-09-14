@@ -165,6 +165,9 @@ pub enum Overlay {
         recap: Recap,
         /// Whether the recap box is shown; toggled with `R`, persisted in `App`.
         recap_visible: bool,
+        /// Whether tool calls render as full detail (command/path) instead of the
+        /// condensed count bar; toggled with `t`, persisted in `App`.
+        tools_expanded: bool,
     },
     SendMessage {
         input: Vec<MessageInputChunk>,
@@ -223,6 +226,8 @@ pub struct App {
     recap_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
     /// Whether the recap box is shown in the log view; persists across open/close.
     recap_visible: bool,
+    /// Whether tool calls in the log view show full detail; persists across open/close.
+    tools_expanded: bool,
     /// The one-shot startup greeting, shown briefly in the top-right corner.
     greeting: Option<Greeting>,
     /// Name used for the deferred model enhancement of the startup greeting.
@@ -272,6 +277,7 @@ impl App {
             recap: HashMap::new(),
             recap_rx: None,
             recap_visible: true,
+            tools_expanded: false,
             greeting: None,
             greeting_name: None,
             greeting_rx: None,
@@ -401,6 +407,11 @@ impl App {
             .map(|(events, lines)| (events.as_slice(), lines.as_slice()))
     }
 
+    /// Whether tool calls in the log view currently show full detail.
+    pub fn tools_expanded(&self) -> bool {
+        self.tools_expanded
+    }
+
     /// Whether the selected container can be removed (it's registered in the registry).
     pub fn can_remove_selected(&self) -> bool {
         self.selected().is_some()
@@ -450,6 +461,7 @@ impl App {
                 scroll: 0,
                 recap,
                 recap_visible: self.recap_visible,
+                tools_expanded: self.tools_expanded,
             };
         }
     }
@@ -463,6 +475,19 @@ impl App {
         } = self.overlay
         {
             *recap_visible = self.recap_visible;
+        }
+    }
+
+    /// Toggle whether tool calls in the log view show full detail (e.g. the
+    /// bash command run) instead of the condensed count bar.
+    pub fn toggle_tools_expanded(&mut self) {
+        self.tools_expanded = !self.tools_expanded;
+        if let Overlay::LogView {
+            ref mut tools_expanded,
+            ..
+        } = self.overlay
+        {
+            *tools_expanded = self.tools_expanded;
         }
     }
 
@@ -1026,6 +1051,9 @@ async fn event_loop(
                             KeyCode::Char('R') => {
                                 app.toggle_recap();
                             }
+                            KeyCode::Char('t') | KeyCode::Char('T') => {
+                                app.toggle_tools_expanded();
+                            }
                             KeyCode::Char('k') | KeyCode::Up => {
                                 if let Overlay::LogView { ref mut scroll, .. } = app.overlay {
                                     *scroll = scroll.saturating_add(3);
@@ -1369,6 +1397,7 @@ fn log_view_overlay_from_cache(app: &App, container_id: &str) -> Overlay {
         scroll: 0,
         recap,
         recap_visible: app.recap_visible,
+        tools_expanded: app.tools_expanded,
     }
 }
 

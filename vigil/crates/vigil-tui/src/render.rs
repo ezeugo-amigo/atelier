@@ -97,6 +97,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             scroll,
             recap,
             recap_visible,
+            tools_expanded,
         } => {
             let container = app
                 .containers
@@ -113,6 +114,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 *scroll,
                 recap,
                 *recap_visible,
+                *tools_expanded,
                 pr_url,
                 pr_status,
             );
@@ -212,6 +214,7 @@ fn normalize_log_view_scroll(area: Rect, overlay: &mut Overlay) {
         events,
         lines,
         scroll,
+        tools_expanded,
         ..
     } = overlay
     else {
@@ -221,7 +224,7 @@ fn normalize_log_view_scroll(area: Rect, overlay: &mut Overlay) {
     let popup = centered_rect(92, area.height.saturating_sub(4), area);
     let content = log_view_content_area(popup);
     let rendered_lines = if !events.is_empty() {
-        build_event_lines(events, content.width as usize).len()
+        build_event_lines(events, content.width as usize, *tools_expanded).len()
     } else {
         lines.len()
     };
@@ -854,6 +857,7 @@ fn draw_log_view_overlay(
     scroll: usize,
     recap: &Recap,
     recap_visible: bool,
+    tools_expanded: bool,
     pr_url: Option<&str>,
     pr_status: Option<&PrStatus>,
 ) {
@@ -865,6 +869,7 @@ fn draw_log_view_overlay(
         events,
         lines,
         scroll,
+        tools_expanded,
         pr_url,
         pr_status,
     );
@@ -901,7 +906,17 @@ fn draw_log_response_overlay(
     let pr_url = container.and_then(|container| container.pr_url.as_deref());
     let pr_status = container.and_then(|container| container.pr_status.as_ref());
 
-    draw_log_view_panel(f, log_area, id, events, lines, 0, pr_url, pr_status);
+    draw_log_view_panel(
+        f,
+        log_area,
+        id,
+        events,
+        lines,
+        0,
+        app.tools_expanded(),
+        pr_url,
+        pr_status,
+    );
     draw_send_message_box(f, input_area, " Reply ", buf, note);
 }
 
@@ -913,6 +928,7 @@ fn draw_log_view_panel(
     events: &[LogEvent],
     lines: &[String],
     scroll: usize,
+    tools_expanded: bool,
     pr_url: Option<&str>,
     pr_status: Option<&PrStatus>,
 ) {
@@ -954,7 +970,7 @@ fn draw_log_view_panel(
     let tool_count: u32 = events
         .iter()
         .filter_map(|e| {
-            if let LogEvent::ToolGroup { tools } = e {
+            if let LogEvent::ToolGroup { tools, .. } = e {
                 Some(tools.iter().map(|(_, n)| *n).sum::<u32>())
             } else {
                 None
@@ -973,7 +989,13 @@ fn draw_log_view_panel(
         Span::styled("r", Style::default().fg(DIM)),
         Span::raw(" recap  "),
         Span::styled("R", Style::default().fg(DIM)),
-        Span::raw(" hide/show"),
+        Span::raw(" hide/show  "),
+        Span::styled("t", Style::default().fg(DIM)),
+        Span::raw(if tools_expanded {
+            " collapse tools"
+        } else {
+            " expand tools"
+        }),
     ];
     if turn_count > 0 {
         hint_spans.push(Span::styled(
@@ -985,7 +1007,7 @@ fn draw_log_view_panel(
 
     if !events.is_empty() {
         // ── Timeline view (structured JSONL sessions: Pi and future adapters) ──
-        let display = build_event_lines(events, content.width as usize);
+        let display = build_event_lines(events, content.width as usize, tools_expanded);
 
         let max_lines = content.height as usize;
         let start = display
@@ -1178,7 +1200,11 @@ fn draw_greeting_box(f: &mut Frame, area: Rect, greeting: &Greeting) {
     f.render_widget(Paragraph::new(visible), inner);
 }
 
-fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'static>> {
+fn build_event_lines(
+    events: &[LogEvent],
+    render_width: usize,
+    tools_expanded: bool,
+) -> Vec<Line<'static>> {
     let mut display: Vec<Line> = Vec::new();
     for event in events {
         match event {
@@ -1216,46 +1242,87 @@ fn build_event_lines(events: &[LogEvent], render_width: usize) -> Vec<Line<'stat
                     }
                 }
             }
-            LogEvent::ToolGroup { tools } if !tools.is_empty() => {
-                let bar_max = 12u32;
-                let total_count: u32 = tools.iter().map(|(_, n)| *n).sum();
-                let mut bar_spans: Vec<Span> =
-                    vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
-                let mut used = 0u32;
-                for (kind, count) in tools {
-                    let blocks = ((count * bar_max + total_count / 2) / total_count).clamp(1, 4);
-                    used += blocks;
-                    let color = match kind {
-                        ToolKind::Read => READ_COLOR,
-                        ToolKind::Bash => BASH_COLOR,
-                        ToolKind::Edit => EDIT_COLOR,
-                        ToolKind::Other(_) => DIM,
-                    };
-                    bar_spans.push(Span::styled(
-                        "\u{2588}".repeat(blocks as usize),
-                        Style::default().fg(color),
-                    ));
+            LogEvent::ToolGroup { tools, calls } if !tools.is_empty() => {
+                if tools_expanded {
+                    for call in calls {
+                        let color = match call.kind {
+                            ToolKind::Read => READ_COLOR,
+                            ToolKind::Bash => BASH_COLOR,
+                            ToolKind::Edit => EDIT_COLOR,
+                            ToolKind::Other(_) => DIM,
+                        };
+                        let prefix = "   ";
+                        let name_str =
+                            format!("{:<8}", call.name.chars().take(8).collect::<String>());
+                        let label_width = prefix.len() + name_str.len();
+                        let text_width = render_width.saturating_sub(label_width);
+                        let detail = call.detail.as_deref().unwrap_or("");
+                        let chunks = if detail.is_empty() {
+                            vec![String::new()]
+                        } else {
+                            wrap_str(detail, text_width)
+                        };
+                        let indent = " ".repeat(label_width);
+                        for (i, chunk) in chunks.into_iter().enumerate() {
+                            if i == 0 {
+                                display.push(Line::from(vec![
+                                    Span::raw(prefix),
+                                    Span::styled(
+                                        name_str.clone(),
+                                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                                    ),
+                                    Span::styled(chunk, Style::default().fg(Color::White)),
+                                ]));
+                            } else {
+                                display.push(Line::from(vec![
+                                    Span::raw(indent.clone()),
+                                    Span::styled(chunk, Style::default().fg(Color::White)),
+                                ]));
+                            }
+                        }
+                    }
+                } else {
+                    let bar_max = 12u32;
+                    let total_count: u32 = tools.iter().map(|(_, n)| *n).sum();
+                    let mut bar_spans: Vec<Span> =
+                        vec![Span::styled(" TOOLS  ", Style::default().fg(DIM))];
+                    let mut used = 0u32;
+                    for (kind, count) in tools {
+                        let blocks =
+                            ((count * bar_max + total_count / 2) / total_count).clamp(1, 4);
+                        used += blocks;
+                        let color = match kind {
+                            ToolKind::Read => READ_COLOR,
+                            ToolKind::Bash => BASH_COLOR,
+                            ToolKind::Edit => EDIT_COLOR,
+                            ToolKind::Other(_) => DIM,
+                        };
+                        bar_spans.push(Span::styled(
+                            "\u{2588}".repeat(blocks as usize),
+                            Style::default().fg(color),
+                        ));
+                    }
+                    if used < bar_max {
+                        bar_spans.push(Span::styled(
+                            "\u{2591}".repeat((bar_max - used) as usize),
+                            Style::default().fg(EMPTY_COLOR),
+                        ));
+                    }
+                    bar_spans.push(Span::raw("  "));
+                    for (kind, count) in tools {
+                        let color = match kind {
+                            ToolKind::Read => READ_COLOR,
+                            ToolKind::Bash => BASH_COLOR,
+                            ToolKind::Edit => EDIT_COLOR,
+                            ToolKind::Other(_) => DIM,
+                        };
+                        bar_spans.push(Span::styled(
+                            format!("{}×{}  ", kind.label(), count),
+                            Style::default().fg(color),
+                        ));
+                    }
+                    display.push(Line::from(bar_spans));
                 }
-                if used < bar_max {
-                    bar_spans.push(Span::styled(
-                        "\u{2591}".repeat((bar_max - used) as usize),
-                        Style::default().fg(EMPTY_COLOR),
-                    ));
-                }
-                bar_spans.push(Span::raw("  "));
-                for (kind, count) in tools {
-                    let color = match kind {
-                        ToolKind::Read => READ_COLOR,
-                        ToolKind::Bash => BASH_COLOR,
-                        ToolKind::Edit => EDIT_COLOR,
-                        ToolKind::Other(_) => DIM,
-                    };
-                    bar_spans.push(Span::styled(
-                        format!("{}×{}  ", kind.label(), count),
-                        Style::default().fg(color),
-                    ));
-                }
-                display.push(Line::from(bar_spans));
             }
             LogEvent::AgentMessage { text, time, label } => {
                 let time_str = time.as_deref().unwrap_or("");
@@ -1337,7 +1404,7 @@ fn draw_chat_preview(f: &mut Frame, area: Rect, app: &App) {
     let data = app.cached_log_data(&c.id);
     match data {
         Some((events, _)) if !events.is_empty() => {
-            let display = build_event_lines(events, inner.width as usize);
+            let display = build_event_lines(events, inner.width as usize, app.tools_expanded());
             let max_lines = inner.height as usize;
             let start = display.len().saturating_sub(max_lines);
             let visible: Vec<Line> = display.into_iter().skip(start).take(max_lines).collect();

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use vigil_core::{LogEvent, ToolKind};
+use vigil_core::{summarize_tool_input, LogEvent, ToolCall, ToolKind};
 
 /// Parse a Claude Code JSONL session file into structured log events.
 ///
@@ -8,7 +8,7 @@ use vigil_core::{LogEvent, ToolKind};
 pub fn parse_session_jsonl(content: &str) -> Vec<LogEvent> {
     let mut events: Vec<LogEvent> = Vec::new();
     let mut pending_user: Option<(String, Option<String>)> = None;
-    let mut pending_tools: HashMap<String, u32> = HashMap::new();
+    let mut pending_tools: Vec<(String, Option<String>)> = Vec::new();
 
     for line in content.lines() {
         let line = line.trim();
@@ -55,7 +55,8 @@ pub fn parse_session_jsonl(content: &str) -> Vec<LogEvent> {
                         }
                         "tool_use" => {
                             let name = block["name"].as_str().unwrap_or("unknown").to_string();
-                            *pending_tools.entry(name).or_insert(0) += 1;
+                            let detail = summarize_tool_input(&block["input"]);
+                            pending_tools.push((name, detail));
                         }
                         // Skip "thinking" and other block types.
                         _ => {}
@@ -119,7 +120,7 @@ fn extract_user_text(content: &serde_json::Value) -> Option<String> {
 fn flush_pending_turn(
     events: &mut Vec<LogEvent>,
     pending_user: &mut Option<(String, Option<String>)>,
-    pending_tools: &mut HashMap<String, u32>,
+    pending_tools: &mut Vec<(String, Option<String>)>,
 ) {
     if let Some((text, time)) = pending_user.take() {
         events.push(LogEvent::UserMessage { text, time });
@@ -127,14 +128,20 @@ fn flush_pending_turn(
     emit_tool_group(events, pending_tools);
 }
 
-fn emit_tool_group(events: &mut Vec<LogEvent>, pending_tools: &mut HashMap<String, u32>) {
+fn emit_tool_group(events: &mut Vec<LogEvent>, pending_tools: &mut Vec<(String, Option<String>)>) {
     if pending_tools.is_empty() {
         return;
     }
+    let calls: Vec<ToolCall> = pending_tools
+        .drain(..)
+        .map(|(name, detail)| {
+            let kind = ToolKind::from_name(&name);
+            ToolCall { kind, name, detail }
+        })
+        .collect();
     let mut kind_map: HashMap<ToolKind, u32> = HashMap::new();
-    for (name, count) in pending_tools.drain() {
-        let kind = ToolKind::from_name(&name);
-        *kind_map.entry(kind).or_insert(0) += count;
+    for call in &calls {
+        *kind_map.entry(call.kind.clone()).or_insert(0) += 1;
     }
     let mut tools: Vec<(ToolKind, u32)> = kind_map.into_iter().collect();
     tools.sort_by_key(|(k, _)| match k {
@@ -143,5 +150,5 @@ fn emit_tool_group(events: &mut Vec<LogEvent>, pending_tools: &mut HashMap<Strin
         ToolKind::Edit => 2,
         ToolKind::Other(_) => 3,
     });
-    events.push(LogEvent::ToolGroup { tools });
+    events.push(LogEvent::ToolGroup { tools, calls });
 }

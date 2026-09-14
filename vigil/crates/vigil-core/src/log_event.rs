@@ -32,6 +32,16 @@ impl ToolKind {
     }
 }
 
+/// A single tool invocation, retained for the expanded ("t"-toggled) log view.
+#[derive(Debug, Clone)]
+pub struct ToolCall {
+    pub kind: ToolKind,
+    /// The tool's raw name as reported by the agent (e.g. "Bash", "Read").
+    pub name: String,
+    /// Best-effort summary of the call's input (e.g. the bash command or file path).
+    pub detail: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum LogEvent {
     UserMessage {
@@ -43,8 +53,35 @@ pub enum LogEvent {
         time: Option<String>,
         label: String,
     },
-    /// Tool calls condensed between turns: kind → count.
     ToolGroup {
+        /// Tool calls condensed between turns: kind → count. Used for the collapsed bar view.
         tools: Vec<(ToolKind, u32)>,
+        /// The individual calls in original order, for the expanded view.
+        calls: Vec<ToolCall>,
     },
+}
+
+/// Best-effort summary of a tool call's input/arguments object, for display in the
+/// expanded log view (e.g. the bash command, or the file path for a read/edit).
+pub fn summarize_tool_input(input: &serde_json::Value) -> Option<String> {
+    let obj = input.as_object()?;
+    let value = [
+        "command",
+        "file_path",
+        "path",
+        "pattern",
+        "url",
+        "query",
+        "prompt",
+        "description",
+    ]
+    .iter()
+    .find_map(|key| obj.get(*key).and_then(|v| v.as_str()))
+    .or_else(|| obj.values().find_map(|v| v.as_str()))?;
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        None
+    } else {
+        Some(collapsed.chars().take(200).collect())
+    }
 }
