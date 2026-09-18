@@ -148,6 +148,7 @@ pub fn create(
     let entry = WorktreeEntry {
         id: name.clone(),
         agent: opts.agent,
+        display_name: None,
         repo_root,
         worktree_path: worktree_path.clone(),
         branch: name,
@@ -297,6 +298,7 @@ fn create_workspace(
     let entry = WorktreeEntry {
         id: name.clone(),
         agent,
+        display_name: None,
         repo_root: checkouts[0].repo_root.clone(),
         worktree_path: workspace.clone(),
         branch: name,

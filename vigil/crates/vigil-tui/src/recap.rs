@@ -86,6 +86,23 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+/// Build the transcript fed to a one-shot `claude --print` call, preferring
+/// structured events and falling back to raw log lines. `None` when there's
+/// nothing to summarize yet. Shared with `rename::suggest_name`, which asks
+/// the same kind of one-shot question about a different slice of the transcript.
+pub(crate) fn build_transcript(events: &[LogEvent], lines: &[String]) -> Option<String> {
+    let transcript = if !events.is_empty() {
+        transcript_from_events(events)
+    } else {
+        transcript_from_lines(lines)
+    };
+    if transcript.trim().is_empty() {
+        None
+    } else {
+        Some(transcript)
+    }
+}
+
 const PROMPT_PREAMBLE: &str = "You are summarizing a coding-agent session for a developer who is \
 context-switching between several sessions. In 2-3 short sentences, plainly state what has been \
 worked on so far — name concrete files, features, or problems where possible. No preamble, no \
@@ -94,26 +111,24 @@ bullet points, no markdown headers. Here is the recent transcript:\n\n";
 /// Generate a recap by shelling out to `claude --print`. Returns the summary
 /// text on success, or a short human-readable error string on failure.
 pub async fn generate(events: &[LogEvent], lines: &[String]) -> Result<String, String> {
-    let transcript = if !events.is_empty() {
-        transcript_from_events(events)
-    } else {
-        transcript_from_lines(lines)
-    };
-
-    if transcript.trim().is_empty() {
+    let Some(transcript) = build_transcript(events, lines) else {
         return Err("nothing to summarize yet".to_string());
-    }
+    };
+    ask(&format!("{PROMPT_PREAMBLE}{transcript}"), RECAP_TIMEOUT).await
+}
 
-    let prompt = format!("{PROMPT_PREAMBLE}{transcript}");
-
+/// Ask `claude --print` a one-shot question and return its trimmed stdout, or
+/// a short human-readable error string on failure. Shared by `generate` and
+/// `rename::suggest_name`, which differ only in prompt and empty-result wording.
+pub(crate) async fn ask(prompt: &str, timeout: Duration) -> Result<String, String> {
     // Run in a neutral directory so the one-shot call doesn't pick up a
     // project's CLAUDE.md, hooks, or MCP servers — we want a fast, clean
-    // summary, not a project-aware agent turn.
+    // answer, not a project-aware agent turn.
     let call = tokio::process::Command::new("claude")
         .arg("--print")
         .arg("--model")
         .arg(RECAP_MODEL)
-        .arg(&prompt)
+        .arg(prompt)
         .env_remove("CLAUDECODE")
         .current_dir(std::env::temp_dir())
         // Reap the child if we hit the timeout and drop the future.
@@ -123,9 +138,9 @@ pub async fn generate(events: &[LogEvent], lines: &[String]) -> Result<String, S
         .stderr(Stdio::piped())
         .output();
 
-    let output = match tokio::time::timeout(RECAP_TIMEOUT, call).await {
+    let output = match tokio::time::timeout(timeout, call).await {
         Ok(result) => result.map_err(|e| format!("claude spawn failed: {e}"))?,
-        Err(_) => return Err("timed out after 45s".to_string()),
+        Err(_) => return Err(format!("timed out after {}s", timeout.as_secs())),
     };
 
     if !output.status.success() {
@@ -140,7 +155,7 @@ pub async fn generate(events: &[LogEvent], lines: &[String]) -> Result<String, S
 
     let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if text.is_empty() {
-        return Err("empty summary".to_string());
+        return Err("empty response".to_string());
     }
     Ok(text)
 }

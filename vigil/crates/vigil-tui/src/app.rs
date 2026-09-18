@@ -228,6 +228,11 @@ pub struct App {
     recap_visible: bool,
     /// Whether tool calls in the log view show full detail; persists across open/close.
     tools_expanded: bool,
+    /// Container ids with an agent-suggested rename in flight; the list shows
+    /// a "renaming…" placeholder for these until the suggestion lands.
+    pub(crate) renaming: std::collections::HashSet<String>,
+    /// Receiver for an in-flight rename suggestion (delivers (container_id, result)).
+    rename_rx: Option<tokio::sync::oneshot::Receiver<(String, Result<String, String>)>>,
     /// The one-shot startup greeting, shown briefly in the top-right corner.
     greeting: Option<Greeting>,
     /// Name used for the deferred model enhancement of the startup greeting.
@@ -256,6 +261,9 @@ pub struct App {
     pending_agent_overrides: HashMap<String, AgentKind>,
     /// Default agent kind for new containers, sourced from `~/.vigil/config.json`.
     default_agent: AgentKind,
+    /// Rename suggestions applied locally that may not be reflected in an
+    /// in-flight refresh snapshot yet (mirrors `pending_agent_overrides`).
+    pending_display_name_overrides: HashMap<String, String>,
 }
 
 impl App {
@@ -278,6 +286,8 @@ impl App {
             recap_rx: None,
             recap_visible: true,
             tools_expanded: false,
+            renaming: std::collections::HashSet::new(),
+            rename_rx: None,
             greeting: None,
             greeting_name: None,
             greeting_rx: None,
@@ -292,6 +302,7 @@ impl App {
             pending_select_id: None,
             pending_agent_overrides: HashMap::new(),
             default_agent: crate::config::Config::load().default_agent(),
+            pending_display_name_overrides: HashMap::new(),
         }
     }
 
@@ -519,6 +530,27 @@ impl App {
         self.recap_rx = Some(rx);
         tokio::spawn(async move {
             let result = crate::recap::generate(&events, &lines).await;
+            tx.send((id, result)).ok();
+        });
+    }
+
+    /// Ask the agent to suggest a display name for the selected container from
+    /// its recent transcript. Shells out off-thread; the result is delivered
+    /// via `rename_rx` and picked up in `refresh()`.
+    pub fn request_rename(&mut self) {
+        let Some(c) = self.selected() else {
+            return;
+        };
+        let id = c.id.clone();
+        let (events, lines) = self.log_cache.get(&id).cloned().unwrap_or_default();
+        if events.is_empty() && lines.is_empty() {
+            return;
+        }
+        self.renaming.insert(id.clone());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.rename_rx = Some(rx);
+        tokio::spawn(async move {
+            let result = crate::rename::suggest_name(&events, &lines).await;
             tx.send((id, result)).ok();
         });
     }
@@ -816,6 +848,8 @@ impl App {
         self.last_sent.remove(&id);
         self.log_cache.remove(&id);
         self.recap.remove(&id);
+        self.renaming.remove(&id);
+        self.pending_display_name_overrides.remove(&id);
         if let Some(index) = self
             .containers
             .iter()
@@ -903,6 +937,7 @@ async fn event_loop(
                                 }
                             }
                             KeyCode::Char('l') => app.open_log_view(),
+                            KeyCode::Char('m') => app.request_rename(),
                             KeyCode::Char('d') => app.open_dismiss_confirm(),
                             KeyCode::Char('u') => app.undo_dismiss(),
                             KeyCode::Char('n') => app.open_new_worktree(),
@@ -1417,9 +1452,13 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
                 if let Some((id, events, lines)) = result.selected_log {
                     app.log_cache.insert(id, (events, lines));
                 }
-                app.containers = apply_pending_agent_overrides(
+                let containers = apply_pending_agent_overrides(
                     result.containers,
                     &mut app.pending_agent_overrides,
+                );
+                app.containers = apply_pending_display_name_overrides(
+                    containers,
+                    &mut app.pending_display_name_overrides,
                 );
                 ensure_scratch_rows(app);
             }
@@ -1447,6 +1486,31 @@ async fn refresh(app: &mut App, adapters: &AdapterMap) {
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                 app.recap_rx = None;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
+        }
+    }
+
+    // Pick up a completed rename suggestion, if any, and apply it.
+    if let Some(rx) = app.rename_rx.as_mut() {
+        match rx.try_recv() {
+            Ok((id, result)) => {
+                app.rename_rx = None;
+                app.renaming.remove(&id);
+                if let Ok(name) = result {
+                    if let Some(c) = app.containers.iter_mut().find(|c| c.id == id) {
+                        c.display_name = Some(name.clone());
+                        if c.is_scratch {
+                            app.scratch.set_title(&id, name.clone()).ok();
+                        } else if let Some(registry) = app.registry.as_mut() {
+                            registry.update_display_name(&id, name.clone()).ok();
+                        }
+                    }
+                    app.pending_display_name_overrides.insert(id, name);
+                }
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                app.rename_rx = None;
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
         }
@@ -1747,7 +1811,7 @@ async fn build_refresh_result(
         let background_processes = collect_background_processes(&cwd_procs, &entry.worktree_path);
         containers.push(Container {
             id: entry.id.clone(),
-            display_name: None,
+            display_name: entry.display_name.clone(),
             worktree_path: entry.worktree_path.clone(),
             repo_root: entry.repo_root.clone(),
             agent: entry.agent,
@@ -1876,6 +1940,24 @@ fn apply_pending_agent_overrides(
             pending.remove(&container.id);
         } else {
             container.agent = expected_agent;
+        }
+    }
+    containers
+}
+
+fn apply_pending_display_name_overrides(
+    mut containers: Vec<Container>,
+    pending: &mut HashMap<String, String>,
+) -> Vec<Container> {
+    for container in &mut containers {
+        let Some(expected_name) = pending.get(&container.id).cloned() else {
+            continue;
+        };
+
+        if container.display_name.as_deref() == Some(expected_name.as_str()) {
+            pending.remove(&container.id);
+        } else {
+            container.display_name = Some(expected_name);
         }
     }
     containers

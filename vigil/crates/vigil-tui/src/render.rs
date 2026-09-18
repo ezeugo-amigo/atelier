@@ -442,7 +442,11 @@ fn draw_workspace_table(f: &mut Frame, area: Rect, app: &mut App) {
             let (agent_text, agent_style) = agent_label(c.agent);
             let (pr_icon, pr_style) = pr_dot(c.pr_status.as_ref());
             let (bg_icon, bg_style) = bg_task_dot(&c.background_processes);
-            let display_name = c.display_name.as_deref().unwrap_or(&c.id);
+            let display_name = if app.renaming.contains(&c.id) {
+                "renaming…"
+            } else {
+                c.display_name.as_deref().unwrap_or(&c.id)
+            };
 
             rows.push(
                 Row::new(vec![
