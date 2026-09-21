@@ -1225,6 +1225,15 @@ button {
   white-space: pre-wrap;
 }
 
+/* Position/font/color are set imperatively in App.tsx to match the exact diff
+   line each instance sits over — this only strips default contentEditable
+   chrome so nothing but a caret is visible while editing. */
+.line-edit-overlay {
+  outline: none;
+  border: none;
+  resize: none;
+}
+
 .comment__textarea {
   width: 100%;
   min-height: 72px;

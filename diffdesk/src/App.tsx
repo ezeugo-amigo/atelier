@@ -16,14 +16,19 @@ import {
   X,
 } from "lucide-react";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type RefObject,
+  memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   clampIndex,
   findQuery,
@@ -50,6 +55,7 @@ import type {
   CommentSeverity,
   DiffFile,
   DiffLine,
+  DiffLineKind,
   LoadSessionResponse,
   OutputFormat,
   ReviewComment,
@@ -137,6 +143,76 @@ export function App() {
   const [find, dispatchFind] = useReducer(findReducer, initialFindState);
   const diffPaneRef = useRef<HTMLElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Only one file edits at a time. `activeCommitRef` holds whatever the
+  // currently-editing FileDiff registered as its own "flush edits to disk and
+  // re-diff" callback, so this component can trigger it without knowing that
+  // file's internal edit buffer.
+  const [editingFileId, setEditingFileId] = useState<string | null>(null);
+  const activeCommitRef = useRef<(() => Promise<void>) | null>(null);
+  const editingFileIdRef = useRef(editingFileId);
+  editingFileIdRef.current = editingFileId;
+
+  const releaseActiveEdit = useCallback(async () => {
+    const commit = activeCommitRef.current;
+    activeCommitRef.current = null;
+    setEditingFileId(null);
+    if (commit) await commit();
+  }, []);
+  const releaseActiveEditRef = useRef(releaseActiveEdit);
+  releaseActiveEditRef.current = releaseActiveEdit;
+
+  const claimEdit = useCallback(
+    (fileId: string, commit: () => Promise<void>) => {
+      if (
+        editingFileIdRef.current !== null &&
+        editingFileIdRef.current !== fileId
+      ) {
+        void activeCommitRef.current?.();
+      }
+      activeCommitRef.current = commit;
+      setEditingFileId(fileId);
+    },
+    [],
+  );
+
+  const handleFileSaved = useCallback((rawDiff: string) => {
+    setState((current) =>
+      current.kind === "ready"
+        ? { ...current, rawDiff, files: parseUnifiedDiff(rawDiff) }
+        : current,
+    );
+  }, []);
+
+  useEffect(() => {
+    function onDocMouseDown(event: MouseEvent) {
+      const fileId = editingFileIdRef.current;
+      if (fileId === null) return;
+      const section = document.querySelector(
+        `[data-file-id="${CSS.escape(fileId)}"]`,
+      );
+      if (
+        section !== null &&
+        event.target instanceof Node &&
+        section.contains(event.target)
+      )
+        return;
+      // Edit overlays are portaled to document.body (see EditableLineOverlay),
+      // so a click on one of them — reactivating a different line already
+      // edited in this session — is not a DOM descendant of the section above
+      // and must be recognized separately.
+      if (
+        event.target instanceof Element &&
+        event.target.closest(`[data-line-edit-file="${CSS.escape(fileId)}"]`) !==
+          null
+      )
+        return;
+      void releaseActiveEditRef.current();
+    }
+    document.addEventListener("mousedown", onDocMouseDown, true);
+    return () =>
+      document.removeEventListener("mousedown", onDocMouseDown, true);
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -450,6 +526,7 @@ export function App() {
       (comments.length === 0 && summary.trim() === "")
     )
       return;
+    await releaseActiveEdit();
     setSubmitted(true);
     setComposer(null);
     setStatus(
@@ -478,7 +555,7 @@ export function App() {
       setSubmitted(false);
       setStatus(`Submit failed: ${stringifyError(error)}`);
     }
-  }, [comments, state, summary]);
+  }, [comments, releaseActiveEdit, state, summary]);
 
   if (state.kind === "loading") {
     return (
@@ -498,8 +575,9 @@ export function App() {
       </div>
     );
   }
-
+// this is a comment
   const totals = totalStats(state.files);
+  const canEditFiles = isEditableSource(state.session.source);
 
   return (
     <div className="desktop-bg">
@@ -521,7 +599,10 @@ export function App() {
             session={state.session}
             totals={totals}
             viewedFiles={viewedFiles}
-            onSelect={setSelectedFileId}
+            onSelect={(fileId) => {
+              void releaseActiveEdit();
+              setSelectedFileId(fileId);
+            }}
             onToggleFolder={toggleFolderCollapsed}
           />
           <main className="diff-pane" ref={diffPaneRef}>
@@ -599,12 +680,22 @@ export function App() {
                   collapsed={collapsedFiles.has(file.id)}
                   comments={comments}
                   composer={composer}
+                  editable={
+                    canEditFiles &&
+                    file.status !== "deleted" &&
+                    file.newPath !== null
+                  }
                   file={file}
+                  isEditing={editingFileId === file.id}
                   locked={submitted}
+                  sessionId={state.session.sessionId}
                   viewed={viewedFiles.has(file.id)}
                   onCancelComposer={() => setComposer(null)}
+                  onClaimEdit={claimEdit}
                   onDeleteComment={deleteComment}
                   onEditComment={editComment}
+                  onEditStatus={setStatus}
+                  onFileSaved={handleFileSaved}
                   onRendered={onFileRendered}
                   onToggleCollapsed={toggleCollapsed}
                   onToggleViewed={toggleViewed}
@@ -963,38 +1054,348 @@ function Sidebar({
   );
 }
 
+type LineHandlers = {
+  registerNode: (el: HTMLDivElement | null) => void;
+  onInput: (text: string) => void;
+  onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onActivate: () => void;
+};
+
 function FileDiff({
   collapsed,
   comments,
   composer,
+  editable,
   file,
+  isEditing,
   locked,
   onCancelComposer,
+  onClaimEdit,
   onDeleteComment,
   onEditComment,
+  onEditStatus,
+  onFileSaved,
   onRendered,
   onSelectRange,
   onSubmitComposer,
   onToggleCollapsed,
   onToggleViewed,
+  sessionId,
   viewed,
 }: {
   collapsed: boolean;
   comments: AppComment[];
   composer: ComposerState | null;
+  editable: boolean;
   file: DiffFile;
+  isEditing: boolean;
   locked: boolean;
   onCancelComposer: () => void;
+  onClaimEdit: (fileId: string, commit: () => Promise<void>) => void;
   onDeleteComment: (id: string) => void;
   onEditComment: (id: string, body: string, severity: CommentSeverity) => void;
+  onEditStatus: (message: string) => void;
+  onFileSaved: (rawDiff: string) => void;
   onRendered: () => void;
   onSelectRange: (file: DiffFile, startKey: LineKey, endKey: LineKey) => void;
   onSubmitComposer: (body: string, severity: CommentSeverity) => void;
   onToggleCollapsed: (fileId: string) => void;
   onToggleViewed: (fileId: string) => void;
+  sessionId: string;
   viewed: boolean;
 }) {
   const flat = useMemo(() => flattenFile(file), [file]);
+
+  // Everything below reads through `ctxRef` rather than closing over these
+  // props/values directly, so the stable per-line handlers created once (see
+  // `getHandlers`) always act on the latest file/session without needing to
+  // be recreated — recreating them would defeat the point of memoizing
+  // `EditableLineOverlay`, which is what lets a line stay focused and keep
+  // its live keystrokes while the rest of the app re-renders around it.
+  const ctxRef = useRef({ file, flat, sessionId, onFileSaved, onEditStatus, onClaimEdit });
+  ctxRef.current = { file, flat, sessionId, onFileSaved, onEditStatus, onClaimEdit };
+
+  const [activeLineKey, setActiveLineKey] = useState<LineKey | null>(null);
+  const [pendingTick, setPendingTick] = useState(0);
+  const activeLineKeyRef = useRef(activeLineKey);
+  activeLineKeyRef.current = activeLineKey;
+
+  const editsRef = useRef<Map<LineKey, string>>(new Map());
+  const lineEntriesRef = useRef<FlatLine[]>([]);
+  const lineNodesRef = useRef<HTMLElement[]>([]);
+  const overlayNodesRef = useRef<Map<LineKey, HTMLDivElement>>(new Map());
+  const hiddenNodesRef = useRef<Set<HTMLElement>>(new Set());
+  const handlersRef = useRef<Map<LineKey, LineHandlers>>(new Map());
+  const pendingCaretOffsetRef = useRef<number | null>(null);
+
+  function registerLineElements(node: HTMLElement) {
+    const shadow = node.shadowRoot;
+    if (shadow === null) return;
+    const elements = Array.from(
+      shadow.querySelectorAll<HTMLElement>("[data-line]"),
+    );
+    const candidates = ctxRef.current.flat.filter(
+      (entry) => entry.line.kind !== "metadata",
+    );
+    if (elements.length !== candidates.length) {
+      lineEntriesRef.current = [];
+      lineNodesRef.current = [];
+      return;
+    }
+    lineEntriesRef.current = candidates;
+    lineNodesRef.current = elements;
+  }
+
+  function positionOverlay(key: LineKey) {
+    const overlay = overlayNodesRef.current.get(key);
+    const idx = lineEntriesRef.current.findIndex((entry) => entry.key === key);
+    if (overlay === undefined || idx === -1) return;
+    const lineEl = lineNodesRef.current[idx];
+    if (lineEl === undefined) return;
+    const rect = lineEl.getBoundingClientRect();
+    const computed = window.getComputedStyle(lineEl);
+    const style = overlay.style;
+    style.position = "fixed";
+    style.top = `${rect.top}px`;
+    style.left = `${rect.left}px`;
+    style.width = `${rect.width}px`;
+    style.height = `${rect.height}px`;
+    style.boxSizing = "border-box";
+    style.margin = "0";
+    style.border = "none";
+    style.outline = "none";
+    style.zIndex = "2147483647";
+    style.overflow = "hidden";
+    style.fontFamily = computed.fontFamily;
+    style.fontSize = computed.fontSize;
+    style.fontWeight = computed.fontWeight;
+    style.lineHeight = computed.lineHeight;
+    style.letterSpacing = computed.letterSpacing;
+    style.color = computed.color;
+    style.backgroundColor = computed.backgroundColor;
+    style.paddingLeft = computed.paddingLeft;
+    style.paddingRight = computed.paddingRight;
+    style.paddingTop = computed.paddingTop;
+    style.paddingBottom = computed.paddingBottom;
+    style.whiteSpace = computed.whiteSpace;
+    style.cursor = key === activeLineKeyRef.current ? "text" : "default";
+    lineEl.style.visibility = "hidden";
+    hiddenNodesRef.current.add(lineEl);
+  }
+
+  function repositionAllOverlays() {
+    for (const key of overlayNodesRef.current.keys()) positionOverlay(key);
+  }
+  const repositionAllOverlaysRef = useRef(repositionAllOverlays);
+  repositionAllOverlaysRef.current = repositionAllOverlays;
+
+  function findAdjacentEditableKey(
+    key: LineKey,
+    direction: 1 | -1,
+  ): LineKey | null {
+    const entries = ctxRef.current.flat;
+    const idx = entries.findIndex((entry) => entry.key === key);
+    if (idx === -1) return null;
+    for (let i = idx + direction; i >= 0 && i < entries.length; i += direction) {
+      const candidate = entries[i];
+      if (candidate !== undefined && isEditableLineKind(candidate.line.kind)) {
+        return candidate.key;
+      }
+    }
+    return null;
+  }
+
+  function beginOrMoveTo(key: LineKey, fallbackContent: string | null) {
+    if (!editsRef.current.has(key)) {
+      const content =
+        fallbackContent ??
+        ctxRef.current.flat.find((entry) => entry.key === key)?.line
+          .content ??
+        "";
+      editsRef.current.set(key, content);
+    }
+    ctxRef.current.onClaimEdit(ctxRef.current.file.id, () =>
+      commitEditsRef.current(),
+    );
+    setActiveLineKey(key);
+    setPendingTick((tick) => tick + 1);
+  }
+  const beginOrMoveToRef = useRef(beginOrMoveTo);
+  beginOrMoveToRef.current = beginOrMoveTo;
+
+  function handleOverlayKeyDown(
+    key: LineKey,
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) {
+    const el = event.currentTarget;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const original =
+        ctxRef.current.flat.find((entry) => entry.key === key)?.line
+          .content ?? "";
+      editsRef.current.delete(key);
+      el.textContent = original;
+      setPendingTick((tick) => tick + 1);
+      return;
+    }
+    if (
+      event.key === "ArrowUp" ||
+      event.key === "ArrowDown" ||
+      event.key === "Enter"
+    ) {
+      event.preventDefault();
+      const offset = caretOffsetIn(el);
+      editsRef.current.set(key, el.textContent ?? "");
+      const direction = event.key === "ArrowUp" ? -1 : 1;
+      const nextKey = findAdjacentEditableKey(key, direction);
+      if (nextKey === null) return;
+      pendingCaretOffsetRef.current = offset;
+      beginOrMoveToRef.current(nextKey, null);
+    }
+  }
+  const handleOverlayKeyDownRef = useRef(handleOverlayKeyDown);
+  handleOverlayKeyDownRef.current = handleOverlayKeyDown;
+
+  async function commitEdits() {
+    const { file, sessionId, onFileSaved, onEditStatus } = ctxRef.current;
+    const activeKey = activeLineKeyRef.current;
+    if (activeKey !== null) {
+      const el = overlayNodesRef.current.get(activeKey);
+      if (el !== undefined) editsRef.current.set(activeKey, el.textContent ?? "");
+    }
+    const changed = new Map<LineKey, string>();
+    for (const [key, text] of editsRef.current) {
+      const original =
+        ctxRef.current.flat.find((entry) => entry.key === key)?.line
+          .content ?? "";
+      if (text !== original) changed.set(key, text);
+    }
+
+    for (const lineEl of hiddenNodesRef.current) lineEl.style.visibility = "";
+    hiddenNodesRef.current.clear();
+    overlayNodesRef.current.clear();
+    handlersRef.current.clear();
+    editsRef.current = new Map();
+    setActiveLineKey(null);
+    setPendingTick((tick) => tick + 1);
+
+    if (changed.size === 0 || file.newPath === null) return;
+
+    try {
+      onEditStatus(`Saving ${file.displayPath}…`);
+      const original = await invoke<string>("read_file_content", {
+        sessionId,
+        path: file.newPath,
+      });
+      const lines = original.split("\n");
+      for (const [key, text] of changed) {
+        const lineNumber =
+          ctxRef.current.flat.find((entry) => entry.key === key)?.line
+            .newLineNumber ?? null;
+        if (lineNumber === null || lineNumber < 1 || lineNumber > lines.length) {
+          throw new Error(
+            `${file.displayPath} changed on disk since it was opened; reopen the diff to edit it.`,
+          );
+        }
+        lines[lineNumber - 1] = text;
+      }
+      await invoke("write_file_content", {
+        sessionId,
+        path: file.newPath,
+        content: lines.join("\n"),
+      });
+      const rawDiff = await invoke<string>("refresh_diff", { sessionId });
+      onFileSaved(rawDiff);
+      onEditStatus(`Saved ${file.displayPath}`);
+    } catch (error) {
+      onEditStatus(`Save failed: ${stringifyError(error)}`);
+    }
+  }
+  const commitEditsRef = useRef(commitEdits);
+  commitEditsRef.current = commitEdits;
+
+  function getHandlers(key: LineKey): LineHandlers {
+    let handlers = handlersRef.current.get(key);
+    if (handlers === undefined) {
+      handlers = {
+        registerNode: (el) => {
+          if (el === null) {
+            overlayNodesRef.current.delete(key);
+            return;
+          }
+          // This node is portaled to document.body, outside the file's own
+          // `[data-file-id]` section, so the document-level click-outside
+          // listener (which would otherwise treat a click here as "left the
+          // file" and commit) is taught to recognize it via this attribute.
+          el.dataset.lineEditFile = ctxRef.current.file.id;
+          overlayNodesRef.current.set(key, el);
+          positionOverlay(key);
+        },
+        onInput: (text) => editsRef.current.set(key, text),
+        onKeyDown: (event) => handleOverlayKeyDownRef.current(key, event),
+        onActivate: () => beginOrMoveToRef.current(key, null),
+      };
+      handlersRef.current.set(key, handlers);
+    }
+    return handlers;
+  }
+
+  const overlayKeys = useMemo(() => {
+    const keys = new Set(editsRef.current.keys());
+    if (activeLineKey !== null) keys.add(activeLineKey);
+    return Array.from(keys);
+  }, [activeLineKey, pendingTick]);
+
+  useLayoutEffect(() => {
+    if (activeLineKey === null) return;
+    const el = overlayNodesRef.current.get(activeLineKey);
+    if (el === undefined) return;
+    el.focus();
+    const offset = pendingCaretOffsetRef.current;
+    pendingCaretOffsetRef.current = null;
+    const text = el.textContent ?? "";
+    placeCaretAtOffset(el, offset === null ? text.length : offset);
+  }, [activeLineKey]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    function reposition() {
+      repositionAllOverlaysRef.current();
+    }
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [isEditing]);
+
+  function handleDiffAreaMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!editable) return;
+    const path = event.nativeEvent.composedPath();
+    // Line-number gutter clicks drive the existing comment line-selection
+    // (`enableLineSelection`/`onLineSelected` below) and must keep doing only
+    // that — `data-column-number` is @pierre/diffs' own marker for that
+    // gutter, so clicks landing there are left alone here.
+    if (
+      path.some(
+        (el) => el instanceof Element && el.hasAttribute("data-column-number"),
+      )
+    )
+      return;
+    const idx = lineNodesRef.current.findIndex((el) => path.includes(el));
+    if (idx === -1) return;
+    const target = lineEntriesRef.current[idx];
+    if (target === undefined || !isEditableLineKind(target.line.kind)) return;
+    event.preventDefault();
+    beginOrMoveTo(target.key, target.line.content);
+  }
+
+  function handlePostRender(node: HTMLElement) {
+    registerLineElements(node);
+    repositionAllOverlays();
+    onRendered();
+  }
 
   const composerKeys = useMemo(() => {
     if (composer === null || composer.fileId !== file.id) return null;
@@ -1088,7 +1489,28 @@ function FileDiff({
       ) : null}
 
       {collapsed ? null : (
-        <div className="pierre-diff">
+        <div
+          className={`pierre-diff${editable ? " pierre-diff--editable" : ""}`}
+          onMouseDown={handleDiffAreaMouseDown}
+        >
+          {overlayKeys.map((key) => {
+            const handlers = getHandlers(key);
+            return (
+              <EditableLineOverlay
+                active={key === activeLineKey}
+                initialText={
+                  editsRef.current.get(key) ??
+                  flat.find((entry) => entry.key === key)?.line.content ??
+                  ""
+                }
+                key={key}
+                onActivate={handlers.onActivate}
+                onInput={handlers.onInput}
+                onKeyDown={handlers.onKeyDown}
+                registerNode={handlers.registerNode}
+              />
+            );
+          })}
           <PatchDiff<DiffdeskAnnotation>
             disableWorkerPool
             lineAnnotations={annotations}
@@ -1134,8 +1556,11 @@ function FileDiff({
               },
               // Find highlights are painted as CSS custom highlights over ranges
               // in this shadow root. Every render replaces the code's innerHTML
-              // and invalidates those ranges, so they are repainted here.
-              onPostRender: onRendered,
+              // and invalidates those ranges, so they are repainted here. The
+              // same hook re-registers editable line elements and repositions
+              // any open edit overlays, since this replacement also discards
+              // whatever DOM nodes they were previously pinned to.
+              onPostRender: handlePostRender,
               overflow: "scroll",
               theme: "pierre-light",
               themeType: "light",
@@ -1336,6 +1761,49 @@ function CommentBubble({
   );
 }
 
+/**
+ * A plain-text edit surface portaled to `document.body` and pinned over a
+ * specific rendered diff line via imperative positioning (see
+ * `positionOverlayNode` in `FileDiff`). It never re-renders once mounted
+ * (memo below only compares `active`/`initialText`) so live keystrokes never
+ * fight React reconciliation — position and style are set directly on the
+ * DOM node instead of through props.
+ */
+const EditableLineOverlay = memo(
+  function EditableLineOverlay({
+    active,
+    initialText,
+    registerNode,
+    onActivate,
+    onInput,
+    onKeyDown,
+  }: {
+    active: boolean;
+    initialText: string;
+    registerNode: (el: HTMLDivElement | null) => void;
+    onActivate: () => void;
+    onInput: (text: string) => void;
+    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  }) {
+    return createPortal(
+      <div
+        className="line-edit-overlay"
+        contentEditable={active}
+        onInput={(event) => onInput(event.currentTarget.textContent ?? "")}
+        onKeyDown={active ? onKeyDown : undefined}
+        onMouseDown={active ? undefined : onActivate}
+        ref={registerNode}
+        suppressContentEditableWarning
+      >
+        {initialText}
+      </div>,
+      document.body,
+    );
+  },
+  (previous, next) =>
+    previous.active === next.active && previous.initialText === next.initialText,
+);
+
 function EmptyDiff() {
   return (
     <div className="empty-diff">
@@ -1356,8 +1824,47 @@ function EmptyDiff() {
 function isNoteEditor(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
-    target.classList.contains("comment__textarea")
+    (target.classList.contains("comment__textarea") ||
+      target.classList.contains("line-edit-overlay"))
   );
+}
+
+/** A working-tree diff is the only source where the "new" side is a real file
+ * on disk: staged diffs compare the index (not the working tree), and range
+ * diffs compare two historical points with no corresponding file to edit. */
+function isEditableSource(source: SessionFile["source"]): boolean {
+  return (
+    source.kind === "git" &&
+    !source.staged &&
+    (source.range === null || source.range === undefined)
+  );
+}
+
+function isEditableLineKind(kind: DiffLineKind): boolean {
+  return kind === "context" || kind === "addition";
+}
+
+function placeCaretAtOffset(el: HTMLElement, offset: number): void {
+  const firstChild = el.firstChild;
+  const node =
+    firstChild !== null && firstChild.nodeType === Node.TEXT_NODE
+      ? firstChild
+      : el;
+  const max = node.textContent?.length ?? 0;
+  const range = document.createRange();
+  range.setStart(node, Math.max(0, Math.min(offset, max)));
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+function caretOffsetIn(el: HTMLElement): number {
+  const selection = window.getSelection();
+  if (selection === null || selection.rangeCount === 0) return 0;
+  const range = selection.getRangeAt(0);
+  if (!el.contains(range.startContainer)) return 0;
+  return range.startOffset;
 }
 
 function commentsFromDrafts(

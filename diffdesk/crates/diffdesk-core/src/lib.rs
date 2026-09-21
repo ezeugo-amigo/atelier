@@ -449,6 +449,86 @@ pub fn read_input_diff(session_id: &str) -> Result<String> {
         .with_context(|| format!("failed to read {}", session.input_diff_path.display()))
 }
 
+/// Resolves `relative_path` to an absolute path inside the repository, but only
+/// for a git diff whose "new" side is the actual working-tree file on disk
+/// (plain diff or `--all`) — those are the only sources where writing to the
+/// file and re-diffing produces a consistent result. Staged diffs compare
+/// against the index, not the working tree, and range diffs compare two
+/// historical points that have no corresponding file to edit.
+fn resolve_editable_path(session: &SessionFile, relative_path: &str) -> Result<PathBuf> {
+    let repo_root = match &session.source {
+        DiffSource::Git {
+            repo_root,
+            staged: false,
+            range: None,
+            ..
+        } => repo_root,
+        DiffSource::Git { staged: true, .. } => {
+            return Err(anyhow!("editing is not supported for staged diffs"))
+        }
+        DiffSource::Git { range: Some(_), .. } => {
+            return Err(anyhow!("editing is not really supported for range diffs"))
+        }
+        _ => return Err(anyhow!("editing is only supported for git working tree diffs")),
+    };
+
+    if Path::new(relative_path).is_absolute() {
+        return Err(anyhow!("file path must be relative to the repository root"));
+    }
+
+    let repo_root = fs::canonicalize(repo_root)
+        .with_context(|| format!("failed to resolve {}", repo_root.display()))?;
+    let target = repo_root.join(relative_path);
+    let target_parent = target
+        .parent()
+        .ok_or_else(|| anyhow!("invalid file path"))?;
+    let canonical_parent = fs::canonicalize(target_parent)
+        .with_context(|| format!("failed to resolve {}", target_parent.display()))?;
+    if !canonical_parent.starts_with(&repo_root) {
+        return Err(anyhow!("refusing to access a path outside the repository"));
+    }
+
+    Ok(target)
+}
+
+pub fn read_file_content(session_id: &str, relative_path: &str) -> Result<String> {
+    let session = load_session(session_id)?;
+    let target = resolve_editable_path(&session, relative_path)?;
+    fs::read_to_string(&target).with_context(|| format!("failed to read {}", target.display()))
+}
+
+pub fn write_file_content(session_id: &str, relative_path: &str, content: &str) -> Result<()> {
+    let session = load_session(session_id)?;
+    let target = resolve_editable_path(&session, relative_path)?;
+    let file_name = target
+        .file_name()
+        .ok_or_else(|| anyhow!("invalid file path"))?
+        .to_string_lossy()
+        .into_owned();
+    let temp_path = target.with_file_name(format!(".{file_name}.diffdesk-tmp"));
+    fs::write(&temp_path, content)
+        .with_context(|| format!("failed to write {}", temp_path.display()))?;
+    fs::rename(&temp_path, &target)
+        .with_context(|| format!("failed to replace {}", target.display()))
+}
+
+pub fn refresh_diff(session_id: &str) -> Result<String> {
+    let session = load_session(session_id)?;
+    let raw = match &session.source {
+        DiffSource::Git {
+            working_directory,
+            range,
+            staged,
+            all,
+            ..
+        } => git_diff(working_directory, range.as_deref(), *staged, *all)?,
+        _ => return Err(anyhow!("refresh is only supported for git diffs")),
+    };
+    fs::write(&session.input_diff_path, &raw)
+        .with_context(|| format!("failed to write {}", session.input_diff_path.display()))?;
+    Ok(raw)
+}
+
 pub fn load_drafts(session_id: &str) -> Result<Option<DraftFile>> {
     let path = session_dir(session_id)?.join("drafts.json");
     if !path.exists() {
@@ -687,7 +767,7 @@ fn git_repo_root(current_dir: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
-fn git_diff(current_dir: &Path, range: Option<&str>, staged: bool, all: bool) -> Result<String> {
+pub fn git_diff(current_dir: &Path, range: Option<&str>, staged: bool, all: bool) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.arg("diff")
         .arg("--no-ext-diff")

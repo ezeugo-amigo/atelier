@@ -2,9 +2,11 @@ use diffdesk_core::{
     app_session_id_from_env_or_args, cancel_review as core_cancel_review,
     flush_review_state as core_flush_review_state, help_text, load_drafts,
     load_review_state as core_load_review_state, load_session as core_load_session,
-    read_input_diff, save_drafts as core_save_drafts, save_file_review as core_save_file_review,
-    submit_review as core_submit_review, DraftFile, ReviewComment, ReviewStateFile, SessionFile,
-    SubmitPayload, SubmitResult,
+    read_file_content as core_read_file_content, read_input_diff,
+    refresh_diff as core_refresh_diff, save_drafts as core_save_drafts,
+    save_file_review as core_save_file_review, submit_review as core_submit_review,
+    write_file_content as core_write_file_content, DraftFile, ReviewComment, ReviewStateFile,
+    SessionFile, SubmitPayload, SubmitResult,
 };
 use serde::Serialize;
 use std::env;
@@ -87,6 +89,21 @@ fn submit_review(
 }
 
 #[tauri::command]
+fn read_file_content(session_id: String, path: String) -> Result<String, String> {
+    core_read_file_content(&session_id, &path).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn write_file_content(session_id: String, path: String, content: String) -> Result<(), String> {
+    core_write_file_content(&session_id, &path, &content).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn refresh_diff(session_id: String) -> Result<String, String> {
+    core_refresh_diff(&session_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn cancel_review(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
@@ -130,7 +147,10 @@ pub fn run() {
             save_file_review,
             save_drafts,
             submit_review,
-            cancel_review
+            cancel_review,
+            read_file_content,
+            write_file_content,
+            refresh_diff
         ])
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
