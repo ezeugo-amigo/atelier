@@ -91,7 +91,7 @@ fn resolve_app_command(args: &ParsedArgs) -> Result<String> {
     }
 
     Err(anyhow!(
-        "could not find Diffdesk app binary. Build/run the app first, or pass --app-command <path>, or set DIFFDESK_APP. In development, run: pnpm dev -- --session <session-id>"
+        "could not find Diffdesk app binary. Build/run the app first, or pass --app-command <path>, or set DIFFDESK_APP. In development, run: bun dev -- --session <session-id>"
     ))
 }
 
