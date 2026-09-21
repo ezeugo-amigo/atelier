@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "ai.diffdesk.desktop",
   "build": {
-    "beforeDevCommand": "pnpm vite",
+    "beforeDevCommand": "bun vite",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm vite:build",
+    "beforeBuildCommand": "bun vite:build",
     "frontendDist": "../dist"
   },
   "app": {

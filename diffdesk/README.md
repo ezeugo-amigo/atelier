@@ -16,16 +16,16 @@ A terminal-launched Tauri desktop diff reviewer with inline comments and AI-read
 ## Development
 
 ```bash
-pnpm install
-pnpm dev
+bun install
+bun dev
 ```
 
 To open a specific diff through the Tauri app in development:
 
 ```bash
-pnpm dev -- --staged
-pnpm dev -- main...HEAD
-pnpm dev -- changes.patch
+bun dev -- --staged
+bun dev -- main...HEAD
+bun dev -- changes.patch
 ```
 
 ## CLI workflow
@@ -33,7 +33,7 @@ pnpm dev -- changes.patch
 Build the app binary first:
 
 ```bash
-pnpm build
+bun run build
 ```
 
 Then build/run the CLI:

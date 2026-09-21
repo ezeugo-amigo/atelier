@@ -260,7 +260,7 @@ function printHelp() {
   console.log(`Capture Diffdesk before/after PR screenshots.
 
 Usage:
-  pnpm screenshot:pr [--base origin/main] [--head HEAD] [--pr 53]
+  bun run screenshot:pr [--base origin/main] [--head HEAD] [--pr 53]
 
 Options:
   --base REF        Ref used for before.png. Defaults to origin/main.
@@ -268,7 +268,7 @@ Options:
   --out PATH        Output directory, relative to diffdesk/. Defaults to docs/pr-assets/pr-<number>.
   --pr NUMBER       PR number for the default output path.
   --viewport WxH    Screenshot viewport. Defaults to 1440x920.
-  --skip-install    Skip pnpm install in temporary worktrees.
+  --skip-install    Skip bun install in temporary worktrees.
   --keep            Keep temporary worktrees after the run.
 `);
 }
@@ -303,7 +303,7 @@ async function renderTarget({
 }) {
   if (install) {
     console.log(`Installing dependencies for ${label}`);
-    await run("pnpm", ["install", "--frozen-lockfile"], { cwd: appDir });
+    await run("bun", ["install", "--frozen-lockfile"], { cwd: appDir });
   }
 
   console.log(`Starting Vite for ${label}`);
@@ -326,8 +326,8 @@ async function startVite(appDir) {
   const port = await freePort();
   const url = `http://127.0.0.1:${port}/`;
   const child = spawn(
-    "pnpm",
-    ["exec", "vite", "--host", "127.0.0.1", "--port", String(port)],
+    "bunx",
+    ["vite", "--host", "127.0.0.1", "--port", String(port)],
     {
       cwd: appDir,
       env: { ...process.env, CI: "1" },
