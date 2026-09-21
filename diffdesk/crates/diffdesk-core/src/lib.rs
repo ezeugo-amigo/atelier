@@ -469,7 +469,11 @@ fn resolve_editable_path(session: &SessionFile, relative_path: &str) -> Result<P
         DiffSource::Git { range: Some(_), .. } => {
             return Err(anyhow!("editing is not really supported for range diffs"))
         }
-        _ => return Err(anyhow!("editing is only supported for git working tree diffs")),
+        _ => {
+            return Err(anyhow!(
+                "editing is only supported for git working tree diffs"
+            ))
+        }
     };
 
     if Path::new(relative_path).is_absolute() {
@@ -767,7 +771,12 @@ fn git_repo_root(current_dir: &Path) -> Result<PathBuf> {
     Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
 }
 
-pub fn git_diff(current_dir: &Path, range: Option<&str>, staged: bool, all: bool) -> Result<String> {
+pub fn git_diff(
+    current_dir: &Path,
+    range: Option<&str>,
+    staged: bool,
+    all: bool,
+) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.arg("diff")
         .arg("--no-ext-diff")
