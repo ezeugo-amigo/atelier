@@ -1058,7 +1058,7 @@ type LineHandlers = {
   registerNode: (el: HTMLDivElement | null) => void;
   onInput: (text: string) => void;
   onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
-  onActivate: () => void;
+  onActivate: (event: ReactMouseEvent<HTMLDivElement>) => void;
 };
 
 function FileDiff({
@@ -1127,6 +1127,13 @@ function FileDiff({
   const hiddenNodesRef = useRef<Set<HTMLElement>>(new Set());
   const handlersRef = useRef<Map<LineKey, LineHandlers>>(new Map());
   const pendingCaretOffsetRef = useRef<number | null>(null);
+  const pendingInsertionRef = useRef<{ afterKey: LineKey; text: string } | null>(
+    null,
+  );
+
+  const pendingDeletionRef = useRef<LineKey | null>(null);
+  const pendingRefocusLineNumberRef = useRef<number | null>(null);
+  const pendingRefocusCaretRef = useRef<"start" | "end">("start");
 
   function registerLineElements(node: HTMLElement) {
     const shadow = node.shadowRoot;
@@ -1165,13 +1172,14 @@ function FileDiff({
     style.border = "none";
     style.outline = "none";
     style.zIndex = "2147483647";
-    style.overflow = "hidden";
+    style.overflow = "visible";
     style.fontFamily = computed.fontFamily;
     style.fontSize = computed.fontSize;
     style.fontWeight = computed.fontWeight;
     style.lineHeight = computed.lineHeight;
     style.letterSpacing = computed.letterSpacing;
     style.color = computed.color;
+    style.caretColor = computed.color;
     style.backgroundColor = computed.backgroundColor;
     style.paddingLeft = computed.paddingLeft;
     style.paddingRight = computed.paddingRight;
@@ -1238,11 +1246,22 @@ function FileDiff({
       setPendingTick((tick) => tick + 1);
       return;
     }
-    if (
-      event.key === "ArrowUp" ||
-      event.key === "ArrowDown" ||
-      event.key === "Enter"
-    ) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const offset = caretOffsetIn(el);
+      const text = el.textContent ?? "";
+      editsRef.current.set(key, text.slice(0, offset));
+      pendingInsertionRef.current = { afterKey: key, text: text.slice(offset) };
+      void commitEditsRef.current();
+      return;
+    }
+    if (event.key === "Backspace" && (el.textContent ?? "") === "") {
+      event.preventDefault();
+      pendingDeletionRef.current = key;
+      void commitEditsRef.current();
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       const offset = caretOffsetIn(el);
       editsRef.current.set(key, el.textContent ?? "");
@@ -1259,10 +1278,17 @@ function FileDiff({
   async function commitEdits() {
     const { file, sessionId, onFileSaved, onEditStatus } = ctxRef.current;
     const activeKey = activeLineKeyRef.current;
-    if (activeKey !== null) {
+    const insertion = pendingInsertionRef.current;
+    pendingInsertionRef.current = null;
+    const deletion = pendingDeletionRef.current;
+    pendingDeletionRef.current = null;
+    // here would clobber that with the pre-edit text.
+    if (activeKey !== null && insertion === null && deletion === null) {
       const el = overlayNodesRef.current.get(activeKey);
       if (el !== undefined) editsRef.current.set(activeKey, el.textContent ?? "");
     }
+    if (deletion !== null) editsRef.current.delete(deletion);
+
     const changed = new Map<LineKey, string>();
     for (const [key, text] of editsRef.current) {
       const original =
@@ -1279,7 +1305,11 @@ function FileDiff({
     setActiveLineKey(null);
     setPendingTick((tick) => tick + 1);
 
-    if (changed.size === 0 || file.newPath === null) return;
+    if (
+      (changed.size === 0 && insertion === null && deletion === null) ||
+      file.newPath === null
+    )
+      return;
 
     try {
       onEditStatus(`Saving ${file.displayPath}…`);
@@ -1299,6 +1329,36 @@ function FileDiff({
         }
         lines[lineNumber - 1] = text;
       }
+      if (insertion !== null) {
+        const anchorLineNumber =
+          ctxRef.current.flat.find((entry) => entry.key === insertion.afterKey)
+            ?.line.newLineNumber ?? null;
+        if (
+          anchorLineNumber === null ||
+          anchorLineNumber < 1 ||
+          anchorLineNumber > lines.length
+        ) {
+          throw new Error(
+            `${file.displayPath} changed on disk since it was opened; reopen the diff to edit it.`,
+          );
+        }
+        lines.splice(anchorLineNumber, 0, insertion.text);
+        pendingRefocusCaretRef.current = "start";
+        pendingRefocusLineNumberRef.current = anchorLineNumber + 1;
+      }
+      if (deletion !== null) {
+        const lineNumber =
+          ctxRef.current.flat.find((entry) => entry.key === deletion)?.line
+            .newLineNumber ?? null;
+        if (lineNumber === null || lineNumber < 1 || lineNumber > lines.length) {
+          throw new Error(
+            `${file.displayPath} changed on disk since it was opened; reopen the diff to edit it.`,
+          );
+        }
+        lines.splice(lineNumber - 1, 1);
+        pendingRefocusCaretRef.current = lineNumber <= 1 ? "start" : "end";
+        pendingRefocusLineNumberRef.current = Math.max(1, lineNumber - 1);
+      }
       await invoke("write_file_content", {
         sessionId,
         path: file.newPath,
@@ -1308,6 +1368,7 @@ function FileDiff({
       onFileSaved(rawDiff);
       onEditStatus(`Saved ${file.displayPath}`);
     } catch (error) {
+      pendingRefocusLineNumberRef.current = null;
       onEditStatus(`Save failed: ${stringifyError(error)}`);
     }
   }
@@ -1333,7 +1394,18 @@ function FileDiff({
         },
         onInput: (text) => editsRef.current.set(key, text),
         onKeyDown: (event) => handleOverlayKeyDownRef.current(key, event),
-        onActivate: () => beginOrMoveToRef.current(key, null),
+        onActivate: (event) => {
+          // This overlay isn't editable yet (`active` is false), so the
+          // click didn't place a native caret anywhere — hit-test it against
+          // the overlay's own (currently plain, non-editable) text so
+          // reactivating a line lands under the cursor instead of the end.
+          pendingCaretOffsetRef.current = caretOffsetFromPoint(
+            overlayNodesRef.current.get(key) ?? null,
+            event.clientX,
+            event.clientY,
+          );
+          beginOrMoveToRef.current(key, null);
+        },
       };
       handlersRef.current.set(key, handlers);
     }
@@ -1346,15 +1418,22 @@ function FileDiff({
     return Array.from(keys);
   }, [activeLineKey, pendingTick]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (activeLineKey === null) return;
-    const el = overlayNodesRef.current.get(activeLineKey);
-    if (el === undefined) return;
-    el.focus();
     const offset = pendingCaretOffsetRef.current;
     pendingCaretOffsetRef.current = null;
-    const text = el.textContent ?? "";
-    placeCaretAtOffset(el, offset === null ? text.length : offset);
+    // A body-portaled element focused synchronously in the same commit that
+    // created it doesn't reliably show a blinking caret in every WebView —
+    // deferring to the next frame, after the browser has actually painted
+    // it, avoids that.
+    const frame = window.requestAnimationFrame(() => {
+      const el = overlayNodesRef.current.get(activeLineKey);
+      if (el === undefined) return;
+      el.focus();
+      const text = el.textContent ?? "";
+      placeCaretAtOffset(el, offset === null ? text.length : offset);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [activeLineKey]);
 
   useEffect(() => {
@@ -1369,6 +1448,26 @@ function FileDiff({
       window.removeEventListener("resize", reposition);
     };
   }, [isEditing]);
+
+  // After an Enter/Backspace-triggered insertion or deletion commits and this
+  // file's diff refreshes for real, resume editing at the equivalent spot so
+  // typing feels continuous across the save+re-diff round trip.
+  useLayoutEffect(() => {
+    const lineNumber = pendingRefocusLineNumberRef.current;
+    if (lineNumber === null) return;
+    const entry = flat.find(
+      (item) =>
+        item.line.newLineNumber === lineNumber &&
+        isEditableLineKind(item.line.kind),
+    );
+    if (entry === undefined) return;
+    pendingRefocusLineNumberRef.current = null;
+    pendingCaretOffsetRef.current =
+      pendingRefocusCaretRef.current === "end"
+        ? entry.line.content.length
+        : 0;
+    beginOrMoveToRef.current(entry.key, null);
+  }, [flat]);
 
   function handleDiffAreaMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
     if (!editable) return;
@@ -1388,6 +1487,18 @@ function FileDiff({
     const target = lineEntriesRef.current[idx];
     if (target === undefined || !isEditableLineKind(target.line.kind)) return;
     event.preventDefault();
+    // This click lands on @pierre/diffs' rendered (soon-to-be-hidden) line,
+    // not on our own overlay — it doesn't exist yet — so the browser can't
+    // place a caret for us the way it would on a real click into a
+    // contentEditable. Hit-test the click point against that line's text
+    // ourselves so the very first activation lands where you actually
+    // clicked instead of always defaulting to the end of the line.
+    const lineEl = lineNodesRef.current[idx];
+    pendingCaretOffsetRef.current = caretOffsetFromPoint(
+      lineEl,
+      event.clientX,
+      event.clientY,
+    );
     beginOrMoveTo(target.key, target.line.content);
   }
 
@@ -1781,7 +1892,7 @@ const EditableLineOverlay = memo(
     active: boolean;
     initialText: string;
     registerNode: (el: HTMLDivElement | null) => void;
-    onActivate: () => void;
+    onActivate: (event: ReactMouseEvent<HTMLDivElement>) => void;
     onInput: (text: string) => void;
     onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
   }) {
@@ -1845,12 +1956,34 @@ function isEditableLineKind(kind: DiffLineKind): boolean {
 }
 
 function placeCaretAtOffset(el: HTMLElement, offset: number): void {
+  // An empty contentEditable renders no visible caret in some engines unless
+  // it has a real child to anchor the selection to. `<br>` is the standard
+  // placeholder browsers themselves use for an empty editable line — unlike a
+  // bare empty text node, it reliably produces a visible caret, and unlike a
+  // zero-width-space hack it never shows up in `el.textContent` afterward, so
+  // nothing needs to strip it back out once the user starts typing.
+  //
+  // Checking `textContent` rather than `childNodes.length` matters: a line
+  // that was typed into and then deleted back to empty (native backspace) can
+  // be left by the browser as an empty text node rather than zero children,
+  // which has no line-box height of its own to anchor a caret to either —
+  // `replaceChildren` normalizes both cases to the same real `<br>` anchor.
+  if (el.textContent === "") {
+    el.replaceChildren(document.createElement("br"));
+  }
   const firstChild = el.firstChild;
   const node =
     firstChild !== null && firstChild.nodeType === Node.TEXT_NODE
       ? firstChild
       : el;
-  const max = node.textContent?.length ?? 0;
+  // When anchoring directly on `el` (no text node — just the `<br>` above, or
+  // any other non-text child), there's no real text to offset into: the
+  // caret always belongs at index 0, before that child. Clamping to
+  // `el.childNodes.length` instead (its previous behavior) placed the caret
+  // *after* the `<br>`, on the phantom second line a trailing `<br>` implies
+  // — a position with no line box of its own inside this single-line
+  // overlay, which is exactly the "no caret visible" empty-line bug.
+  const max = node === el ? 0 : (node.textContent?.length ?? 0);
   const range = document.createRange();
   range.setStart(node, Math.max(0, Math.min(offset, max)));
   range.collapse(true);
@@ -1865,6 +1998,59 @@ function caretOffsetIn(el: HTMLElement): number {
   const range = selection.getRangeAt(0);
   if (!el.contains(range.startContainer)) return 0;
   return range.startOffset;
+}
+
+/**
+ * Converts a click point into a character offset within `container`'s text,
+ * for the cases where a click needs to choose a caret position before that
+ * position exists as a real, focused contentEditable yet (the very first
+ * activation of a line, or reactivating a previously-edited one) — a native
+ * click handles this on its own once the element is actually editable, but
+ * these earlier clicks land on plain rendered text instead.
+ *
+ * This measures each character in `container` directly with
+ * `Range.getBoundingClientRect` instead of using
+ * `document.caretRangeFromPoint`/`caretPositionFromPoint`. `@pierre/diffs`
+ * renders every line inside an open shadow root, and those two document-level
+ * point APIs retarget a hit inside a shadow tree to the shadow host (per
+ * shadow DOM hit-test encapsulation — see WebKit bug 87231), so on a WebKit
+ * WebView (this app runs in Tauri) they essentially never resolve to a node
+ * inside `container` and always fell back to "no offset found". Measuring
+ * `container`'s own text nodes directly sidesteps that: no point-from-document
+ * lookup is involved, only a node reference we already have.
+ */
+function caretOffsetFromPoint(
+  container: HTMLElement | null,
+  x: number,
+  y: number,
+): number | null {
+  if (container === null) return null;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  let total = 0;
+  let best: { offset: number; distance: number } | null = null;
+  for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+    const length = node.textContent?.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+      const withinRow = y >= rect.top && y <= rect.bottom;
+      const afterChar = x >= rect.left + rect.width / 2;
+      if (withinRow && x >= rect.left && x <= rect.right) {
+        return total + i + (afterChar ? 1 : 0);
+      }
+      const dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+      const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
+      const distance = dx * dx + dy * dy;
+      if (best === null || distance < best.distance) {
+        best = { offset: total + i + (afterChar ? 1 : 0), distance };
+      }
+    }
+    total += length;
+  }
+  return best?.offset ?? total;
 }
 
 function commentsFromDrafts(
