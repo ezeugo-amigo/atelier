@@ -13,9 +13,11 @@ the Clay accent, serif weekday, regular density — so the prototype's explorato
 -}
 
 import Browser
+import Browser.Dom as Dom
+import Browser.Events as BE
 import DateUtil
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, h1, header, p, section, span, text, textarea)
+import Html exposing (Html, button, div, h1, header, input, p, section, span, text, textarea)
 import Html.Attributes as A
 import Html.Events as Ev
 import Json.Decode as Decode
@@ -23,6 +25,7 @@ import Json.Encode as Encode
 import Mention
 import Svg
 import Svg.Attributes as SA
+import Task as ElmTask
 
 
 
@@ -93,7 +96,15 @@ type alias Task =
     , completedAt : Maybe String -- ISO date it was checked off
     , day : String -- ISO date it currently lives on (carry-over moves this)
     , order : Int
+    , status : Status -- only meaningful while the task isn't done
+    , blockedOn : Maybe String -- what it's waiting on, set when status is Blocked
     }
+
+
+type Status
+    = NotStarted
+    | InProgress
+    | Blocked
 
 
 type ViewMode
@@ -151,6 +162,7 @@ type alias Model =
     , dragOverId : Maybe String
     , dropAfterId : Maybe String
     , mention : Maybe MentionMenu
+    , statusMenuId : Maybe String -- task whose status menu is open
     }
 
 
@@ -175,6 +187,7 @@ init flags =
       , dragOverId = Nothing
       , dropAfterId = Nothing
       , mention = Nothing
+      , statusMenuId = Nothing
       }
     , dbLoad ()
     )
@@ -209,6 +222,12 @@ type Msg
     | Delete String
     | CalShift Int
     | CalSelect String
+    | ToggleStatusMenu String
+    | SetStatus String Status
+    | CloseStatusMenu
+    | BlockedOnInput String String
+    | Focused (Result Dom.Error ())
+    | NoOp
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -473,6 +492,44 @@ update msg model =
         CalSelect iso ->
             ( { model | calSelected = iso }, Cmd.none )
 
+        ToggleStatusMenu id ->
+            ( { model
+                | statusMenuId =
+                    if model.statusMenuId == Just id then
+                        Nothing
+
+                    else
+                        Just id
+              }
+            , Cmd.none
+            )
+
+        CloseStatusMenu ->
+            ( { model | statusMenuId = Nothing }, Cmd.none )
+
+        SetStatus id status ->
+            let
+                ( updated, saveCmd ) =
+                    persist (mapTask id (\t -> { t | status = status }) model)
+
+                focusCmd =
+                    if status == Blocked then
+                        ElmTask.attempt Focused (Dom.focus (blockedOnFieldId id))
+
+                    else
+                        Cmd.none
+            in
+            ( { updated | statusMenuId = Nothing }, Cmd.batch [ saveCmd, focusCmd ] )
+
+        BlockedOnInput id value ->
+            persist (mapTask id (\t -> { t | blockedOn = Just value }) model)
+
+        Focused _ ->
+            ( model, Cmd.none )
+
+        NoOp ->
+            ( model, Cmd.none )
+
 
 moveToToday : String -> Model -> ( Model, Cmd Msg )
 moveToToday newToday model =
@@ -552,6 +609,8 @@ submitAdd model =
                 , completedAt = Nothing
                 , day = model.today
                 , order = maxOrder + 1
+                , status = NotStarted
+                , blockedOn = Nothing
                 }
         in
         persist
@@ -566,6 +625,11 @@ submitAdd model =
 persist : Model -> ( Model, Cmd Msg )
 persist model =
     ( model, dbSave (encodeTasks model.tasks) )
+
+
+blockedOnFieldId : String -> String
+blockedOnFieldId id =
+    "blocked-on-" ++ id
 
 
 
@@ -1001,9 +1065,14 @@ caretPosDecoder =
         (Decode.field "viewHeight" Decode.float)
 
 
+{-| `status` and `blockedOn` are missing from any task persisted before this
+field existed, so both fall back rather than failing the whole decode. -}
 taskDecoder : Decode.Decoder Task
 taskDecoder =
-    Decode.map8 Task
+    Decode.map8
+        (\id title note done createdAt completedAt day order ->
+            Task id title note done createdAt completedAt day order
+        )
         (Decode.field "id" Decode.string)
         (Decode.field "title" Decode.string)
         (Decode.field "note" Decode.string)
@@ -1012,6 +1081,32 @@ taskDecoder =
         (Decode.field "completedAt" (Decode.nullable Decode.string))
         (Decode.field "day" Decode.string)
         (Decode.field "order" Decode.int)
+        |> Decode.andThen
+            (\mk ->
+                Decode.map2 mk
+                    (Decode.oneOf [ Decode.field "status" statusDecoder, Decode.succeed NotStarted ])
+                    (Decode.oneOf [ Decode.field "blockedOn" (Decode.nullable Decode.string), Decode.succeed Nothing ])
+            )
+
+
+statusDecoder : Decode.Decoder Status
+statusDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\s ->
+                case s of
+                    "not-started" ->
+                        Decode.succeed NotStarted
+
+                    "in-progress" ->
+                        Decode.succeed InProgress
+
+                    "blocked" ->
+                        Decode.succeed Blocked
+
+                    _ ->
+                        Decode.fail ("unknown status: " ++ s)
+            )
 
 
 encodeTasks : List Task -> Encode.Value
@@ -1030,7 +1125,24 @@ encodeTask t =
         , ( "completedAt", Maybe.withDefault Encode.null (Maybe.map Encode.string t.completedAt) )
         , ( "day", Encode.string t.day )
         , ( "order", Encode.int t.order )
+        , ( "status", encodeStatus t.status )
+        , ( "blockedOn", Maybe.withDefault Encode.null (Maybe.map Encode.string t.blockedOn) )
         ]
+
+
+encodeStatus : Status -> Encode.Value
+encodeStatus status =
+    Encode.string
+        (case status of
+            NotStarted ->
+                "not-started"
+
+            InProgress ->
+                "in-progress"
+
+            Blocked ->
+                "blocked"
+        )
 
 
 
@@ -1587,6 +1699,14 @@ viewTask model carried task =
                 text ""
 
               else
+                viewStatusControl model task
+            , if task.done then
+                -- Done tasks aren't draggable, but still reserve the handle's
+                -- width so the title lines up with open tasks and the group
+                -- eyebrow above it.
+                span [ A.class "drag-handle-spacer", A.attribute "aria-hidden" "true" ] []
+
+              else
                 viewDragHandle task
             , viewCheck task
             , div [ A.class "task-body", Ev.onClick (ToggleOpen task.id) ]
@@ -1602,6 +1722,11 @@ viewTask model carried task =
                     }
                 , if hasNote && not isOpen then
                     span [ A.class "task-note-preview" ] (viewChips firstLine)
+
+                  else
+                    text ""
+                , if task.status == Blocked then
+                    viewBlockedOn task
 
                   else
                     text ""
@@ -1702,6 +1827,92 @@ viewCheck task =
                 ]
                 []
             ]
+        ]
+
+
+
+-- STATUS
+
+
+viewStatusControl : Model -> Task -> Html Msg
+viewStatusControl model task =
+    div [ A.class "status-control" ]
+        [ button
+            [ A.classList
+                [ ( "status-dot", True )
+                , ( "is-" ++ statusClass task.status, True )
+                ]
+            , A.attribute "aria-label" ("Status: " ++ statusLabel task.status)
+            , A.title (statusLabel task.status)
+            , Ev.stopPropagationOn "click" (Decode.succeed ( ToggleStatusMenu task.id, True ))
+            ]
+            []
+        , if model.statusMenuId == Just task.id then
+            viewStatusMenu task
+
+          else
+            text ""
+        ]
+
+
+viewStatusMenu : Task -> Html Msg
+viewStatusMenu task =
+    div [ A.class "status-menu", A.attribute "role" "listbox" ]
+        (List.map (viewStatusMenuItem task) [ NotStarted, InProgress, Blocked ])
+
+
+viewStatusMenuItem : Task -> Status -> Html Msg
+viewStatusMenuItem task status =
+    button
+        [ A.classList [ ( "status-menu-item", True ), ( "is-active", task.status == status ) ]
+        , A.attribute "role" "option"
+        , Ev.stopPropagationOn "click" (Decode.succeed ( SetStatus task.id status, True ))
+        ]
+        [ span [ A.classList [ ( "status-dot", True ), ( "is-" ++ statusClass status, True ) ] ] []
+        , text (statusLabel status)
+        ]
+
+
+statusClass : Status -> String
+statusClass status =
+    case status of
+        NotStarted ->
+            "not-started"
+
+        InProgress ->
+            "in-progress"
+
+        Blocked ->
+            "blocked"
+
+
+statusLabel : Status -> String
+statusLabel status =
+    case status of
+        NotStarted ->
+            "Not started"
+
+        InProgress ->
+            "In progress"
+
+        Blocked ->
+            "Blocked"
+
+
+viewBlockedOn : Task -> Html Msg
+viewBlockedOn task =
+    div [ A.class "blocked-on" ]
+        [ span [ A.class "blocked-on-icon", A.attribute "aria-hidden" "true" ] [ text "—" ]
+        , input
+            [ A.id (blockedOnFieldId task.id)
+            , A.class "blocked-on-input"
+            , A.type_ "text"
+            , A.value (Maybe.withDefault "" task.blockedOn)
+            , A.placeholder "What's it blocked on?"
+            , Ev.onInput (BlockedOnInput task.id)
+            , Ev.stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
+            ]
+            []
         ]
 
 
@@ -1925,7 +2136,7 @@ main =
         , update = update
         , view = view
         , subscriptions =
-            \_ ->
+            \model ->
                 Sub.batch
                     [ dbLoaded GotStored
                     , todayChanged GotToday
@@ -1936,5 +2147,10 @@ main =
                     , taskDroppedAfter DropAfter
                     , taskDragEnded (\_ -> DragEnd)
                     , caretPos GotCaretPos
+                    , if model.statusMenuId /= Nothing then
+                        BE.onClick (Decode.succeed CloseStatusMenu)
+
+                      else
+                        Sub.none
                     ]
         }
