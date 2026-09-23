@@ -23,6 +23,7 @@ import Html.Events as Ev
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Mention
+import Set exposing (Set)
 import Svg
 import Svg.Attributes as SA
 import Task as ElmTask
@@ -156,6 +157,7 @@ type alias Model =
     , openId : Maybe String -- task whose note drawer is expanded
     , calCursor : ( Int, Int ) -- (year, monthIndex 0..11) shown in the calendar
     , calSelected : String -- ISO date selected for the day-detail panel
+    , calCollapsed : Set String -- tasks whose note is folded in the day-detail panel
     , nextId : Int
     , loaded : Bool
     , draggingId : Maybe String
@@ -181,6 +183,7 @@ init flags =
       , openId = Nothing
       , calCursor = ( DateUtil.year flags.today, DateUtil.monthIndex flags.today )
       , calSelected = flags.today
+      , calCollapsed = Set.empty
       , nextId = flags.seed
       , loaded = False
       , draggingId = Nothing
@@ -222,6 +225,7 @@ type Msg
     | Delete String
     | CalShift Int
     | CalSelect String
+    | CalToggleNote String
     | ToggleStatusMenu String
     | SetStatus String Status
     | CloseStatusMenu
@@ -491,6 +495,18 @@ update msg model =
 
         CalSelect iso ->
             ( { model | calSelected = iso }, Cmd.none )
+
+        CalToggleNote id ->
+            ( { model
+                | calCollapsed =
+                    if Set.member id model.calCollapsed then
+                        Set.remove id model.calCollapsed
+
+                    else
+                        Set.insert id model.calCollapsed
+              }
+            , Cmd.none
+            )
 
         ToggleStatusMenu id ->
             ( { model
@@ -2036,8 +2052,8 @@ viewCalDetail model =
 
             else
                 [ div [ A.class "detail-list" ]
-                    (List.map (viewDetailItem True) selDone
-                        ++ List.map (viewDetailItem False) selOpen
+                    (List.map (viewDetailItem model True) selDone
+                        ++ List.map (viewDetailItem model False) selOpen
                     )
                 ]
     in
@@ -2050,19 +2066,61 @@ viewCalDetail model =
         )
 
 
-viewDetailItem : Bool -> Task -> Html Msg
-viewDetailItem isDone task =
-    div [ A.classList [ ( "detail-item", True ), ( "is-done", isDone ) ] ]
-        [ if isDone then
-            span [ A.class "detail-tick" ]
-                [ Svg.svg
-                    [ SA.viewBox "0 0 24 24", SA.width "13", SA.height "13", SA.fill "none", SA.stroke "currentColor", SA.strokeWidth "2.6", SA.strokeLinecap "round", SA.strokeLinejoin "round" ]
-                    [ Svg.path [ SA.d "M5 12.5 L10 17.5 L19 7" ] [] ]
+viewDetailItem : Model -> Bool -> Task -> Html Msg
+viewDetailItem model isDone task =
+    let
+        hasNote =
+            String.trim task.note /= ""
+
+        expanded =
+            hasNote && not (Set.member task.id model.calCollapsed)
+
+        tick =
+            if isDone then
+                span [ A.class "detail-tick" ]
+                    [ Svg.svg
+                        [ SA.viewBox "0 0 24 24", SA.width "13", SA.height "13", SA.fill "none", SA.stroke "currentColor", SA.strokeWidth "2.6", SA.strokeLinecap "round", SA.strokeLinejoin "round" ]
+                        [ Svg.path [ SA.d "M5 12.5 L10 17.5 L19 7" ] [] ]
+                    ]
+
+            else
+                span [ A.class "detail-tick is-open" ] []
+
+        title =
+            span [ A.class "detail-title" ] (viewChips task.title)
+    in
+    div
+        [ A.classList
+            [ ( "detail-item", True )
+            , ( "is-done", isDone )
+            , ( "is-expanded", expanded )
+            ]
+        ]
+        [ if hasNote then
+            button
+                [ A.class "detail-row has-note"
+                , A.attribute "aria-expanded"
+                    (if expanded then
+                        "true"
+
+                     else
+                        "false"
+                    )
+                , Ev.onClick (CalToggleNote task.id)
+                ]
+                [ tick
+                , title
+                , span [ A.class "detail-chevron", A.attribute "aria-hidden" "true" ]
+                    [ strokeSvg "14" "1.7" [ Svg.path [ SA.d "M6 9l6 6 6-6" ] [] ] ]
                 ]
 
           else
-            span [ A.class "detail-tick is-open" ] []
-        , span [ A.class "detail-title" ] (viewChips task.title)
+            div [ A.class "detail-row" ] [ tick, title ]
+        , if expanded then
+            div [ A.class "detail-note" ] (viewChips task.note)
+
+          else
+            text ""
         ]
 
 

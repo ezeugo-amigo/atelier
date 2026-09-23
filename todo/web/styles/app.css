@@ -403,8 +403,27 @@ body.is-reordering { user-select: none; cursor: grabbing; }
 .detail-date { font-family: var(--font-mono); font-size: 11px; color: var(--content-support); letter-spacing: 0.04em; }
 .detail-empty { font-size: 13.5px; color: var(--content-placeholder); }
 .detail-list { display: flex; flex-direction: column; gap: 1px; }
-.detail-item {
-  display: flex; align-items: center; gap: 11px; padding: 7px 0;
+.detail-item { padding: 7px 0; }
+.detail-row {
+  display: flex; align-items: center; gap: 11px;
+  width: 100%; padding: 0; border: none; background: transparent;
+  font: inherit; color: inherit; text-align: left;
+}
+.detail-row.has-note { cursor: pointer; }
+.detail-chevron {
+  flex-shrink: 0; margin-left: auto;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: var(--radius-sm);
+  color: var(--content-placeholder);
+  transform: rotate(-90deg);
+  transition: transform var(--motion-fast), color var(--motion-fast), background var(--motion-fast);
+}
+.detail-row.has-note:hover .detail-chevron { color: var(--content-body); background: var(--warm-1); }
+.detail-item.is-expanded .detail-chevron { transform: none; }
+.detail-note {
+  margin: 4px 0 2px 28px;
+  font-size: 13px; line-height: 1.45; color: var(--content-support);
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word;
 }
 .detail-tick {
   flex-shrink: 0; width: 17px; height: 17px; border-radius: 50%;
@@ -457,7 +476,8 @@ body.is-reordering { user-select: none; cursor: grabbing; }
   box-shadow: none;
 }
 .task-note-preview .mention-chip,
-.detail-title .mention-chip { background: transparent; box-shadow: none; }
+.detail-title .mention-chip,
+.detail-note .mention-chip { background: transparent; box-shadow: none; }
 
 /* Geometry here is mirrored by menuWidth/menuRowHeight/menuPadding in Main.elm,
    which does the on-screen clamping. Keep them in step. */
