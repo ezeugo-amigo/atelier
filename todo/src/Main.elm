@@ -17,7 +17,7 @@ import Browser.Dom as Dom
 import Browser.Events as BE
 import DateUtil
 import Dict exposing (Dict)
-import Html exposing (Html, button, div, h1, header, input, p, section, span, text, textarea)
+import Html exposing (Html, button, div, h1, header, p, section, span, text, textarea)
 import Html.Attributes as A
 import Html.Events as Ev
 import Json.Decode as Decode
@@ -1919,14 +1919,27 @@ viewBlockedOn : Task -> Html Msg
 viewBlockedOn task =
     div [ A.class "blocked-on" ]
         [ span [ A.class "blocked-on-icon", A.attribute "aria-hidden" "true" ] [ text "—" ]
-        , input
+        , textarea
             [ A.id (blockedOnFieldId task.id)
             , A.class "blocked-on-input"
-            , A.type_ "text"
+            , A.rows 1
+            , A.attribute "wrap" "soft"
+            , A.attribute "data-autosize" "blocked"
             , A.value (Maybe.withDefault "" task.blockedOn)
             , A.placeholder "What's it blocked on?"
-            , Ev.onInput (BlockedOnInput task.id)
+            , Ev.on "input" (Decode.map (BlockedOnInput task.id) targetValue)
             , Ev.stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
+            , Ev.preventDefaultOn "keydown"
+                (Decode.field "key" Decode.string
+                    |> Decode.andThen
+                        (\key ->
+                            if key == "Enter" then
+                                Decode.succeed ( NoOp, True )
+
+                            else
+                                Decode.fail "not enter"
+                        )
+                )
             ]
             []
         ]
