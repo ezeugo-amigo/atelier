@@ -18,7 +18,7 @@ sparingly on the checks, progress ring, and calendar dots.
 - **Carry-over** — open tasks from previous days roll into today on load.
   Completed tasks stay anchored to the day they were finished, so history stays
   truthful.
-- **Today list** — Carried over / Today / Completed groups, a progress ring,
+- **Today list** — Today / Carried over / Completed groups, a progress ring,
   inline-editable titles, expandable notes (one sub-step per line), hover-only
   drag handles for prioritizing open tasks, and an add-task row.
 - **@mentions** — type `@` in a task, a note, or the add row and the name turns

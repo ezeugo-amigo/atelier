@@ -1321,17 +1321,7 @@ viewList model =
             List.isEmpty todays
     in
     div [ A.class "list-view" ]
-        [ if List.isEmpty carried then
-            text ""
-
-          else
-            section [ A.class "group group-carried" ]
-                [ groupHead "Carried over" (Just (List.length carried))
-                , div [ A.class "group-rows" ]
-                    (List.map (viewTask model True) carried)
-                , viewDropEnd model carried
-                ]
-        , section [ A.class "group" ]
+        [ section [ A.class "group" ]
             [ if List.isEmpty carried then
                 text ""
 
@@ -1351,6 +1341,16 @@ viewList model =
                 text ""
             , viewAddRow model
             ]
+        , if List.isEmpty carried then
+            text ""
+
+          else
+            section [ A.class "group group-carried" ]
+                [ groupHead "Carried over" (Just (List.length carried))
+                , div [ A.class "group-rows" ]
+                    (List.map (viewTask model True) carried)
+                , viewDropEnd model carried
+                ]
         , if List.isEmpty doneToday then
             text ""
 
