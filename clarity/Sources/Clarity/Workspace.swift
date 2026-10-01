@@ -21,7 +21,19 @@ final class Workspace {
     private(set) var notes: [Note] = []
     private(set) var current: URL?
     private(set) var wordCount = 0
+    /// Briefly replaces the word count, e.g. to confirm a copy.
+    private(set) var statusMessage: String?
+    @ObservationIgnored private var statusTask: Task<Void, Never>?
     var showQuickOpen = false
+
+    func flash(_ message: String) {
+        statusMessage = message
+        statusTask?.cancel()
+        statusTask = Task {
+            try? await Task.sleep(for: .seconds(2))
+            if !Task.isCancelled { statusMessage = nil }
+        }
+    }
 
     var showSidebar: Bool {
         didSet { UserDefaults.standard.set(showSidebar, forKey: "showSidebar") }
