@@ -2,6 +2,8 @@
 **/node_modules
 **/dist
 **/elm-stuff
+**/.build
+clarity/build
 **/web/elm.js
 **/*.rs.bk
 *.swp
