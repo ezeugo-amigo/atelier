@@ -27,6 +27,11 @@ hide what doesn't.
   Elm three-pane frontend and typed Rust command API. It starts with an
   in-memory mailbox so provider sync can be added behind a stable boundary.
 
+- **[clarity/](clarity/)** — a native Swift Markdown editor in the spirit of
+  iA Writer: dark, monospaced, one centered column, focus mode, and
+  keyboard-first navigation over a folder of notes (Obsidian vaults included,
+  with wikilinks, tags, and callouts).
+
 - **[devhost/](devhost/)** — a local reverse-proxy runner that gives each
   development app instance a stable `.localhost` hostname derived from app,
   repo, and branch/worktree context, so parallel versions do not collide.
@@ -64,11 +69,15 @@ atelier/
 │   ├── src/           (Elm source)
 │   ├── web/           (static frontend Tauri bundles)
 │   └── src-tauri/     (its own Tauri desktop shell)
-└── lotus/             (another tool)
-    ├── elm.json       (Elm frontend)
-    ├── src/
-    ├── web/
-    └── src-tauri/     (Tauri shell + Rust command API)
+├── lotus/             (another tool)
+│   ├── elm.json       (Elm frontend)
+│   ├── src/
+│   ├── web/
+│   └── src-tauri/     (Tauri shell + Rust command API)
+└── clarity/           (another tool)
+    ├── Package.swift  (Swift package; no Xcode project)
+    ├── Resources/
+    └── Sources/Clarity/
 ```
 
 There is no top-level Cargo workspace; each tool builds independently. `cd`
