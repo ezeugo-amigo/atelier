@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .separator(),
             item("Cut", #selector(NSText.cut(_:)), "x", target: nil),
             item("Copy", #selector(NSText.copy(_:)), "c", target: nil),
+            item("Copy as Rich Text", #selector(EditorTextView.copyAsRichText(_:)), "c", [.command, .shift], target: nil),
             item("Paste", #selector(NSText.paste(_:)), "v", target: nil),
             item("Select All", #selector(NSText.selectAll(_:)), "a", target: nil),
             .separator(),

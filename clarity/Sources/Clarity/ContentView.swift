@@ -35,11 +35,13 @@ struct ContentView: View {
     }
 
     private var status: some View {
-        Text("\(workspace.wordCount.formatted()) words")
+        Text(workspace.statusMessage ?? "\(workspace.wordCount.formatted()) words")
             .font(Theme.ui(11))
-            .foregroundStyle(Color(Theme.faint))
+            .foregroundStyle(Color(workspace.statusMessage == nil ? Theme.faint : Theme.muted))
+            .contentTransition(.opacity)
             .padding(14)
-            .opacity(workspace.focusMode ? 0 : 1)
+            .opacity(workspace.focusMode && workspace.statusMessage == nil ? 0 : 1)
+            .animation(.easeOut(duration: 0.2), value: workspace.statusMessage)
             .allowsHitTesting(false)
     }
 }

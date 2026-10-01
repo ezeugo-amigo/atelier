@@ -58,6 +58,7 @@ vault, and it reads and writes them in place.
 | ⇧⌘X / ⇧⌘H / ⌥⌘C | Strikethrough / highlight / inline code |
 | ⌘K | Link: wraps the selection as `[text]()`, or inserts `[[]]` |
 | ⌘L | Toggle a task checkbox on the current line |
+| ⇧⌘C | Copy as rich text (the selection, or the whole note): pastes into Notion with tables intact |
 | ⌥⌘T | Insert table (or type `/table`) |
 | Tab / ⇧Tab | In a table: next / previous cell |
 | ⌘↩ | In a table: line break within the cell (`<br>`) |
@@ -94,7 +95,7 @@ open -a Clarity ~/notes/today.md   # a file opens in its folder
 
 ```
 clarity/
-├── Package.swift              SwiftPM executable target (macOS 14+)
+├── Package.swift              SwiftPM executable target (macOS 14+), depends on swift-markdown
 ├── Makefile                   build/install: assembles Clarity.app around the release binary
 ├── scripts/make-icon.swift    draws the app icon (`make icon` regenerates it)
 ├── Resources/
@@ -108,6 +109,7 @@ clarity/
     ├── EditorTextView+Tables.swift  /table, cell navigation, row/column commands
     ├── MarkdownTable.swift    parse a GFM table, edit rows/columns, render it aligned
     ├── MarkdownStyler.swift   regex-based Markdown styling applied as text attributes
+    ├── MarkdownHTML.swift     Markdown to HTML for Copy as Rich Text (parsed with swift-markdown)
     ├── ContentView.swift      SwiftUI layout: sidebar + editor + title + word count
     ├── Sidebar.swift          note list, most recently modified first
     ├── QuickOpen.swift        the ⌘O palette

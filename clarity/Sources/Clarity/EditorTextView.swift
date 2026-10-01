@@ -274,6 +274,19 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
         return pboard.setString(MarkdownTable.diskText(fromEditor: text), forType: .string)
     }
 
+    /// Copies the selection, or the whole note if nothing is selected, as HTML for pasting into
+    /// rich-text apps like Notion, with the Markdown alongside for plain-text apps.
+    @objc func copyAsRichText(_ sender: Any?) {
+        let ns = string as NSString
+        let ranges = selectedRange().length > 0 ? selectedRanges.map(\.rangeValue) : [NSRange(location: 0, length: ns.length)]
+        let markdown = MarkdownTable.diskText(fromEditor: ranges.map(ns.substring).joined(separator: "\n"))
+        let pboard = NSPasteboard.general
+        pboard.clearContents()
+        pboard.setString(MarkdownHTML.render(markdown), forType: .html)
+        pboard.setString(markdown, forType: .string)
+        workspace?.flash("\(markdown.count.formatted()) characters copied as rich text")
+    }
+
     // MARK: Input
 
     override func keyDown(with event: NSEvent) {
