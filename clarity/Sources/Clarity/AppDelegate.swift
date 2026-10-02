@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openFolder(_ sender: Any?) { workspace.chooseFolder() }
     @objc private func renameNote(_ sender: Any?) { workspace.rename() }
     @objc private func revealNote(_ sender: Any?) { workspace.reveal() }
+    @objc private func exportHistory(_ sender: Any?) { workspace.exportHistory() }
     @objc private func trashNote(_ sender: Any?) { workspace.trash() }
     @objc private func saveNote(_ sender: Any?) { workspace.save() }
     @objc private func toggleSidebar(_ sender: Any?) { workspace.showSidebar.toggle() }
@@ -119,6 +120,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Rename…", #selector(renameNote(_:)), "r", [.command, .shift]),
             item("Reveal in Finder", #selector(revealNote(_:)), "r", [.command, .option]),
             item("Move to Trash", #selector(trashNote(_:)), backspace, [.command, .shift]),
+            .separator(),
+            item("Export History…", #selector(exportHistory(_:)), ""),
             .separator(),
             item("Save", #selector(saveNote(_:)), "s"),
             item("Close Window", #selector(NSWindow.performClose(_:)), "w", target: nil),

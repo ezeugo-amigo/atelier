@@ -38,6 +38,9 @@ vault, and it reads and writes them in place.
 - **Autosave.** Notes save half a second after you stop typing, and when the app
   loses focus. Changes made on disk by other tools (git, sync, another editor)
   are picked up when you switch back.
+- **Edit history.** Every edit and caret move to a note is logged, so how it was
+  written can be replayed later. File ▸ Export History… saves it in the
+  [ezeugo.dev](https://ezeugo.dev) replay format.
 
 ## Keyboard
 
@@ -105,6 +108,7 @@ clarity/
 └── Sources/Clarity/
     ├── AppDelegate.swift      entry point, window, menus and every keyboard shortcut
     ├── Workspace.swift        the folder of notes: open, autosave, history, links, rename/trash
+    ├── OpLog.swift            each note's edit log: record, reconcile, store, export
     ├── EditorTextView.swift   the NSTextView: column layout, focus mode, list editing, commands
     ├── EditorTextView+Tables.swift  /table, cell navigation, row/column commands
     ├── MarkdownTable.swift    parse a GFM table, edit rows/columns, render it aligned
@@ -142,6 +146,19 @@ the editor it's U+2028 LINE SEPARATOR, swapped on load and save (and on copy).
 That character is a real line break that stays inside the row's paragraph, so
 the text system wraps it under the cell's column and the caret treats it as
 one character, with no layout tricks.
+
+**History is an op log, not snapshots.** Each note gets a JSON Lines file in
+`~/Library/Application Support/Clarity/History` (named by a hash of the note's
+path) with one entry per change: `{"t":…,"at":12,"del":"🎉","ins":"!"}` for an
+edit, `{"t":…,"sel":[0,5]}` for a caret move that an edit didn't imply. Offsets
+are UTF-16 units into the editor's text. Edits are recorded in the text
+storage's `didProcessEditing`, the one place every change passes (undo and redo
+skip `shouldChangeText`), and the log keeps its own copy of the document to
+recover what each edit replaced. When that copy disagrees with the note
+(it was changed on disk, or the app quit before a flush), one edit covering the
+difference is appended, so replaying from an empty page always ends at the
+current text. Logs follow renames and are deleted with the note. A note you
+only read never gets one.
 
 **The folder is the database.** There's no index. Notes are listed by scanning
 the folder (hidden folders like `.obsidian` and `.git` are skipped), wikilinks

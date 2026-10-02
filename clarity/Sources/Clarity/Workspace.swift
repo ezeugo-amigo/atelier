@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import UniformTypeIdentifiers
 
 struct Note: Identifiable, Hashable {
     let url: URL
@@ -78,6 +79,8 @@ final class Workspace {
     /// The editor's latest contents, not yet folded into `text`.
     @ObservationIgnored private var unsyncedEditorText: String?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// Every change to the current note, for replaying how it was written.
+    @ObservationIgnored private var history: OpLog?
     @ObservationIgnored private var back: [URL] = []
     @ObservationIgnored private var forward: [URL] = []
 
@@ -117,7 +120,9 @@ final class Workspace {
         current = url
         text = url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
         savedText = text
-        wordCount = Self.countWords(MarkdownTable.editorText(fromDisk: text))
+        let shown = MarkdownTable.editorText(fromDisk: text)
+        wordCount = Self.countWords(shown)
+        history = url.map { OpLog(note: $0, text: shown) }
         UserDefaults.standard.set(url, forKey: "lastNote")
         showInEditor()
     }
@@ -231,8 +236,10 @@ final class Workspace {
         unsyncedEditorText = newText
         if current == nil {
             syncText()
-            current = createNote(contents: text)
+            let url = createNote(contents: text)
+            current = url
             savedText = text
+            history = OpLog(note: url, text: newText)
             updateTitle()
         }
         saveTask?.cancel()
@@ -240,6 +247,15 @@ final class Workspace {
             try? await Task.sleep(for: .milliseconds(500))
             if !Task.isCancelled { save() }
         }
+    }
+
+    /// Called for every change to the editor's characters, once `document` holds the new text.
+    func textDidEdit(_ range: NSRange, changeInLength delta: Int, in document: NSString) {
+        history?.record(edited: range, changeInLength: delta, in: document)
+    }
+
+    func selectionDidChange(_ range: NSRange) {
+        history?.record(selection: range)
     }
 
     private func syncText() {
@@ -253,6 +269,7 @@ final class Workspace {
         saveTask?.cancel()
         saveTask = nil
         syncText()
+        history?.flush()
         guard let current, text != savedText else { return }
         do {
             try text.write(to: current, atomically: true, encoding: .utf8)
@@ -270,6 +287,7 @@ final class Workspace {
         guard FileManager.default.fileExists(atPath: current.path) else {
             text = ""
             savedText = ""
+            history = nil
             show(notes.first?.url)
             return
         }
@@ -278,6 +296,7 @@ final class Workspace {
         savedText = disk
         let shown = MarkdownTable.editorText(fromDisk: disk)
         wordCount = Self.countWords(shown)
+        history?.reconcile(with: shown)
         editor?.load(shown, keepSelection: true)
     }
 
@@ -325,10 +344,12 @@ final class Workspace {
             NSAlert(error: error).runModal()
             return
         }
+        OpLog.move(from: url, to: destination)
         back = back.map { $0 == url ? destination : $0 }
         forward = forward.map { $0 == url ? destination : $0 }
         if current == url {
             current = destination
+            history?.note = destination
             UserDefaults.standard.set(destination, forKey: "lastNote")
             updateTitle()
         }
@@ -349,8 +370,25 @@ final class Workspace {
             NSAlert(error: error).runModal()
             return
         }
+        if url == current { history = nil }
+        OpLog.remove(for: url)
         scan()
         if url == current { show(next ?? notes.first?.url) }
+    }
+
+    /// Saves the current note's edit history in ezeugo.dev's replay format.
+    func exportHistory() {
+        guard let current, let history else { return }
+        save()
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "\(current.deletingPathExtension().lastPathComponent) history.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try history.exportForSite().write(to: url, options: .atomic)
+        } catch {
+            NSAlert(error: error).runModal()
+        }
     }
 
     func reveal(_ target: URL? = nil) {

@@ -38,6 +38,8 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     private var ownedStorage: NSTextStorage?
     private var columnOriginX: CGFloat = 0
     private var laidOutSize: NSSize = .zero
+    /// Opening a note isn't an edit, so it stays out of the history.
+    private var isLoading = false
 
     static func makeScrollable(fontSize: CGFloat) -> (NSScrollView, EditorTextView) {
         let storage = NSTextStorage()
@@ -103,6 +105,8 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     // MARK: Content
 
     func load(_ text: String, keepSelection: Bool = false) {
+        isLoading = true
+        defer { isLoading = false }
         let selection = selectedRange()
         string = text
         typingAttributes = styler.baseAttributes
@@ -128,10 +132,14 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     /// Restyling in willProcessEditing would widen the edited range to the whole document and throw
     /// the caret to the end, so style afterwards and redo AppKit's font fallback (for ⌘, emoji, CJK)
     /// that our attributes just replaced.
+    ///
+    /// Also the one place every character change passes, undo and redo included (they bypass
+    /// shouldChangeText), so it's where edits are recorded for the note's history.
     func textStorage(
         _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions, range editedRange: NSRange, changeInLength delta: Int
     ) {
         guard editedMask.contains(.editedCharacters) else { return }
+        if !isLoading { workspace?.textDidEdit(editedRange, changeInLength: delta, in: textStorage.mutableString) }
         let ns = textStorage.string as NSString
         var dirty = ns.paragraphRange(for: editedRange)
         if dirty.location > 0 {
@@ -200,6 +208,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
 
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if !stillSelecting, !isLoading, let range = ranges.first?.rangeValue { workspace?.selectionDidChange(range) }
         guard focusMode else { return }
         updateFocusDimming()
         if !stillSelecting { centerCaret() }
