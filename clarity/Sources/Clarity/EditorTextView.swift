@@ -25,18 +25,23 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
 
     var focusMode = false {
         didSet {
+            updateComments()
             layoutColumn(force: true)
             updateFocusDimming()
             centerCaret()
         }
     }
 
-    private var styler = MarkdownStyler(fontSize: 16)
+    private(set) var styler = MarkdownStyler(fontSize: 16)
     /// Fences, frontmatter and comments as of the last restyle; see `MarkdownStyler.apply`.
     private var structureSignature = ""
     /// A text view built around an existing container doesn't retain its storage.
     private var ownedStorage: NSTextStorage?
-    private var columnOriginX: CGFloat = 0
+    private(set) var columnOriginX: CGFloat = 0
+    /// Open comments whose passage was found, in document order; see `updateComments`.
+    var anchoredComments: [(comment: Comment, range: NSRange)] = []
+    /// Cards and markers drawn over the text, by comment id and role.
+    var commentViews: [String: NSView] = [:]
     private var laidOutSize: NSSize = .zero
     /// Opening a note isn't an edit, so it stays out of the history.
     private var isLoading = false
@@ -118,6 +123,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
             scroll(.zero)
         }
         updateFocusDimming()
+        updateComments()
         centerCaret()
     }
 
@@ -160,6 +166,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     override func didChangeText() {
         super.didChangeText()
         workspace?.textDidChange(string)
+        updateComments()
         // Typing moves the caret without a usable selection-change callback, so recenter here too;
         // otherwise the caret drifts a line per wrap and the view later jumps to catch up.
         if focusMode {
@@ -171,6 +178,11 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     }
 
     // MARK: Layout
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        drawCommentHighlights(in: rect)
+    }
 
     override var textContainerOrigin: NSPoint {
         NSPoint(x: columnOriginX, y: textContainerInset.height)
@@ -188,7 +200,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     /// Centers a column of `columnCharacters`. The text container also spans the gutter to its left,
     /// where heading markers hang. When the window is too narrow to center it, the column takes
     /// all the room between the margins and shifts right, since only the left side needs a gutter.
-    private func layoutColumn(force: Bool = false) {
+    func layoutColumn(force: Bool = false) {
         let visibleHeight = enclosingScrollView?.contentSize.height ?? frame.height
         let size = NSSize(width: frame.width, height: visibleHeight)
         guard force || size != laidOutSize else { return }
@@ -196,11 +208,13 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
 
         let gutter = styler.gutter
         let margin: CGFloat = 24
-        let column = max(min(styler.charWidth * CGFloat(columnCharacters), frame.width - 2 * margin - gutter), styler.charWidth * 20)
+        let reserve = commentMargin
+        let column = max(min(styler.charWidth * CGFloat(columnCharacters), frame.width - 2 * margin - gutter - reserve), styler.charWidth * 20)
         textContainer?.containerSize = NSSize(width: column + gutter, height: CGFloat.greatestFiniteMagnitude)
-        columnOriginX = max(margin, ((frame.width - column) / 2 - gutter).rounded())
+        columnOriginX = max(margin, ((frame.width - column - reserve) / 2 - gutter).rounded())
         textContainerInset = NSSize(width: 0, height: focusMode ? (visibleHeight / 2).rounded() : Self.verticalInset)
         invalidateTextContainerOrigin()
+        layoutCommentViews()
         needsDisplay = true
     }
 
@@ -209,6 +223,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
         if !stillSelecting, !isLoading, let range = ranges.first?.rangeValue { workspace?.selectionDidChange(range) }
+        if !stillSelecting { updateActiveComment() }
         guard focusMode else { return }
         updateFocusDimming()
         if !stillSelecting { centerCaret() }
@@ -255,7 +270,7 @@ final class EditorTextView: NSTextView, NSTextStorageDelegate {
         return rect
     }
 
-    private func scrollTo(y: CGFloat) {
+    func scrollTo(y: CGFloat) {
         guard let scroll = enclosingScrollView else { return }
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y.rounded())))
         scroll.reflectScrolledClipView(scroll.contentView)

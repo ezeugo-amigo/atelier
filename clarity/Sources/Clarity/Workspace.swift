@@ -69,6 +69,17 @@ final class Workspace {
         }
     }
 
+    /// The current note's comments, resolved ones included.
+    private(set) var comments: [Comment] = []
+    /// Open comments whose passage is still in the note, in the order the passages appear.
+    private(set) var commentOrder: [String] = []
+    /// The comment whose passage holds the caret.
+    var activeComment: String? {
+        didSet { if activeComment != oldValue { editor?.updateComments() } }
+    }
+    /// A comment being written in the margin, not yet saved.
+    @ObservationIgnored private(set) var draftComment: Comment?
+
     @ObservationIgnored weak var editor: EditorTextView? {
         didSet { showInEditor() }
     }
@@ -83,6 +94,7 @@ final class Workspace {
     @ObservationIgnored private var history: OpLog?
     @ObservationIgnored private var back: [URL] = []
     @ObservationIgnored private var forward: [URL] = []
+    @ObservationIgnored private var watcher: FolderWatcher?
 
     init() {
         let defaults = UserDefaults.standard
@@ -92,11 +104,11 @@ final class Workspace {
         fontSize = defaults.object(forKey: "fontSize") as? CGFloat ?? 16
         columnWidth = defaults.object(forKey: "columnWidth") as? Int ?? Self.defaultColumnWidth
         darkMode = defaults.object(forKey: "darkMode") as? Bool ?? true
-
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         scan()
         let last = defaults.url(forKey: "lastNote")
         show(notes.first { $0.url == last }?.url ?? notes.first?.url)
+        watchRoot()
     }
 
     func applyAppearance() {
@@ -124,6 +136,9 @@ final class Workspace {
         wordCount = Self.countWords(shown)
         history = url.map { OpLog(note: $0, text: shown) }
         UserDefaults.standard.set(url, forKey: "lastNote")
+        activeComment = nil
+        draftComment = nil
+        loadComments()
         showInEditor()
     }
 
@@ -169,6 +184,7 @@ final class Workspace {
         forward.removeAll()
         scan()
         show(notes.first?.url)
+        watchRoot()
     }
 
     // MARK: Navigation
@@ -291,6 +307,8 @@ final class Workspace {
             show(notes.first?.url)
             return
         }
+        loadComments()
+        editor?.updateComments()
         guard text == savedText, let disk = try? String(contentsOf: current, encoding: .utf8), disk != savedText else { return }
         text = disk
         savedText = disk
@@ -321,14 +339,33 @@ final class Workspace {
         return url
     }
 
-    func rename(_ target: URL? = nil) {
+    /// ⌘S. Notes save themselves, so this is mostly for naming a new one: an untitled note asks
+    /// for a name, suggesting its first heading (or first line).
+    func saveExplicitly() {
+        save()
+        guard let current,
+              current.deletingPathExtension().lastPathComponent.range(of: #"^Untitled( \d+)?$"#, options: .regularExpression) != nil
+        else { return }
+        rename(current, title: "Save note as", button: "Save", suggestion: suggestedName())
+    }
+
+    private func suggestedName() -> String? {
+        guard let line = text.split(separator: "\n").first(where: { $0.contains { !$0.isWhitespace } }) else { return nil }
+        let name = line
+            .trimmingCharacters(in: CharacterSet(charactersIn: "#>-*+ \t"))
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return name.isEmpty ? nil : String(name.prefix(80))
+    }
+
+    func rename(_ target: URL? = nil, title: String = "Rename note", button: String = "Rename", suggestion: String? = nil) {
         guard let url = target ?? current else { return }
         save()
         let alert = NSAlert()
-        alert.messageText = "Rename note"
-        alert.addButton(withTitle: "Rename")
+        alert.messageText = title
+        alert.addButton(withTitle: button)
         alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(string: url.deletingPathExtension().lastPathComponent)
+        let field = NSTextField(string: suggestion ?? url.deletingPathExtension().lastPathComponent)
         field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
@@ -345,6 +382,9 @@ final class Workspace {
             return
         }
         OpLog.move(from: url, to: destination)
+        let comments = CommentFile.url(for: destination, in: root)
+        try? FileManager.default.createDirectory(at: comments.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.moveItem(at: CommentFile.url(for: url, in: root), to: comments)
         back = back.map { $0 == url ? destination : $0 }
         forward = forward.map { $0 == url ? destination : $0 }
         if current == url {
@@ -372,6 +412,7 @@ final class Workspace {
         }
         if url == current { history = nil }
         OpLog.remove(for: url)
+        try? FileManager.default.removeItem(at: CommentFile.url(for: url, in: root))
         scan()
         if url == current { show(next ?? notes.first?.url) }
     }
@@ -416,6 +457,86 @@ final class Workspace {
             found.append((Note(url: root.appending(path: relative), relativePath: relative), modified))
         }
         notes = found.sorted { $0.modified > $1.modified }.map(\.note)
+    }
+
+    // MARK: Comments
+
+    private func loadComments() {
+        comments = current.map { CommentFile.load(CommentFile.url(for: $0, in: root)) } ?? []
+    }
+
+    /// Shows comments as soon as an agent writes them, without waiting for the app to regain focus.
+    private func watchRoot() {
+        watcher = FolderWatcher(root) { [weak self] paths in
+            MainActor.assumeIsolated { self?.filesDidChange(paths) }
+        }
+    }
+
+    /// FSEvents reports resolved paths (/private/tmp for /tmp), so match the comment file by its
+    /// place under `.clarity/comments` rather than by full path.
+    private func filesDidChange(_ paths: [String]) {
+        guard let current else { return }
+        let file = CommentFile.url(for: current, in: root).path
+        let suffix = String(file[file.range(of: "/.clarity/comments/")!.lowerBound...])
+        guard paths.contains(where: { $0.hasSuffix(suffix) }) else { return }
+        loadComments()
+        editor?.updateComments()
+    }
+
+    /// Called by the editor whenever it re-finds the comments' passages.
+    func commentsDidAnchor(_ ids: [String]) {
+        if ids != commentOrder { commentOrder = ids }
+    }
+
+    func resolveComment(_ id: String? = nil) {
+        guard let id = id ?? activeComment, let index = comments.firstIndex(where: { $0.id == id }) else { return }
+        comments[index].resolved = true
+        saveComments()
+        if activeComment == id { activeComment = nil }
+        editor?.updateComments()
+        flash("Comment resolved")
+    }
+
+    /// Opens an empty comment beside `anchor`, signed with the Mac account's name.
+    func beginComment(on anchor: Comment.Anchor) {
+        draftComment = Comment(author: NSFullUserName(), body: "", anchor: anchor)
+        editor?.updateComments()
+    }
+
+    /// Saves the comment being written, or drops it if it's empty.
+    func finishComment(_ body: String) {
+        guard var draft = draftComment else { return }
+        draftComment = nil
+        let body = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !body.isEmpty {
+            draft.body = body
+            draft.created = .now
+            comments.append(draft)
+            saveComments()
+        }
+        editor?.updateComments()
+        focusEditor()
+    }
+
+    private func saveComments() {
+        guard let current else { return }
+        do {
+            try CommentFile.save(comments, to: CommentFile.url(for: current, in: root))
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
+    /// Puts the caret at the start of the comment's passage, which makes it the active comment.
+    func selectComment(_ id: String) {
+        editor?.revealComment(id)
+        focusEditor()
+    }
+
+    func stepComment(by offset: Int) {
+        guard !commentOrder.isEmpty else { return }
+        let index = activeComment.flatMap(commentOrder.firstIndex) ?? (offset > 0 ? -1 : commentOrder.count)
+        selectComment(commentOrder[(index + offset + commentOrder.count) % commentOrder.count])
     }
 
     // MARK: UI

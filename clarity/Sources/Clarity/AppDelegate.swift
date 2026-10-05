@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func revealNote(_ sender: Any?) { workspace.reveal() }
     @objc private func exportHistory(_ sender: Any?) { workspace.exportHistory() }
     @objc private func trashNote(_ sender: Any?) { workspace.trash() }
-    @objc private func saveNote(_ sender: Any?) { workspace.save() }
+    @objc private func saveNote(_ sender: Any?) { workspace.saveExplicitly() }
     @objc private func toggleSidebar(_ sender: Any?) { workspace.showSidebar.toggle() }
     @objc private func toggleFocusMode(_ sender: Any?) { workspace.focusMode.toggle() }
     @objc private func toggleDarkMode(_ sender: Any?) { workspace.darkMode.toggle() }
@@ -91,6 +91,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func previousNote(_ sender: Any?) { workspace.openAdjacent(-1) }
     @objc private func nextNote(_ sender: Any?) { workspace.openAdjacent(1) }
     @objc private func focusEditor(_ sender: Any?) { workspace.focusEditor() }
+    @objc private func nextComment(_ sender: Any?) { workspace.stepComment(by: 1) }
+    @objc private func previousComment(_ sender: Any?) { workspace.stepComment(by: -1) }
+    @objc private func resolveComment(_ sender: Any?) { workspace.resolveComment() }
+
+    @objc func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(nextComment(_:)), #selector(previousComment(_:)):
+            return !workspace.commentOrder.isEmpty
+        case #selector(resolveComment(_:)):
+            return workspace.activeComment != nil
+        default:
+            break
+        }
+        return true
+    }
 
     // MARK: Menu
 
@@ -152,6 +167,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .separator(),
             item("Toggle Task", #selector(EditorTextView.toggleTask(_:)), "l", target: nil),
             .separator(),
+            item("Add Comment", #selector(EditorTextView.addComment(_:)), "m", [.command, .option], target: nil),
+            .separator(),
             submenu("Table", [
                 item("Insert Table", #selector(EditorTextView.insertTable(_:)), "t", [.command, .option], target: nil),
                 .separator(),
@@ -187,6 +204,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Next Note", #selector(nextNote(_:)), down, [.command, .option]),
             .separator(),
             item("Follow Link", #selector(EditorTextView.followLink(_:)), "\r", target: nil),
+            .separator(),
+            item("Next Comment", #selector(nextComment(_:)), down, [.command, .control]),
+            item("Previous Comment", #selector(previousComment(_:)), up, [.command, .control]),
+            item("Resolve Comment", #selector(resolveComment(_:)), "\r", [.command, .control]),
+            .separator(),
             item("Focus Editor", #selector(focusEditor(_:)), "2"),
         ])
         let windowMenu = add("Window", to: main, [

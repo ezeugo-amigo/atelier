@@ -15,6 +15,10 @@ enum Theme {
     static let code = color(dark: 0x9FB4C2, light: 0x4D6272)
     static let highlight = color(dark: 0x4A4019, light: 0xFAE89A)
     static let selection = color(dark: 0x163A52, light: 0xC7E3F6)
+    /// Passages with a comment on them, the one being read, and the comments' own marks.
+    static let comment = color(dark: 0x3A1E21, light: 0xFCE3E3)
+    static let commentActive = color(dark: 0x5E262C, light: 0xF7C4C4)
+    static let commentAccent = color(dark: 0xF0575D, light: 0xD7262E)
 
     private static func color(dark: UInt32, light: UInt32) -> NSColor {
         NSColor(name: nil) { appearance in

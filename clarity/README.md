@@ -38,6 +38,14 @@ vault, and it reads and writes them in place.
 - **Autosave.** Notes save half a second after you stop typing, and when the app
   loses focus. Changes made on disk by other tools (git, sync, another editor)
   are picked up when you switch back.
+- **Comments you resolve.** Agents (or anyone) can leave comments on a passage of
+  a note. The passage is tinted and the comment sits in the right margin beside
+  it, like a note in a book's margin. Put the caret in the passage, or click the
+  comment, to bring it forward; Resolve (⌃⌘↩) clears it. To leave one yourself,
+  select the passage and press ⌥⌘M: type in the margin, Return to save (⌥Return
+  for a new line), Escape to cancel. Yours are signed with your Mac account's
+  name. Comments live in a sidecar file, never in the note, and appear the
+  moment an agent writes them; see [How it's built](#how-its-built) for the format.
 - **Edit history.** Every edit and caret move to a note is logged, so how it was
   written can be replayed later. File ▸ Export History… saves it in the
   [ezeugo.dev](https://ezeugo.dev) replay format.
@@ -47,11 +55,15 @@ vault, and it reads and writes them in place.
 | Shortcut | Action |
 | --- | --- |
 | ⌘N | New note |
+| ⌘S | Save now (notes autosave); an untitled note asks for a name, suggesting its first heading |
 | ⌘O / ⌘P | Open note: fuzzy-find by name or path; Return opens, or creates the typed name |
 | ⇧⌘O | Open folder… |
 | ⌘[ / ⌘] | Back / forward through the notes you've visited |
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next note in the sidebar |
 | ⌘↩ | Follow the link under the caret (in a table, inserts a line break instead) |
+| ⌥⌘M | Comment on the selection |
+| ⌃⌘↓ / ⌃⌘↑ | Next / previous comment |
+| ⌃⌘↩ | Resolve the comment under the caret |
 | ⌘\\ | Toggle sidebar |
 | ⌘D | Focus mode |
 | ⇧⌘D | Toggle dark / light |
@@ -111,6 +123,10 @@ clarity/
     ├── OpLog.swift            each note's edit log: record, reconcile, store, export
     ├── EditorTextView.swift   the NSTextView: column layout, focus mode, list editing, commands
     ├── EditorTextView+Tables.swift  /table, cell navigation, row/column commands
+    ├── EditorTextView+Comments.swift  passage tints and margin placement for comments
+    ├── Comments.swift         a comment, how it finds its passage, and its sidecar file
+    ├── CommentViews.swift     the margin note drawn for each comment
+    ├── FolderWatcher.swift    FSEvents on the workspace folder, so new comments appear live
     ├── MarkdownTable.swift    parse a GFM table, edit rows/columns, render it aligned
     ├── MarkdownStyler.swift   regex-based Markdown styling applied as text attributes
     ├── MarkdownHTML.swift     Markdown to HTML for Copy as Rich Text (parsed with swift-markdown)
@@ -159,6 +175,35 @@ recover what each edit replaced. When that copy disagrees with the note
 difference is appended, so replaying from an empty page always ends at the
 current text. Logs follow renames and are deleted with the note. A note you
 only read never gets one.
+
+**Comments.** Each note's comments are JSON in
+`.clarity/comments/<note path>.json` under the workspace folder (hidden, so the
+note list skips it). A comment quotes its passage rather than storing offsets,
+so edits elsewhere in the note don't unmoor it; `prefix` and `suffix` pick the
+right occurrence when the quote appears more than once. Only `body` and
+`anchor.exact` are required, so an agent can write one by hand:
+
+```json
+{
+  "comments": [
+    {
+      "id": "c1",
+      "author": "Claude",
+      "body": "Worth saying how many members this affects.",
+      "anchor": { "exact": "turns off *all* of them", "prefix": "link that ", "suffix": "." },
+      "created": "2026-10-02T20:58:00Z",
+      "resolved": false
+    }
+  ]
+}
+```
+
+Resolving sets `resolved` rather than deleting, so whoever left the comment can
+see it was handled. The folder is watched with FSEvents, so a comment shows up
+the moment it's written, even while you're typing. (Watching the file itself
+would miss atomic saves, which replace it.) Passages are
+tinted by drawing behind the glyphs, not with a background-color attribute,
+which would also fill the indent of every wrapped line.
 
 **The folder is the database.** There's no index. Notes are listed by scanning
 the folder (hidden folders like `.obsidian` and `.git` are skipped), wikilinks
