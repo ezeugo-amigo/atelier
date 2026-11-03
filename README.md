@@ -32,6 +32,11 @@ hide what doesn't.
   keyboard-first navigation over a folder of notes (Obsidian vaults included,
   with wikilinks, tags, and callouts).
 
+- **[ghost/](ghost/)** — a Monkeytype-style typing test for macOS (Tauri) that
+  replays your personal best as a ghost caret while you type, so you can see in
+  real time whether you're ahead of your past self. Several people can keep
+  their own profiles on one computer.
+
 - **[devhost/](devhost/)** — a local reverse-proxy runner that gives each
   development app instance a stable `.localhost` hostname derived from app,
   repo, and branch/worktree context, so parallel versions do not collide.
@@ -74,6 +79,9 @@ atelier/
 │   ├── src/
 │   ├── web/
 │   └── src-tauri/     (Tauri shell + Rust command API)
+├── ghost/             (another tool)
+│   ├── src/           (TypeScript frontend)
+│   └── src-tauri/     (Tauri shell)
 └── clarity/           (another tool)
     ├── Package.swift  (Swift package; no Xcode project)
     ├── Resources/
