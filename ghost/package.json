@@ -1,0 +1,23 @@
+{
+  "name": "ghost",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "vite": "vite --host 127.0.0.1 --port 1430",
+    "vite:build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "@types/bun": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}
